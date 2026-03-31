@@ -10,6 +10,7 @@ import {
   Alert,
   StyleSheet,
   ScrollView,
+  Platform,
 } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import * as DocumentPicker from "expo-document-picker";
@@ -82,6 +83,7 @@ export default function App() {
   const [endTime, setEndTime] = useState("09:00");
   const [city, setCity] = useState("Annecy");
   const [trailDifficulty, setTrailDifficulty] = useState("medium");
+  const [selectedBoxId, setSelectedBoxId] = useState(null);
   const [hostForm, setHostForm] = useState({
     title: "",
     description: "",
@@ -93,6 +95,12 @@ export default function App() {
   });
 
   const isAuthed = useMemo(() => Boolean(token), [token]);
+
+  const selectedBox = boxes.find((box) => box.id === selectedBoxId) || null;
+
+  const webMapCenter = selectedBox
+    ? [selectedBox.latitude, selectedBox.longitude]
+    : [45.8992, 6.1294];
 
   const register = async () => {
     try {
@@ -162,6 +170,7 @@ export default function App() {
     try {
       const rows = await apiFetch(`/boxes?city=${encodeURIComponent(city)}`);
       setBoxes(rows);
+      setSelectedBoxId(rows.length > 0 ? rows[0].id : null);
     } catch (error) {
       Alert.alert("Erreur", error.message);
     }
@@ -246,6 +255,58 @@ export default function App() {
     }
   };
 
+  function WebInteractiveMap() {
+    if (Platform.OS !== "web") {
+      return (
+        <View style={styles.banner}>
+          <Text style={styles.bannerTitle}>
+            Carte interactive active sur le web
+          </Text>
+          <Text style={styles.bannerText}>
+            Sur mobile natif, utilise la liste des boxes pour l'instant.
+          </Text>
+        </View>
+      );
+    }
+
+    // Lazy require to avoid native runtime issues.
+    // eslint-disable-next-line global-require
+    require("leaflet/dist/leaflet.css");
+    // eslint-disable-next-line global-require
+    const { MapContainer, TileLayer, Marker, Popup } = require("react-leaflet");
+
+    return (
+      <View style={styles.webMapWrapper}>
+        <MapContainer
+          center={webMapCenter}
+          zoom={11}
+          scrollWheelZoom
+          style={{ height: 320, width: "100%", borderRadius: 12 }}
+        >
+          <TileLayer
+            attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+            url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+          />
+          {boxes.map((box) => (
+            <Marker
+              key={`map-${box.id}`}
+              position={[box.latitude, box.longitude]}
+              eventHandlers={{
+                click: () => setSelectedBoxId(box.id),
+              }}
+            >
+              <Popup>
+                <strong>{box.title}</strong>
+                <br />
+                {box.city} - {(box.price_cents / 100).toFixed(2)} EUR
+              </Popup>
+            </Marker>
+          ))}
+        </MapContainer>
+      </View>
+    );
+  }
+
   function AuthScreen() {
     return (
       <SafeAreaView style={styles.screen}>
@@ -324,9 +385,25 @@ export default function App() {
                 {boxes.length} box disponibles
               </Text>
               <Text style={styles.bannerText}>
-                Carte web avancee arrive bientot.
+                Clique un marqueur pour selectionner un hote.
               </Text>
             </View>
+            <WebInteractiveMap />
+            {selectedBox ? (
+              <View style={styles.selectedHostCard}>
+                <Text style={styles.cardTitle}>
+                  Hote selectionne: {selectedBox.title}
+                </Text>
+                <Text style={styles.cardMeta}>
+                  {selectedBox.city} ·{" "}
+                  {(selectedBox.price_cents / 100).toFixed(2)} EUR
+                </Text>
+                <SecondaryButton
+                  label="Reserver ce box"
+                  onPress={() => bookBox(selectedBox.id)}
+                />
+              </View>
+            ) : null}
           </Section>
 
           <Section title="Reservation rapide">
@@ -360,6 +437,10 @@ export default function App() {
                   <Text style={styles.cardMeta}>
                     {item.city} · {(item.price_cents / 100).toFixed(2)} EUR
                   </Text>
+                  <PrimaryButton
+                    label="Voir sur la carte"
+                    onPress={() => setSelectedBoxId(item.id)}
+                  />
                   <SecondaryButton
                     label="Reserver ce box"
                     onPress={() => bookBox(item.id)}
@@ -690,6 +771,21 @@ const styles = StyleSheet.create({
   bannerText: {
     marginTop: 2,
     color: "#334155",
+  },
+  webMapWrapper: {
+    marginTop: 10,
+    borderRadius: 12,
+    overflow: "hidden",
+    borderWidth: 1,
+    borderColor: "#D7E0F0",
+  },
+  selectedHostCard: {
+    marginTop: 10,
+    backgroundColor: "#EEF4FF",
+    borderRadius: 12,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: "#BED0F7",
   },
   card: {
     backgroundColor: "#fff",
