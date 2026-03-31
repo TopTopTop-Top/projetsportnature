@@ -11,3 +11,13 @@ services:
         value: 20
       - key: JWT_SECRET
         generateValue: true
+
+  - type: static_site
+    name: ravitobox-web
+    rootDir: mobile
+    buildCommand: npm install && npm run build:web
+    staticPublishPath: dist
+    pullRequestPreviewsEnabled: true
+    envVars:
+      - key: EXPO_PUBLIC_API_URL
+        value: https://projetsportnature.onrender.com/api

@@ -126,7 +126,7 @@ Le fichier `mobile/App.js` contient:
 - espace Host pour publier un box
 
 L'app lit l'URL API dans `EXPO_PUBLIC_API_URL`.
-Sans variable, elle utilise `https://ravitobox-api.onrender.com/api` par defaut.
+Sans variable, elle utilise `https://projetsportnature.onrender.com/api` par defaut.
 
 ## Voir l'app (etapes rapides)
 
@@ -182,3 +182,32 @@ EXPO_PUBLIC_API_URL=https://ravitobox-api.onrender.com/api npm --prefix mobile s
 
 - via `Expo Go` (QR public expo)
 - ou build APK/IPA avec EAS Build pour vraie distribution
+
+## Option B - Web en ligne (Render Static Site)
+
+Le blueprint `render.yaml` configure maintenant deux services:
+
+- `ravitobox-api` (Web Service Node/Express)
+- `ravitobox-web` (Static Site Expo web)
+
+### Deployment
+
+1. Push tes changements sur GitHub.
+2. Sur Render, ouvre le Blueprint puis `Sync`/`Apply`.
+3. Render construit:
+   - API avec `npm install` + `npm start`
+   - Web avec `npm install && npm run build:web` dans `mobile/`
+
+### URLs attendues
+
+- API: `https://projetsportnature.onrender.com/api/health`
+- Front web: URL du service `ravitobox-web` (donnee par Render)
+
+### Test local du build web
+
+```bash
+cd mobile
+npm run build:web
+```
+
+Le site statique est genere dans `mobile/dist`.
