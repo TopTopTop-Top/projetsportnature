@@ -1,0 +1,42 @@
+const express = require("express");
+const cors = require("cors");
+const morgan = require("morgan");
+const path = require("path");
+const apiRouter = require("./routes/api");
+const { migrate } = require("./db/database");
+
+migrate();
+
+const app = express();
+const PORT = process.env.PORT || 3000;
+
+app.use(cors());
+app.use(express.json());
+app.use(morgan("dev"));
+app.use("/uploads", express.static(path.join(__dirname, "../uploads")));
+
+app.get("/", (_req, res) => {
+  res.json({
+    name: "RavitoBox API",
+    version: "0.2.0",
+    endpoints: [
+      "/api/health",
+      "/api/auth/register",
+      "/api/auth/login",
+      "/api/auth/refresh",
+      "/api/auth/logout",
+      "/api/users",
+      "/api/boxes",
+      "/api/host/boxes",
+      "/api/trails",
+      "/api/trails/upload-gpx",
+      "/api/bookings",
+    ],
+  });
+});
+
+app.use("/api", apiRouter);
+
+app.listen(PORT, () => {
+  console.log(`RavitoBox API running on http://localhost:${PORT}`);
+});
