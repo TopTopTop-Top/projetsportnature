@@ -1,7 +1,6 @@
 import "react-native-gesture-handler";
 import React, { useMemo, useState } from "react";
 import {
-  SafeAreaView,
   View,
   Text,
   TextInput,
@@ -15,16 +14,58 @@ import {
 import { StatusBar } from "expo-status-bar";
 import * as DocumentPicker from "expo-document-picker";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
+import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
 import { NavigationContainer } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
+import { Ionicons } from "@expo/vector-icons";
 
 const API_BASE_URL =
   process.env.EXPO_PUBLIC_API_URL ||
   "https://projetsportnature.onrender.com/api";
 
+const theme = {
+  bg: "#EEF4F0",
+  surface: "#FFFFFF",
+  surfaceMuted: "#F7FAF8",
+  ink: "#0C1B16",
+  inkMuted: "#5C6F66",
+  border: "#D4E0D8",
+  borderSoft: "#E8EFE9",
+  hero: "#062D26",
+  heroAccent: "#14B8A6",
+  primary: "#0F766E",
+  primaryPressed: "#0D5F59",
+  secondaryInk: "#1E293B",
+  chipBg: "#F0FDF9",
+  chipBorder: "#99F6E4",
+  infoBg: "#ECFDF5",
+  infoBorder: "#A7F3D0",
+  warnBg: "#FFFBEB",
+  warnBorder: "#FDE68A",
+  shadow: "rgba(6, 45, 38, 0.12)",
+};
+
 const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
+
+const ROLE_LABELS = { athlete: "Athlète", host: "Hôte", both: "Les deux" };
+const DIFFICULTY_LABELS = {
+  easy: "Facile",
+  medium: "Modéré",
+  hard: "Difficile",
+};
+
+function difficultyBadgeStyle(level) {
+  switch (level) {
+    case "easy":
+      return { bg: "#DCFCE7", fg: "#166534", border: "#BBF7D0" };
+    case "hard":
+      return { bg: "#FEE2E2", fg: "#991B1B", border: "#FECACA" };
+    default:
+      return { bg: "#FEF3C7", fg: "#B45309", border: "#FDE68A" };
+  }
+}
 
 async function apiFetch(path, { method = "GET", body, token } = {}) {
   const response = await fetch(`${API_BASE_URL}${path}`, {
@@ -40,27 +81,62 @@ async function apiFetch(path, { method = "GET", body, token } = {}) {
   return data;
 }
 
-function Section({ title, subtitle, children }) {
+function Section({ title, subtitle, icon, children }) {
   return (
     <View style={styles.section}>
-      <Text style={styles.sectionTitle}>{title}</Text>
-      {subtitle ? <Text style={styles.sectionSubtitle}>{subtitle}</Text> : null}
+      <View style={styles.sectionHeader}>
+        {icon ? (
+          <View style={styles.sectionIconWrap}>
+            <Ionicons name={icon} size={20} color={theme.primary} />
+          </View>
+        ) : null}
+        <View style={styles.sectionHeaderText}>
+          <Text style={styles.sectionTitle}>{title}</Text>
+          {subtitle ? (
+            <Text style={styles.sectionSubtitle}>{subtitle}</Text>
+          ) : null}
+        </View>
+      </View>
       {children}
     </View>
   );
 }
 
-function PrimaryButton({ label, onPress }) {
+function PrimaryButton({ label, onPress, icon }) {
   return (
-    <TouchableOpacity style={styles.primaryButton} onPress={onPress}>
+    <TouchableOpacity
+      style={styles.primaryButton}
+      onPress={onPress}
+      activeOpacity={0.85}
+    >
+      {icon ? (
+        <Ionicons
+          name={icon}
+          size={18}
+          color="#fff"
+          style={styles.buttonIconLeft}
+        />
+      ) : null}
       <Text style={styles.primaryButtonText}>{label}</Text>
     </TouchableOpacity>
   );
 }
 
-function SecondaryButton({ label, onPress }) {
+function SecondaryButton({ label, onPress, icon }) {
   return (
-    <TouchableOpacity style={styles.secondaryButton} onPress={onPress}>
+    <TouchableOpacity
+      style={styles.secondaryButton}
+      onPress={onPress}
+      activeOpacity={0.85}
+    >
+      {icon ? (
+        <Ionicons
+          name={icon}
+          size={18}
+          color="#fff"
+          style={styles.buttonIconLeft}
+        />
+      ) : null}
       <Text style={styles.secondaryButtonText}>{label}</Text>
     </TouchableOpacity>
   );
@@ -258,13 +334,19 @@ export default function App() {
   function WebInteractiveMap() {
     if (Platform.OS !== "web") {
       return (
-        <View style={styles.banner}>
-          <Text style={styles.bannerTitle}>
-            Carte interactive active sur le web
-          </Text>
-          <Text style={styles.bannerText}>
-            Sur mobile natif, utilise la liste des boxes pour l'instant.
-          </Text>
+        <View style={styles.infoBanner}>
+          <Ionicons
+            name="information-circle-outline"
+            size={22}
+            color={theme.primary}
+            style={{ marginRight: 10 }}
+          />
+          <View style={{ flex: 1 }}>
+            <Text style={styles.infoBannerTitle}>Carte sur le web</Text>
+            <Text style={styles.infoBannerText}>
+              Sur l’app native, utilise la liste des box ci-dessous.
+            </Text>
+          </View>
         </View>
       );
     }
@@ -309,42 +391,65 @@ export default function App() {
 
   function AuthScreen() {
     return (
-      <SafeAreaView style={styles.screen}>
+      <SafeAreaView style={styles.screen} edges={["top", "left", "right"]}>
         <StatusBar style="light" />
         <View style={styles.hero}>
-          <Text style={styles.heroTitle}>RavitoBox</Text>
+          <View style={styles.heroDecor} pointerEvents="none">
+            <View style={[styles.heroBlob, styles.heroBlob1]} />
+            <View style={[styles.heroBlob, styles.heroBlob2]} />
+          </View>
+          <View style={styles.heroBrandRow}>
+            <View style={styles.heroLogoMark}>
+              <Ionicons name="leaf" size={26} color={theme.heroAccent} />
+            </View>
+            <View>
+              <Text style={styles.heroKicker}>Outdoor & ravitaillement</Text>
+              <Text style={styles.heroTitle}>RavitoBox</Text>
+            </View>
+          </View>
           <Text style={styles.heroSubtitle}>
-            Loue des box ravito et explore des traces outdoor locales.
+            Loue des box ravito et explore des traces locales, en montagne ou
+            sur les sentiers.
           </Text>
         </View>
         <View style={styles.panel}>
+          <Text style={styles.panelTitle}>Créer un compte ou se connecter</Text>
+          <Text style={styles.panelHint}>
+            Un seul mot de passe pour athlètes et hôtes.
+          </Text>
           <TextInput
             style={styles.input}
             placeholder="Nom complet"
+            placeholderTextColor={theme.inkMuted}
             value={fullName}
             onChangeText={setFullName}
           />
           <TextInput
             style={styles.input}
             placeholder="Email"
+            placeholderTextColor={theme.inkMuted}
             value={email}
             onChangeText={setEmail}
             autoCapitalize="none"
+            keyboardType="email-address"
           />
           <TextInput
             style={styles.input}
             placeholder="Mot de passe"
+            placeholderTextColor={theme.inkMuted}
             value={password}
             onChangeText={setPassword}
             secureTextEntry
           />
 
+          <Text style={styles.fieldLabel}>Je suis plutôt</Text>
           <View style={styles.roleRow}>
             {["athlete", "host", "both"].map((r) => (
               <TouchableOpacity
                 key={r}
                 style={[styles.roleChip, role === r && styles.roleChipActive]}
                 onPress={() => setRole(r)}
+                activeOpacity={0.85}
               >
                 <Text
                   style={[
@@ -352,14 +457,22 @@ export default function App() {
                     role === r && styles.roleChipTextActive,
                   ]}
                 >
-                  {r}
+                  {ROLE_LABELS[r]}
                 </Text>
               </TouchableOpacity>
             ))}
           </View>
 
-          <PrimaryButton label={`S'inscrire (${role})`} onPress={register} />
-          <SecondaryButton label="Se connecter" onPress={login} />
+          <PrimaryButton
+            label={`S'inscrire · ${ROLE_LABELS[role]}`}
+            icon="person-add-outline"
+            onPress={register}
+          />
+          <SecondaryButton
+            label="J'ai déjà un compte"
+            icon="log-in-outline"
+            onPress={login}
+          />
         </View>
       </SafeAreaView>
     );
@@ -367,82 +480,114 @@ export default function App() {
 
   function ExplorerScreen() {
     return (
-      <SafeAreaView style={styles.screen}>
-        <ScrollView contentContainerStyle={styles.content}>
+      <SafeAreaView style={styles.screen} edges={["left", "right"]}>
+        <ScrollView
+          contentContainerStyle={styles.content}
+          showsVerticalScrollIndicator={false}
+        >
           <Section
             title="Explorer les box"
-            subtitle="Trouve des points ravito sur ton parcours."
+            subtitle="Trouve un point ravito sur ton parcours."
+            icon="map-outline"
           >
             <TextInput
               style={styles.input}
               placeholder="Ville"
+              placeholderTextColor={theme.inkMuted}
               value={city}
               onChangeText={setCity}
             />
-            <PrimaryButton label="Charger les box" onPress={loadBoxes} />
-            <View style={styles.banner}>
-              <Text style={styles.bannerTitle}>
-                {boxes.length} box disponibles
-              </Text>
-              <Text style={styles.bannerText}>
-                Clique un marqueur pour selectionner un hote.
-              </Text>
+            <PrimaryButton
+              label="Charger les box"
+              icon="refresh-outline"
+              onPress={loadBoxes}
+            />
+            <View style={styles.statBanner}>
+              <View style={styles.statBannerIcon}>
+                <Ionicons name="cube-outline" size={22} color={theme.primary} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.statBannerTitle}>
+                  {boxes.length === 0
+                    ? "Aucune box chargée"
+                    : `${boxes.length} box trouvée${
+                        boxes.length > 1 ? "s" : ""
+                      }`}
+                </Text>
+                <Text style={styles.statBannerText}>
+                  Sur la carte web, touche un marqueur pour sélectionner un
+                  hôte.
+                </Text>
+              </View>
             </View>
             <WebInteractiveMap />
             {selectedBox ? (
               <View style={styles.selectedHostCard}>
-                <Text style={styles.cardTitle}>
-                  Hote selectionne: {selectedBox.title}
-                </Text>
+                <Text style={styles.selectedLabel}>Sélection</Text>
+                <Text style={styles.cardTitle}>{selectedBox.title}</Text>
                 <Text style={styles.cardMeta}>
                   {selectedBox.city} ·{" "}
-                  {(selectedBox.price_cents / 100).toFixed(2)} EUR
+                  {(selectedBox.price_cents / 100).toFixed(2)} €
                 </Text>
                 <SecondaryButton
-                  label="Reserver ce box"
+                  label="Réserver ce box"
+                  icon="calendar-outline"
                   onPress={() => bookBox(selectedBox.id)}
                 />
               </View>
             ) : null}
           </Section>
 
-          <Section title="Reservation rapide">
+          <Section
+            title="Créneau"
+            subtitle="Date et horaires de ta réservation."
+            icon="time-outline"
+          >
             <View style={styles.row}>
               <TextInput
                 style={styles.inputHalf}
+                placeholder="AAAA-MM-JJ"
+                placeholderTextColor={theme.inkMuted}
                 value={bookingDate}
                 onChangeText={setBookingDate}
               />
               <TextInput
                 style={styles.inputHalf}
+                placeholder="Début"
+                placeholderTextColor={theme.inkMuted}
                 value={startTime}
                 onChangeText={setStartTime}
               />
               <TextInput
                 style={styles.inputHalf}
+                placeholder="Fin"
+                placeholderTextColor={theme.inkMuted}
                 value={endTime}
                 onChangeText={setEndTime}
               />
             </View>
           </Section>
 
-          <Section title="Liste des box">
+          <Section title="Liste des box" icon="list-outline">
             <FlatList
               data={boxes}
               scrollEnabled={false}
               keyExtractor={(item) => `${item.id}`}
               renderItem={({ item }) => (
                 <View style={styles.card}>
+                  <View style={styles.cardAccent} />
                   <Text style={styles.cardTitle}>{item.title}</Text>
                   <Text style={styles.cardMeta}>
-                    {item.city} · {(item.price_cents / 100).toFixed(2)} EUR
+                    {item.city} · {(item.price_cents / 100).toFixed(2)} €
                   </Text>
                   <PrimaryButton
                     label="Voir sur la carte"
+                    icon="location-outline"
                     onPress={() => setSelectedBoxId(item.id)}
                   />
                   <SecondaryButton
-                    label="Reserver ce box"
+                    label="Réserver"
+                    icon="checkmark-circle-outline"
                     onPress={() => bookBox(item.id)}
                   />
                 </View>
@@ -456,12 +601,17 @@ export default function App() {
 
   function TrailsScreen() {
     return (
-      <SafeAreaView style={styles.screen}>
-        <ScrollView contentContainerStyle={styles.content}>
+      <SafeAreaView style={styles.screen} edges={["left", "right"]}>
+        <ScrollView
+          contentContainerStyle={styles.content}
+          showsVerticalScrollIndicator={false}
+        >
           <Section
             title="Traces locales"
-            subtitle="Importe ou consulte des parcours par difficulte."
+            subtitle="Importe un GPX ou parcours par niveau."
+            icon="footsteps-outline"
           >
+            <Text style={styles.fieldLabel}>Difficulté</Text>
             <View style={styles.roleRow}>
               {["easy", "medium", "hard"].map((level) => (
                 <TouchableOpacity
@@ -471,6 +621,7 @@ export default function App() {
                     trailDifficulty === level && styles.roleChipActive,
                   ]}
                   onPress={() => setTrailDifficulty(level)}
+                  activeOpacity={0.85}
                 >
                   <Text
                     style={[
@@ -478,28 +629,49 @@ export default function App() {
                       trailDifficulty === level && styles.roleChipTextActive,
                     ]}
                   >
-                    {level}
+                    {DIFFICULTY_LABELS[level]}
                   </Text>
                 </TouchableOpacity>
               ))}
             </View>
-            <PrimaryButton label="Charger les traces" onPress={loadTrails} />
-            <SecondaryButton label="Uploader un GPX" onPress={uploadGpx} />
+            <PrimaryButton
+              label="Charger les traces"
+              icon="download-outline"
+              onPress={loadTrails}
+            />
+            <SecondaryButton
+              label="Importer un GPX"
+              icon="cloud-upload-outline"
+              onPress={uploadGpx}
+            />
           </Section>
 
-          <Section title="Traces disponibles">
-            {trails.map((trail) => (
-              <View key={`${trail.id}`} style={styles.card}>
-                <Text style={styles.cardTitle}>{trail.name}</Text>
-                <Text style={styles.cardMeta}>
-                  {trail.territory} · {trail.distance_km} km · D+{" "}
-                  {trail.elevation_m} m
-                </Text>
-                <Text style={styles.badge}>{trail.difficulty}</Text>
-              </View>
-            ))}
+          <Section title="Traces disponibles" icon="navigate-outline">
+            {trails.map((trail) => {
+              const b = difficultyBadgeStyle(trail.difficulty);
+              return (
+                <View key={`${trail.id}`} style={styles.card}>
+                  <View style={styles.cardAccent} />
+                  <Text style={styles.cardTitle}>{trail.name}</Text>
+                  <Text style={styles.cardMeta}>
+                    {trail.territory} · {trail.distance_km} km · D+{" "}
+                    {trail.elevation_m} m
+                  </Text>
+                  <View
+                    style={[
+                      styles.badge,
+                      { backgroundColor: b.bg, borderColor: b.border },
+                    ]}
+                  >
+                    <Text style={[styles.badgeText, { color: b.fg }]}>
+                      {DIFFICULTY_LABELS[trail.difficulty] || trail.difficulty}
+                    </Text>
+                  </View>
+                </View>
+              );
+            })}
             {trails.length === 0 ? (
-              <Text style={styles.emptyText}>Aucune trace chargee.</Text>
+              <Text style={styles.emptyText}>Aucune trace chargée.</Text>
             ) : null}
           </Section>
         </ScrollView>
@@ -510,64 +682,92 @@ export default function App() {
   function HostScreen() {
     const canHost = user?.role === "host" || user?.role === "both";
     return (
-      <SafeAreaView style={styles.screen}>
-        <ScrollView contentContainerStyle={styles.content}>
+      <SafeAreaView style={styles.screen} edges={["left", "right"]}>
+        <ScrollView
+          contentContainerStyle={styles.content}
+          showsVerticalScrollIndicator={false}
+        >
           <Section
             title="Publier un box"
-            subtitle="Gagne une commission en accueillant des sportifs."
+            subtitle="Accueille des sportifs et propose ton point ravito."
+            icon="storefront-outline"
           >
             {!canHost ? (
-              <Text style={styles.emptyText}>
-                Ton compte doit etre en role host ou both.
-              </Text>
+              <View style={styles.infoBanner}>
+                <Ionicons
+                  name="lock-closed-outline"
+                  size={22}
+                  color={theme.primary}
+                  style={{ marginRight: 10 }}
+                />
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.infoBannerTitle}>Rôle hôte requis</Text>
+                  <Text style={styles.infoBannerText}>
+                    Passe en « Hôte » ou « Les deux » depuis ton profil (nouveau
+                    compte) pour publier.
+                  </Text>
+                </View>
+              </View>
             ) : (
               <>
                 <TextInput
                   style={styles.input}
-                  placeholder="Titre"
+                  placeholder="Titre du box"
+                  placeholderTextColor={theme.inkMuted}
                   value={hostForm.title}
                   onChangeText={(v) => setHostForm((s) => ({ ...s, title: v }))}
                 />
                 <TextInput
                   style={styles.input}
                   placeholder="Description"
+                  placeholderTextColor={theme.inkMuted}
                   value={hostForm.description}
                   onChangeText={(v) =>
                     setHostForm((s) => ({ ...s, description: v }))
                   }
+                  multiline
                 />
+                <Text style={styles.fieldLabel}>Localisation</Text>
                 <TextInput
                   style={styles.input}
                   placeholder="Latitude"
+                  placeholderTextColor={theme.inkMuted}
                   value={hostForm.latitude}
                   onChangeText={(v) =>
                     setHostForm((s) => ({ ...s, latitude: v }))
                   }
+                  keyboardType="decimal-pad"
                 />
                 <TextInput
                   style={styles.input}
                   placeholder="Longitude"
+                  placeholderTextColor={theme.inkMuted}
                   value={hostForm.longitude}
                   onChangeText={(v) =>
                     setHostForm((s) => ({ ...s, longitude: v }))
                   }
+                  keyboardType="decimal-pad"
                 />
                 <TextInput
                   style={styles.input}
                   placeholder="Ville"
+                  placeholderTextColor={theme.inkMuted}
                   value={hostForm.city}
                   onChangeText={(v) => setHostForm((s) => ({ ...s, city: v }))}
                 />
                 <TextInput
                   style={styles.input}
                   placeholder="Prix (centimes)"
+                  placeholderTextColor={theme.inkMuted}
                   value={hostForm.priceCents}
                   onChangeText={(v) =>
                     setHostForm((s) => ({ ...s, priceCents: v }))
                   }
+                  keyboardType="number-pad"
                 />
                 <PrimaryButton
                   label="Publier mon box"
+                  icon="rocket-outline"
                   onPress={createHostBox}
                 />
               </>
@@ -600,33 +800,77 @@ export default function App() {
   function MainTabs() {
     return (
       <Tab.Navigator
-        screenOptions={{
-          headerStyle: { backgroundColor: "#0B1220" },
+        screenOptions={({ route }) => ({
+          headerStyle: {
+            backgroundColor: theme.hero,
+            shadowOpacity: 0,
+            elevation: 0,
+          },
+          headerTitleStyle: { fontWeight: "700", fontSize: 17 },
           headerTintColor: "#fff",
-          tabBarStyle: { backgroundColor: "#fff", borderTopColor: "#E5EAF3" },
-          tabBarActiveTintColor: "#1D4ED8",
-          tabBarInactiveTintColor: "#6B7280",
-        }}
+          tabBarStyle: {
+            backgroundColor: theme.surface,
+            borderTopColor: theme.borderSoft,
+            paddingTop: 6,
+            height: 62,
+          },
+          tabBarLabelStyle: { fontSize: 11, fontWeight: "600" },
+          tabBarActiveTintColor: theme.primary,
+          tabBarInactiveTintColor: theme.inkMuted,
+          tabBarIcon: ({ color, size }) => {
+            const map = {
+              Explorer: "map-outline",
+              Trails: "navigate-outline",
+              Host: "home-outline",
+              Profil: "person-circle-outline",
+            };
+            return (
+              <Ionicons
+                name={map[route.name] || "ellipse"}
+                size={size}
+                color={color}
+              />
+            );
+          },
+        })}
       >
-        <Tab.Screen name="Explorer" component={ExplorerScreen} />
-        <Tab.Screen name="Trails" component={TrailsScreen} />
-        <Tab.Screen name="Host" component={HostScreen} />
-        <Tab.Screen name="Profil" component={ProfileScreen} />
+        <Tab.Screen
+          name="Explorer"
+          component={ExplorerScreen}
+          options={{ title: "Explorer" }}
+        />
+        <Tab.Screen
+          name="Trails"
+          component={TrailsScreen}
+          options={{ title: "Traces" }}
+        />
+        <Tab.Screen
+          name="Host"
+          component={HostScreen}
+          options={{ title: "Hôte" }}
+        />
+        <Tab.Screen
+          name="Profil"
+          component={ProfileScreen}
+          options={{ title: "Profil" }}
+        />
       </Tab.Navigator>
     );
   }
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
-      <NavigationContainer>
-        <Stack.Navigator screenOptions={{ headerShown: false }}>
-          {!isAuthed ? (
-            <Stack.Screen name="Auth" component={AuthScreen} />
-          ) : (
-            <Stack.Screen name="Main" component={MainTabs} />
-          )}
-        </Stack.Navigator>
-      </NavigationContainer>
+      <SafeAreaProvider>
+        <NavigationContainer>
+          <Stack.Navigator screenOptions={{ headerShown: false }}>
+            {!isAuthed ? (
+              <Stack.Screen name="Auth" component={AuthScreen} />
+            ) : (
+              <Stack.Screen name="Main" component={MainTabs} />
+            )}
+          </Stack.Navigator>
+        </NavigationContainer>
+      </SafeAreaProvider>
     </GestureHandlerRootView>
   );
 }
@@ -634,194 +878,402 @@ export default function App() {
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
-    backgroundColor: "#F3F6FB",
+    backgroundColor: theme.bg,
   },
   content: {
     padding: 16,
-    paddingBottom: 24,
+    paddingBottom: 28,
   },
   hero: {
-    backgroundColor: "#0B1220",
-    padding: 22,
-    borderBottomLeftRadius: 20,
-    borderBottomRightRadius: 20,
+    backgroundColor: theme.hero,
+    paddingHorizontal: 22,
+    paddingTop: 8,
+    paddingBottom: 26,
+    borderBottomLeftRadius: 24,
+    borderBottomRightRadius: 24,
+    overflow: "hidden",
+  },
+  heroDecor: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  heroBlob: {
+    position: "absolute",
+    borderRadius: 999,
+    opacity: 0.12,
+    backgroundColor: theme.heroAccent,
+  },
+  heroBlob1: {
+    width: 180,
+    height: 180,
+    top: -60,
+    right: -40,
+  },
+  heroBlob2: {
+    width: 120,
+    height: 120,
+    bottom: -30,
+    left: -20,
+  },
+  heroBrandRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 14,
+  },
+  heroLogoMark: {
+    width: 52,
+    height: 52,
+    borderRadius: 16,
+    backgroundColor: "rgba(20, 184, 166, 0.15)",
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: "rgba(20, 184, 166, 0.35)",
+  },
+  heroKicker: {
+    color: theme.heroAccent,
+    fontSize: 12,
+    fontWeight: "700",
+    letterSpacing: 0.6,
+    textTransform: "uppercase",
   },
   heroTitle: {
-    fontSize: 34,
+    fontSize: 32,
     fontWeight: "800",
-    color: "#F8FAFC",
+    color: "#F0FDF9",
+    letterSpacing: -0.5,
+    marginTop: 2,
   },
   heroSubtitle: {
-    color: "#C7D2FE",
-    marginTop: 8,
-    fontSize: 14,
-    lineHeight: 20,
+    color: "rgba(240, 253, 249, 0.82)",
+    marginTop: 14,
+    fontSize: 15,
+    lineHeight: 22,
   },
   panel: {
-    margin: 16,
-    backgroundColor: "#fff",
-    borderRadius: 16,
-    padding: 16,
-    shadowColor: "#0B1220",
-    shadowOpacity: 0.08,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 6 },
-    elevation: 2,
+    marginHorizontal: 16,
+    marginTop: -18,
+    marginBottom: 16,
+    backgroundColor: theme.surface,
+    borderRadius: 20,
+    padding: 18,
+    borderWidth: 1,
+    borderColor: theme.borderSoft,
+    shadowColor: theme.shadow,
+    shadowOpacity: 1,
+    shadowRadius: 20,
+    shadowOffset: { width: 0, height: 10 },
+    elevation: 4,
+  },
+  panelTitle: {
+    fontSize: 17,
+    fontWeight: "700",
+    color: theme.ink,
+  },
+  panelHint: {
+    color: theme.inkMuted,
+    fontSize: 13,
+    marginTop: 4,
+    marginBottom: 14,
+    lineHeight: 18,
+  },
+  fieldLabel: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: theme.inkMuted,
+    marginBottom: 8,
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
   },
   section: {
-    backgroundColor: "#fff",
-    borderRadius: 16,
-    padding: 14,
+    backgroundColor: theme.surface,
+    borderRadius: 18,
+    padding: 16,
     marginBottom: 14,
     borderWidth: 1,
-    borderColor: "#E6ECF5",
+    borderColor: theme.borderSoft,
+    shadowColor: theme.shadow,
+    shadowOpacity: 0.45,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 2,
+  },
+  sectionHeader: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    marginBottom: 14,
+    gap: 12,
+  },
+  sectionIconWrap: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    backgroundColor: theme.chipBg,
+    borderWidth: 1,
+    borderColor: theme.chipBorder,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  sectionHeaderText: {
+    flex: 1,
   },
   sectionTitle: {
     fontSize: 18,
     fontWeight: "700",
-    color: "#0F172A",
-    marginBottom: 4,
+    color: theme.ink,
   },
   sectionSubtitle: {
-    color: "#64748B",
-    marginBottom: 12,
+    color: theme.inkMuted,
+    marginTop: 4,
+    fontSize: 14,
+    lineHeight: 20,
   },
   input: {
     borderWidth: 1,
-    borderColor: "#D6DEEA",
-    borderRadius: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 11,
+    borderColor: theme.border,
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
     marginBottom: 10,
-    backgroundColor: "#FAFCFF",
+    backgroundColor: theme.surfaceMuted,
+    fontSize: 16,
+    color: theme.ink,
   },
   inputHalf: {
     flex: 1,
+    minWidth: 0,
     borderWidth: 1,
-    borderColor: "#D6DEEA",
-    borderRadius: 12,
+    borderColor: theme.border,
+    borderRadius: 14,
     paddingHorizontal: 10,
-    paddingVertical: 11,
+    paddingVertical: 12,
     marginBottom: 10,
-    backgroundColor: "#FAFCFF",
+    backgroundColor: theme.surfaceMuted,
+    fontSize: 15,
+    color: theme.ink,
   },
   row: {
     flexDirection: "row",
     gap: 8,
+    flexWrap: "wrap",
   },
   roleRow: {
     flexDirection: "row",
     gap: 8,
-    marginBottom: 10,
+    marginBottom: 12,
     flexWrap: "wrap",
   },
   roleChip: {
     borderWidth: 1,
-    borderColor: "#C6D2E5",
+    borderColor: theme.border,
     borderRadius: 999,
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-    backgroundColor: "#F8FAFF",
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    backgroundColor: theme.surfaceMuted,
   },
   roleChipActive: {
-    backgroundColor: "#1D4ED8",
-    borderColor: "#1D4ED8",
+    backgroundColor: theme.primary,
+    borderColor: theme.primary,
   },
   roleChipText: {
-    color: "#1E293B",
+    color: theme.ink,
     fontWeight: "600",
+    fontSize: 14,
   },
   roleChipTextActive: {
     color: "#fff",
   },
+  buttonIconLeft: { marginRight: 8 },
   primaryButton: {
-    backgroundColor: "#1D4ED8",
-    borderRadius: 12,
-    paddingVertical: 12,
+    backgroundColor: theme.primary,
+    borderRadius: 14,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    flexDirection: "row",
     alignItems: "center",
+    justifyContent: "center",
     marginBottom: 10,
   },
   primaryButtonText: {
     color: "#fff",
     fontWeight: "700",
+    fontSize: 16,
   },
   secondaryButton: {
-    backgroundColor: "#0F172A",
-    borderRadius: 12,
-    paddingVertical: 12,
+    backgroundColor: theme.secondaryInk,
+    borderRadius: 14,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    flexDirection: "row",
     alignItems: "center",
+    justifyContent: "center",
     marginBottom: 10,
   },
   secondaryButtonText: {
     color: "#fff",
     fontWeight: "700",
+    fontSize: 16,
   },
-  banner: {
-    marginTop: 6,
-    backgroundColor: "#E8EEFF",
-    borderRadius: 12,
-    padding: 12,
+  statBanner: {
+    marginTop: 4,
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: theme.infoBg,
+    borderRadius: 14,
+    padding: 14,
     borderWidth: 1,
-    borderColor: "#C9D8FF",
+    borderColor: theme.infoBorder,
   },
-  bannerTitle: {
-    color: "#1E3A8A",
+  statBannerIcon: {
+    marginRight: 4,
+  },
+  statBannerTitle: {
+    color: theme.ink,
     fontWeight: "700",
+    fontSize: 15,
   },
-  bannerText: {
+  statBannerText: {
     marginTop: 2,
-    color: "#334155",
+    color: theme.inkMuted,
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  infoBanner: {
+    marginTop: 4,
+    flexDirection: "row",
+    alignItems: "flex-start",
+    backgroundColor: theme.warnBg,
+    borderRadius: 14,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: theme.warnBorder,
+  },
+  infoBannerTitle: {
+    color: theme.ink,
+    fontWeight: "700",
+    fontSize: 15,
+  },
+  infoBannerText: {
+    marginTop: 2,
+    color: theme.inkMuted,
+    fontSize: 13,
+    lineHeight: 18,
   },
   webMapWrapper: {
-    marginTop: 10,
-    borderRadius: 12,
+    marginTop: 12,
+    borderRadius: 16,
     overflow: "hidden",
     borderWidth: 1,
-    borderColor: "#D7E0F0",
+    borderColor: theme.border,
   },
   selectedHostCard: {
-    marginTop: 10,
-    backgroundColor: "#EEF4FF",
-    borderRadius: 12,
-    padding: 12,
+    marginTop: 14,
+    backgroundColor: theme.infoBg,
+    borderRadius: 16,
+    padding: 16,
     borderWidth: 1,
-    borderColor: "#BED0F7",
+    borderColor: theme.infoBorder,
+  },
+  selectedLabel: {
+    fontSize: 11,
+    fontWeight: "800",
+    color: theme.primary,
+    textTransform: "uppercase",
+    letterSpacing: 1,
+    marginBottom: 6,
   },
   card: {
-    backgroundColor: "#fff",
+    backgroundColor: theme.surface,
     borderWidth: 1,
-    borderColor: "#E6ECF5",
-    borderRadius: 14,
-    padding: 12,
-    marginBottom: 10,
+    borderColor: theme.borderSoft,
+    borderRadius: 16,
+    padding: 14,
+    paddingTop: 16,
+    marginBottom: 12,
+    overflow: "hidden",
+  },
+  cardAccent: {
+    position: "absolute",
+    left: 0,
+    top: 0,
+    bottom: 0,
+    width: 4,
+    backgroundColor: theme.primary,
+    borderTopLeftRadius: 16,
+    borderBottomLeftRadius: 16,
   },
   cardTitle: {
     fontWeight: "700",
-    color: "#0F172A",
+    color: theme.ink,
     fontSize: 16,
-    marginBottom: 3,
+    marginBottom: 4,
+    paddingLeft: 8,
   },
   cardMeta: {
-    color: "#475569",
-    marginBottom: 8,
+    color: theme.inkMuted,
+    marginBottom: 10,
+    fontSize: 14,
+    paddingLeft: 8,
   },
   badge: {
     alignSelf: "flex-start",
-    backgroundColor: "#DCFCE7",
-    color: "#166534",
-    paddingHorizontal: 10,
-    paddingVertical: 4,
+    marginLeft: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 5,
     borderRadius: 999,
+    borderWidth: 1,
+  },
+  badgeText: {
     fontWeight: "700",
-    overflow: "hidden",
+    fontSize: 12,
   },
   emptyText: {
-    color: "#64748B",
+    color: theme.inkMuted,
     fontStyle: "italic",
     marginTop: 6,
+    fontSize: 14,
   },
-  profileLine: {
-    color: "#0F172A",
-    marginBottom: 6,
+  profileCard: {
+    alignItems: "center",
+    paddingVertical: 8,
+  },
+  profileAvatar: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    backgroundColor: theme.chipBg,
+    borderWidth: 2,
+    borderColor: theme.chipBorder,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 12,
+  },
+  profileAvatarText: {
+    fontSize: 28,
+    fontWeight: "800",
+    color: theme.primary,
+  },
+  profileName: {
+    fontSize: 20,
+    fontWeight: "700",
+    color: theme.ink,
+  },
+  profileEmail: {
+    fontSize: 14,
+    color: theme.inkMuted,
+    marginTop: 4,
+  },
+  profileRolePill: {
+    marginTop: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    borderRadius: 999,
+    backgroundColor: theme.surfaceMuted,
+    borderWidth: 1,
+    borderColor: theme.border,
+  },
+  profileRoleText: {
+    fontWeight: "700",
+    color: theme.primary,
+    fontSize: 13,
   },
 });
