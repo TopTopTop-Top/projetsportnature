@@ -51,6 +51,14 @@ const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
 
 const ROLE_LABELS = { athlete: "Athlète", host: "Hôte", both: "Les deux" };
+const WEB_READABLE =
+  Platform.OS === "web"
+    ? { maxWidth: 520, width: "100%", alignSelf: "center" }
+    : {};
+const AUTH_COLUMN =
+  Platform.OS === "web"
+    ? { maxWidth: 440, width: "100%", alignSelf: "center" }
+    : {};
 const DIFFICULTY_LABELS = {
   easy: "Facile",
   medium: "Modéré",
@@ -621,7 +629,7 @@ export default function App() {
     return (
       <SafeAreaView style={styles.screen} edges={["left", "right"]}>
         <ScrollView
-          contentContainerStyle={styles.content}
+          contentContainerStyle={[styles.content, WEB_READABLE]}
           showsVerticalScrollIndicator={false}
         >
           <Section
@@ -823,7 +831,7 @@ export default function App() {
     return (
       <SafeAreaView style={styles.screen} edges={["left", "right"]}>
         <ScrollView
-          contentContainerStyle={styles.content}
+          contentContainerStyle={[styles.content, WEB_READABLE]}
           showsVerticalScrollIndicator={false}
         >
           <Section
