@@ -1,5 +1,5 @@
 import "react-native-gesture-handler";
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   View,
   Text,
@@ -85,8 +85,25 @@ async function apiFetch(path, { method = "GET", body, token } = {}) {
     },
     body: body ? JSON.stringify(body) : undefined,
   });
-  const data = await response.json();
-  if (!response.ok) throw new Error(data.error || "Request failed");
+  const text = await response.text();
+  let data = {};
+  if (text) {
+    try {
+      data = JSON.parse(text);
+    } catch {
+      throw new Error(text.slice(0, 180) || "Réponse invalide du serveur");
+    }
+  }
+  if (!response.ok) {
+    const err = data.error;
+    const msg =
+      typeof err === "string"
+        ? err
+        : err && typeof err === "object"
+          ? JSON.stringify(err)
+          : "Erreur réseau ou serveur";
+    throw new Error(msg);
+  }
   return data;
 }
 
@@ -194,7 +211,10 @@ export default function App() {
 
   const webMapCenter = selectedBox
     ? [selectedBox.latitude, selectedBox.longitude]
-    : [45.8992, 6.1294];
+    : [
+        parseFloat(mapLat) || 45.8992,
+        parseFloat(mapLon) || 6.1294,
+      ];
 
   const register = async () => {
     const name = fullName.trim();
@@ -303,6 +323,24 @@ export default function App() {
     }
   };
 
+  const loadNearbyBoxes = async () => {
+    const lat = parseFloat(mapLat);
+    const lon = parseFloat(mapLon);
+    if (Number.isNaN(lat) || Number.isNaN(lon)) {
+      Alert.alert("Position", "Indique une latitude et une longitude valides.");
+      return;
+    }
+    try {
+      const rows = await apiFetch(
+        `/boxes/nearby?lat=${lat}&lon=${lon}&limit=35`
+      );
+      setBoxes(rows);
+      setSelectedBoxId(rows.length > 0 ? rows[0].id : null);
+    } catch (error) {
+      Alert.alert("Erreur", error.message);
+    }
+  };
+
   const loadTrails = async () => {
     try {
       const rows = await apiFetch(
@@ -315,16 +353,59 @@ export default function App() {
   };
 
   const bookBox = async (boxId) => {
+    if (!canBook) {
+      Alert.alert(
+        "Rôle athlète",
+        "Seuls les comptes Athlète ou Les deux peuvent réserver une box."
+      );
+      return;
+    }
     try {
       const result = await apiFetch("/bookings", {
         method: "POST",
         token,
-        body: { boxId, bookingDate, startTime, endTime },
+        body: {
+          boxId,
+          bookingDate,
+          startTime,
+          endTime,
+          ...(specialRequest.trim()
+            ? { specialRequest: specialRequest.trim() }
+            : {}),
+        },
       });
-      Alert.alert("Reservation validee", `Code: ${result.access_code}`);
+      Alert.alert(
+        "Réservation enregistrée",
+        `Code d’accès : ${result.access_code}${
+          result.special_request ? `\nDemande : ${result.special_request}` : ""
+        }`
+      );
     } catch (error) {
       Alert.alert("Erreur", error.message);
     }
+  };
+
+  const uploadGpxWithFormData = async (formData) => {
+    const response = await fetch(`${API_BASE_URL}/trails/upload-gpx`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+      body: formData,
+    });
+    const text = await response.text();
+    let data = {};
+    if (text) {
+      try {
+        data = JSON.parse(text);
+      } catch {
+        throw new Error(text.slice(0, 180) || "Upload failed");
+      }
+    }
+    if (!response.ok) {
+      throw new Error(
+        typeof data.error === "string" ? data.error : "Upload failed"
+      );
+    }
+    return data;
   };
 
   const uploadGpx = async () => {
@@ -342,15 +423,33 @@ export default function App() {
         type: file.mimeType || "application/gpx+xml",
       });
 
-      const response = await fetch(`${API_BASE_URL}/trails/upload-gpx`, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${token}` },
-        body: formData,
-      });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || "Upload failed");
+      const data = await uploadGpxWithFormData(formData);
       Alert.alert(
-        "Trace importee",
+        "Trace importée",
+        `${data.distanceKm} km / D+ ${data.elevationM} m`
+      );
+      await loadTrails();
+    } catch (error) {
+      Alert.alert("Erreur", error.message);
+    }
+  };
+
+  const uploadGpxWebFile = async (file) => {
+    if (!file) return;
+    const name = file.name || "trace.gpx";
+    if (!name.toLowerCase().endsWith(".gpx")) {
+      Alert.alert("Format", "Utilise un fichier .gpx");
+      return;
+    }
+    try {
+      const formData = new FormData();
+      formData.append("name", name.replace(".gpx", ""));
+      formData.append("territory", city);
+      formData.append("difficulty", trailDifficulty);
+      formData.append("gpx", file);
+      const data = await uploadGpxWithFormData(formData);
+      Alert.alert(
+        "Trace importée",
         `${data.distanceKm} km / D+ ${data.elevationM} m`
       );
       await loadTrails();
@@ -395,31 +494,55 @@ export default function App() {
           <View style={{ flex: 1 }}>
             <Text style={styles.infoBannerTitle}>Carte sur le web</Text>
             <Text style={styles.infoBannerText}>
-              Sur l’app native, utilise la liste des box ci-dessous.
+              Sur mobile, la liste des box et les distances affichées
+              ci-dessous remplacent la carte interactive.
             </Text>
           </View>
         </View>
       );
     }
 
-    // Lazy require to avoid native runtime issues.
     // eslint-disable-next-line global-require
     require("leaflet/dist/leaflet.css");
     // eslint-disable-next-line global-require
-    const { MapContainer, TileLayer, Marker, Popup } = require("react-leaflet");
+    const {
+      MapContainer,
+      TileLayer,
+      Marker,
+      Popup,
+      Polyline,
+    } = require("react-leaflet");
 
     return (
       <View style={styles.webMapWrapper}>
         <MapContainer
           center={webMapCenter}
-          zoom={11}
+          zoom={12}
           scrollWheelZoom
-          style={{ height: 320, width: "100%", borderRadius: 12 }}
+          style={{ height: 420, width: "100%", borderRadius: 12 }}
         >
           <TileLayer
             attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
             url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
           />
+          {trails.map((trail) => {
+            let positions = [];
+            try {
+              if (trail.polyline_json) {
+                positions = JSON.parse(trail.polyline_json);
+              }
+            } catch (_e) {
+              positions = [];
+            }
+            if (!positions.length) return null;
+            return (
+              <Polyline
+                key={`trail-line-${trail.id}`}
+                positions={positions}
+                pathOptions={{ color: "#0F766E", weight: 4, opacity: 0.85 }}
+              />
+            );
+          })}
           {boxes.map((box) => (
             <Marker
               key={`map-${box.id}`}
@@ -431,7 +554,13 @@ export default function App() {
               <Popup>
                 <strong>{box.title}</strong>
                 <br />
-                {box.city} - {(box.price_cents / 100).toFixed(2)} EUR
+                {box.city} · {(box.price_cents / 100).toFixed(2)} €
+                {box.distance_km != null && (
+                  <>
+                    <br />
+                    ≈ {Number(box.distance_km).toFixed(1)} km
+                  </>
+                )}
               </Popup>
             </Marker>
           ))}
@@ -461,7 +590,9 @@ export default function App() {
                   <Ionicons name="leaf" size={26} color={theme.heroAccent} />
                 </View>
                 <View style={styles.heroTitleBlock}>
-                  <Text style={styles.heroKicker}>Outdoor & ravitaillement</Text>
+                  <Text style={styles.heroKicker}>
+                    Outdoor & ravitaillement
+                  </Text>
                   <Text style={styles.heroTitle}>RavitoBox</Text>
                 </View>
               </View>
@@ -626,6 +757,13 @@ export default function App() {
   }
 
   function ExplorerScreen() {
+    useEffect(() => {
+      loadTrails();
+      loadBoxes();
+      // chargement initial carte + tracés
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+
     return (
       <SafeAreaView style={styles.screen} edges={["left", "right"]}>
         <ScrollView
@@ -633,10 +771,37 @@ export default function App() {
           showsVerticalScrollIndicator={false}
         >
           <Section
-            title="Explorer les box"
-            subtitle="Trouve un point ravito sur ton parcours."
+            title="Carte & hôtes"
+            subtitle={
+              canHost && !canBook
+                ? "Vue hôte : les athlètes réservent depuis leur compte."
+                : "Repère les box, les tracés GPX importés, et les hôtes les plus proches."
+            }
             icon="map-outline"
           >
+            <Text style={styles.inputLabel}>Centre carte (lat / lon)</Text>
+            <View style={styles.row}>
+              <TextInput
+                style={styles.inputHalf}
+                placeholder="Latitude"
+                placeholderTextColor={theme.inkMuted}
+                value={mapLat}
+                onChangeText={setMapLat}
+              />
+              <TextInput
+                style={styles.inputHalf}
+                placeholder="Longitude"
+                placeholderTextColor={theme.inkMuted}
+                value={mapLon}
+                onChangeText={setMapLon}
+              />
+            </View>
+            <PrimaryButton
+              label="Hôtes les plus proches"
+              icon="navigate-outline"
+              onPress={loadNearbyBoxes}
+            />
+            <Text style={styles.inputLabel}>Ou par ville</Text>
             <TextInput
               style={styles.input}
               placeholder="Ville"
@@ -644,8 +809,8 @@ export default function App() {
               value={city}
               onChangeText={setCity}
             />
-            <PrimaryButton
-              label="Charger les box"
+            <SecondaryButton
+              label="Charger les box (ville)"
               icon="refresh-outline"
               onPress={loadBoxes}
             />
@@ -657,63 +822,86 @@ export default function App() {
                 <Text style={styles.statBannerTitle}>
                   {boxes.length === 0
                     ? "Aucune box chargée"
-                    : `${boxes.length} box trouvée${
-                        boxes.length > 1 ? "s" : ""
-                      }`}
+                    : `${boxes.length} box affichée${boxes.length > 1 ? "s" : ""}`}
                 </Text>
                 <Text style={styles.statBannerText}>
-                  Sur la carte web, touche un marqueur pour sélectionner un
-                  hôte.
+                  Web : tracés verts + marqueurs box. Clique un marqueur pour le
+                  détail.
                 </Text>
               </View>
             </View>
             <WebInteractiveMap />
             {selectedBox ? (
               <View style={styles.selectedHostCard}>
-                <Text style={styles.selectedLabel}>Sélection</Text>
+                <Text style={styles.selectedLabel}>Box sélectionnée</Text>
                 <Text style={styles.cardTitle}>{selectedBox.title}</Text>
                 <Text style={styles.cardMeta}>
                   {selectedBox.city} ·{" "}
                   {(selectedBox.price_cents / 100).toFixed(2)} €
+                  {selectedBox.distance_km != null && (
+                    <>
+                      {" "}
+                      · ≈ {Number(selectedBox.distance_km).toFixed(1)} km
+                    </>
+                  )}
                 </Text>
-                <SecondaryButton
-                  label="Réserver ce box"
-                  icon="calendar-outline"
-                  onPress={() => bookBox(selectedBox.id)}
-                />
+                {canBook ? (
+                  <SecondaryButton
+                    label="Réserver ce box"
+                    icon="calendar-outline"
+                    onPress={() => bookBox(selectedBox.id)}
+                  />
+                ) : (
+                  <Text style={styles.roleHintOnlyHost}>
+                    Compte hôte : la réservation est faite par les athlètes.
+                  </Text>
+                )}
               </View>
             ) : null}
           </Section>
 
-          <Section
-            title="Créneau"
-            subtitle="Date et horaires de ta réservation."
-            icon="time-outline"
-          >
-            <View style={styles.row}>
-              <TextInput
-                style={styles.inputHalf}
-                placeholder="AAAA-MM-JJ"
-                placeholderTextColor={theme.inkMuted}
-                value={bookingDate}
-                onChangeText={setBookingDate}
-              />
-              <TextInput
-                style={styles.inputHalf}
-                placeholder="Début"
-                placeholderTextColor={theme.inkMuted}
-                value={startTime}
-                onChangeText={setStartTime}
-              />
-              <TextInput
-                style={styles.inputHalf}
-                placeholder="Fin"
-                placeholderTextColor={theme.inkMuted}
-                value={endTime}
-                onChangeText={setEndTime}
-              />
-            </View>
-          </Section>
+          {canBook ? (
+            <>
+              <Section
+                title="Créneau & demande"
+                subtitle="Horaires et message optionnel pour l’hôte (allergies, groupe, etc.)."
+                icon="time-outline"
+              >
+                <View style={styles.row}>
+                  <TextInput
+                    style={styles.inputHalf}
+                    placeholder="AAAA-MM-JJ"
+                    placeholderTextColor={theme.inkMuted}
+                    value={bookingDate}
+                    onChangeText={setBookingDate}
+                  />
+                  <TextInput
+                    style={styles.inputHalf}
+                    placeholder="Début"
+                    placeholderTextColor={theme.inkMuted}
+                    value={startTime}
+                    onChangeText={setStartTime}
+                  />
+                  <TextInput
+                    style={styles.inputHalf}
+                    placeholder="Fin"
+                    placeholderTextColor={theme.inkMuted}
+                    value={endTime}
+                    onChangeText={setEndTime}
+                  />
+                </View>
+                <Text style={styles.inputLabel}>Demande spéciale (optionnel)</Text>
+                <TextInput
+                  style={[styles.input, styles.textArea]}
+                  placeholder="Ex. groupe de 4, sans gluten, besoin d’eau en bouteille…"
+                  placeholderTextColor={theme.inkMuted}
+                  value={specialRequest}
+                  onChangeText={setSpecialRequest}
+                  multiline
+                />
+              </Section>
+            </>
+          ) : null}
 
           <Section title="Liste des box" icon="list-outline">
             <FlatList
@@ -726,17 +914,21 @@ export default function App() {
                   <Text style={styles.cardTitle}>{item.title}</Text>
                   <Text style={styles.cardMeta}>
                     {item.city} · {(item.price_cents / 100).toFixed(2)} €
+                    {item.distance_km != null &&
+                      ` · ≈ ${Number(item.distance_km).toFixed(1)} km`}
                   </Text>
                   <PrimaryButton
                     label="Voir sur la carte"
                     icon="location-outline"
                     onPress={() => setSelectedBoxId(item.id)}
                   />
-                  <SecondaryButton
-                    label="Réserver"
-                    icon="checkmark-circle-outline"
-                    onPress={() => bookBox(item.id)}
-                  />
+                  {canBook ? (
+                    <SecondaryButton
+                      label="Réserver"
+                      icon="checkmark-circle-outline"
+                      onPress={() => bookBox(item.id)}
+                    />
+                  ) : null}
                 </View>
               )}
             />
@@ -747,6 +939,23 @@ export default function App() {
   }
 
   function TrailsScreen() {
+    const webDropProps =
+      Platform.OS === "web"
+        ? {
+            onDragOver: (e) => {
+              e.preventDefault();
+              setWebDropHover(true);
+            },
+            onDragLeave: () => setWebDropHover(false),
+            onDrop: (e) => {
+              e.preventDefault();
+              setWebDropHover(false);
+              const f = e.dataTransfer?.files?.[0];
+              uploadGpxWebFile(f);
+            },
+          }
+        : {};
+
     return (
       <SafeAreaView style={styles.screen} edges={["left", "right"]}>
         <ScrollView
@@ -755,9 +964,30 @@ export default function App() {
         >
           <Section
             title="Traces locales"
-            subtitle="Importe un GPX ou parcours par niveau."
+            subtitle="Athlètes et hôtes : importez vos GPX. Elles apparaissent sur la carte (web)."
             icon="footsteps-outline"
           >
+            {Platform.OS === "web" ? (
+              <View
+                style={[
+                  styles.dropZone,
+                  webDropHover && styles.dropZoneActive,
+                ]}
+                {...webDropProps}
+              >
+                <Ionicons
+                  name="cloud-upload-outline"
+                  size={28}
+                  color={theme.primary}
+                />
+                <Text style={styles.dropZoneText}>
+                  Glisse-dépose un fichier .gpx ici
+                </Text>
+                <Text style={styles.dropZoneHint}>
+                  ou utilise le bouton ci-dessous (mobile / fichier)
+                </Text>
+              </View>
+            ) : null}
             <Text style={styles.fieldLabel}>Difficulté</Text>
             <View style={styles.roleRow}>
               {["easy", "medium", "hard"].map((level) => (
@@ -988,7 +1218,7 @@ export default function App() {
           tabBarInactiveTintColor: theme.inkMuted,
           tabBarIcon: ({ color, size }) => {
             const map = {
-              Explorer: "map-outline",
+              Carte: "map-outline",
               Trails: "navigate-outline",
               Host: "home-outline",
               Profil: "person-circle-outline",
@@ -1004,20 +1234,22 @@ export default function App() {
         })}
       >
         <Tab.Screen
-          name="Explorer"
+          name="Carte"
           component={ExplorerScreen}
-          options={{ title: "Explorer" }}
+          options={{ title: "Carte" }}
         />
         <Tab.Screen
           name="Trails"
           component={TrailsScreen}
           options={{ title: "Traces" }}
         />
-        <Tab.Screen
-          name="Host"
-          component={HostScreen}
-          options={{ title: "Hôte" }}
-        />
+        {canHost ? (
+          <Tab.Screen
+            name="Host"
+            component={HostScreen}
+            options={{ title: "Mes box" }}
+          />
+        ) : null}
         <Tab.Screen
           name="Profil"
           component={ProfileScreen}
@@ -1503,5 +1735,41 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     color: theme.primary,
     fontSize: 13,
+  },
+  textArea: {
+    minHeight: 88,
+    textAlignVertical: "top",
+    paddingTop: 12,
+  },
+  roleHintOnlyHost: {
+    marginTop: 8,
+    color: theme.inkMuted,
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  dropZone: {
+    borderWidth: 2,
+    borderStyle: "dashed",
+    borderColor: theme.border,
+    borderRadius: 14,
+    padding: 20,
+    alignItems: "center",
+    marginBottom: 14,
+    backgroundColor: theme.surfaceMuted,
+  },
+  dropZoneActive: {
+    borderColor: theme.primary,
+    backgroundColor: theme.chipBg,
+  },
+  dropZoneText: {
+    marginTop: 8,
+    fontWeight: "700",
+    color: theme.ink,
+    fontSize: 15,
+  },
+  dropZoneHint: {
+    marginTop: 4,
+    fontSize: 12,
+    color: theme.inkMuted,
   },
 });

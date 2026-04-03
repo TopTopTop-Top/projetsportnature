@@ -8,6 +8,19 @@ Backend + mobile minimal pour une app type "Airbnb du ravito outdoor".
 npm install
 ```
 
+### Base PostgreSQL
+
+1. Copier `.env.example` vers `.env` et ajuster `DATABASE_URL`.
+2. Démarrer Postgres en local :
+
+```bash
+docker compose up -d
+```
+
+3. Exemple d’URL : `postgresql://ravitobox:ravitobox@localhost:5432/ravitobox` avec `DATABASE_SSL=false`.
+
+Sur **Render**, crée une base PostgreSQL et relie la variable `DATABASE_URL` au service web (souvent SSL activé : ne mets pas `DATABASE_SSL=false` en prod).
+
 ## Lancer en local
 
 ```bash
@@ -47,6 +60,7 @@ Cette commande lance:
 - `POST /api/host/boxes` (JWT, role host/both)
 - `GET /api/host/boxes` (JWT)
 - `GET /api/boxes?city=Annecy`
+- `GET /api/boxes/nearby?lat=45.9&lon=6.1&limit=30`
 - `POST /api/trails` (JWT)
 - `GET /api/trails?difficulty=hard`
 - `POST /api/trails/upload-gpx` (JWT, multipart)

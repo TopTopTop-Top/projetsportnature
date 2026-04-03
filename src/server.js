@@ -5,8 +5,6 @@ const path = require("path");
 const apiRouter = require("./routes/api");
 const { migrate } = require("./db/database");
 
-migrate();
-
 const app = express();
 const PORT = process.env.PORT || 3000;
 
@@ -18,7 +16,7 @@ app.use("/uploads", express.static(path.join(__dirname, "../uploads")));
 app.get("/", (_req, res) => {
   res.json({
     name: "RavitoBox API",
-    version: "0.2.0",
+    version: "0.3.0",
     endpoints: [
       "/api/health",
       "/api/auth/register",
@@ -27,6 +25,7 @@ app.get("/", (_req, res) => {
       "/api/auth/logout",
       "/api/users",
       "/api/boxes",
+      "/api/boxes/nearby",
       "/api/host/boxes",
       "/api/trails",
       "/api/trails/upload-gpx",
@@ -37,6 +36,14 @@ app.get("/", (_req, res) => {
 
 app.use("/api", apiRouter);
 
-app.listen(PORT, () => {
-  console.log(`RavitoBox API running on http://localhost:${PORT}`);
-});
+(async function start() {
+  try {
+    await migrate();
+    app.listen(PORT, () => {
+      console.log(`RavitoBox API running on http://localhost:${PORT}`);
+    });
+  } catch (e) {
+    console.error("Server failed to start", e);
+    process.exit(1);
+  }
+})();
