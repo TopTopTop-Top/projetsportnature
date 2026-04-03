@@ -117,6 +117,16 @@ async function apiFetch(path, { method = "GET", body, token } = {}) {
   return data;
 }
 
+/** Sur le web, Alert.alert est souvent no-op ou peu visible — utiliser window.alert. */
+function userAlert(title, message) {
+  const body = message ? `${title}\n\n${message}` : title;
+  if (Platform.OS === "web") {
+    window.alert(body);
+  } else {
+    Alert.alert(title, message || undefined);
+  }
+}
+
 function Section({ title, subtitle, icon, children }) {
   return (
     <View style={styles.section}>
@@ -141,7 +151,11 @@ function Section({ title, subtitle, icon, children }) {
 function PrimaryButton({ label, onPress, icon, disabled, loading }) {
   return (
     <TouchableOpacity
-      style={[styles.primaryButton, disabled && styles.buttonDisabled]}
+      style={[
+        styles.primaryButton,
+        disabled && styles.buttonDisabled,
+        Platform.OS === "web" && { cursor: "pointer" },
+      ]}
       onPress={onPress}
       activeOpacity={0.85}
       disabled={disabled || loading}
@@ -156,9 +170,12 @@ function PrimaryButton({ label, onPress, icon, disabled, loading }) {
               size={18}
               color="#fff"
               style={styles.buttonIconLeft}
+              pointerEvents="none"
             />
           ) : null}
-          <Text style={styles.primaryButtonText}>{label}</Text>
+          <Text style={styles.primaryButtonText} pointerEvents="none">
+            {label}
+          </Text>
         </>
       )}
     </TouchableOpacity>
@@ -168,7 +185,10 @@ function PrimaryButton({ label, onPress, icon, disabled, loading }) {
 function SecondaryButton({ label, onPress, icon }) {
   return (
     <TouchableOpacity
-      style={styles.secondaryButton}
+      style={[
+        styles.secondaryButton,
+        Platform.OS === "web" && { cursor: "pointer" },
+      ]}
       onPress={onPress}
       activeOpacity={0.85}
     >
@@ -178,9 +198,12 @@ function SecondaryButton({ label, onPress, icon }) {
           size={18}
           color="#fff"
           style={styles.buttonIconLeft}
+          pointerEvents="none"
         />
       ) : null}
-      <Text style={styles.secondaryButtonText}>{label}</Text>
+      <Text style={styles.secondaryButtonText} pointerEvents="none">
+        {label}
+      </Text>
     </TouchableOpacity>
   );
 }
@@ -242,15 +265,15 @@ export default function App() {
     const name = fullName.trim();
     const mail = email.trim().toLowerCase();
     if (!name) {
-      Alert.alert("Nom manquant", "Indique ton nom ou pseudo affiché.");
+      userAlert("Nom manquant", "Indique ton nom ou pseudo affiché.");
       return;
     }
     if (!mail || !mail.includes("@")) {
-      Alert.alert("Email invalide", "Vérifie ton adresse email.");
+      userAlert("Email invalide", "Vérifie ton adresse email.");
       return;
     }
     if (!password || password.length < 6) {
-      Alert.alert(
+      userAlert(
         "Mot de passe",
         "Choisis un mot de passe d’au moins 6 caractères."
       );
@@ -265,9 +288,9 @@ export default function App() {
       setToken(result.token);
       setRefreshToken(result.refreshToken);
       setUser(result.user);
-      Alert.alert("Compte créé", "Bienvenue sur RavitoBox.");
+      userAlert("Compte créé", "Bienvenue sur RavitoBox.");
     } catch (error) {
-      Alert.alert("Inscription impossible", error.message);
+      userAlert("Inscription impossible", error.message);
     } finally {
       setAuthLoading(false);
     }
@@ -276,11 +299,11 @@ export default function App() {
   const login = useCallback(async () => {
     const mail = email.trim().toLowerCase();
     if (!mail || !mail.includes("@")) {
-      Alert.alert("Email invalide", "Saisis l’email de ton compte.");
+      userAlert("Email invalide", "Saisis l’email de ton compte.");
       return;
     }
     if (!password) {
-      Alert.alert("Mot de passe", "Saisis ton mot de passe.");
+      userAlert("Mot de passe", "Saisis ton mot de passe.");
       return;
     }
     setAuthLoading(true);
@@ -292,9 +315,9 @@ export default function App() {
       setToken(result.token);
       setRefreshToken(result.refreshToken);
       setUser(result.user);
-      Alert.alert("Connexion", `Bonjour ${result.user.full_name} !`);
+      userAlert("Connexion", `Bonjour ${result.user.full_name} !`);
     } catch (error) {
-      Alert.alert("Connexion refusée", error.message);
+      userAlert("Connexion refusée", error.message);
     } finally {
       setAuthLoading(false);
     }
@@ -309,9 +332,9 @@ export default function App() {
       });
       setToken(result.token);
       setRefreshToken(result.refreshToken);
-      Alert.alert("Session", "Token rafraichi");
+      userAlert("Session", "Token rafraichi");
     } catch (error) {
-      Alert.alert("Erreur", error.message);
+      userAlert("Erreur", error.message);
     }
   };
 
@@ -341,7 +364,7 @@ export default function App() {
       setBoxes(rows);
       setSelectedBoxId(rows.length > 0 ? rows[0].id : null);
     } catch (error) {
-      Alert.alert("Erreur", error.message);
+      userAlert("Erreur", error.message);
     }
   };
 
@@ -349,7 +372,7 @@ export default function App() {
     const lat = parseFloat(mapLat);
     const lon = parseFloat(mapLon);
     if (Number.isNaN(lat) || Number.isNaN(lon)) {
-      Alert.alert("Position", "Indique une latitude et une longitude valides.");
+      userAlert("Position", "Indique une latitude et une longitude valides.");
       return;
     }
     try {
@@ -359,7 +382,7 @@ export default function App() {
       setBoxes(rows);
       setSelectedBoxId(rows.length > 0 ? rows[0].id : null);
     } catch (error) {
-      Alert.alert("Erreur", error.message);
+      userAlert("Erreur", error.message);
     }
   };
 
@@ -370,13 +393,13 @@ export default function App() {
       );
       setTrails(rows);
     } catch (error) {
-      Alert.alert("Erreur", error.message);
+      userAlert("Erreur", error.message);
     }
   };
 
   const bookBox = async (boxId) => {
     if (!canBook) {
-      Alert.alert(
+      userAlert(
         "Rôle athlète",
         "Seuls les comptes Athlète ou Les deux peuvent réserver une box."
       );
@@ -396,14 +419,14 @@ export default function App() {
             : {}),
         },
       });
-      Alert.alert(
+      userAlert(
         "Réservation enregistrée",
         `Code d’accès : ${result.access_code}${
           result.special_request ? `\nDemande : ${result.special_request}` : ""
         }`
       );
     } catch (error) {
-      Alert.alert("Erreur", error.message);
+      userAlert("Erreur", error.message);
     }
   };
 
@@ -446,13 +469,13 @@ export default function App() {
       });
 
       const data = await uploadGpxWithFormData(formData);
-      Alert.alert(
+      userAlert(
         "Trace importée",
         `${data.distanceKm} km / D+ ${data.elevationM} m`
       );
       await loadTrails();
     } catch (error) {
-      Alert.alert("Erreur", error.message);
+      userAlert("Erreur", error.message);
     }
   };
 
@@ -460,7 +483,7 @@ export default function App() {
     if (!file) return;
     const name = file.name || "trace.gpx";
     if (!name.toLowerCase().endsWith(".gpx")) {
-      Alert.alert("Format", "Utilise un fichier .gpx");
+      userAlert("Format", "Utilise un fichier .gpx");
       return;
     }
     try {
@@ -470,13 +493,13 @@ export default function App() {
       formData.append("difficulty", trailDifficulty);
       formData.append("gpx", file);
       const data = await uploadGpxWithFormData(formData);
-      Alert.alert(
+      userAlert(
         "Trace importée",
         `${data.distanceKm} km / D+ ${data.elevationM} m`
       );
       await loadTrails();
     } catch (error) {
-      Alert.alert("Erreur", error.message);
+      userAlert("Erreur", error.message);
     }
   };
 
@@ -496,10 +519,10 @@ export default function App() {
           hasWater: true,
         },
       });
-      Alert.alert("Publication", "Ton box est en ligne.");
+      userAlert("Publication", "Ton box est en ligne.");
       await loadBoxes();
     } catch (error) {
-      Alert.alert("Erreur", error.message);
+      userAlert("Erreur", error.message);
     }
   };
 
@@ -1239,6 +1262,10 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 14,
   },
+  heroTitleBlock: {
+    flex: 1,
+    minWidth: 0,
+  },
   heroLogoMark: {
     width: 52,
     height: 52,
@@ -1282,6 +1309,8 @@ const styles = StyleSheet.create({
     shadowRadius: 20,
     shadowOffset: { width: 0, height: 10 },
     elevation: 4,
+    zIndex: 2,
+    position: "relative",
   },
   panelTitle: {
     fontSize: 17,
@@ -1671,7 +1700,7 @@ function AuthScreen() {
   const isRegister = authMode === "register";
 
   const forgotPasswordHint = () => {
-    Alert.alert(
+    userAlert(
       "Mot de passe oublié",
       "Il n’y a pas encore de réinitialisation automatique par email.\n\n" +
         "Solution gratuite typique : envoyer un lien signé par email (Resend ou Brevo : " +
@@ -1684,7 +1713,7 @@ function AuthScreen() {
     <SafeAreaView style={styles.screen} edges={["top", "left", "right"]}>
       <StatusBar style="light" />
       <ScrollView
-        keyboardShouldPersistTaps="handled"
+        keyboardShouldPersistTaps="always"
         contentContainerStyle={styles.authScrollContent}
         showsVerticalScrollIndicator={false}
       >
@@ -1717,6 +1746,7 @@ function AuthScreen() {
                 style={[
                   styles.authSegmentBtn,
                   !isRegister && styles.authSegmentBtnActive,
+                  Platform.OS === "web" && { cursor: "pointer" },
                 ]}
                 onPress={() => setAuthMode("login")}
                 activeOpacity={0.9}
@@ -1727,8 +1757,10 @@ function AuthScreen() {
                   size={18}
                   color={!isRegister ? "#fff" : theme.inkMuted}
                   style={styles.authSegmentIcon}
+                  pointerEvents="none"
                 />
                 <Text
+                  pointerEvents="none"
                   style={[
                     styles.authSegmentLabel,
                     !isRegister && styles.authSegmentLabelActive,
@@ -1741,6 +1773,7 @@ function AuthScreen() {
                 style={[
                   styles.authSegmentBtn,
                   isRegister && styles.authSegmentBtnActive,
+                  Platform.OS === "web" && { cursor: "pointer" },
                 ]}
                 onPress={() => setAuthMode("register")}
                 activeOpacity={0.9}
@@ -1751,8 +1784,10 @@ function AuthScreen() {
                   size={18}
                   color={isRegister ? "#fff" : theme.inkMuted}
                   style={styles.authSegmentIcon}
+                  pointerEvents="none"
                 />
                 <Text
+                  pointerEvents="none"
                   style={[
                     styles.authSegmentLabel,
                     isRegister && styles.authSegmentLabelActive,
@@ -1827,12 +1862,14 @@ function AuthScreen() {
                       style={[
                         styles.roleChip,
                         role === r && styles.roleChipActive,
+                        Platform.OS === "web" && { cursor: "pointer" },
                       ]}
                       onPress={() => setRole(r)}
                       activeOpacity={0.85}
                       disabled={authLoading}
                     >
                       <Text
+                        pointerEvents="none"
                         style={[
                           styles.roleChipText,
                           role === r && styles.roleChipTextActive,
@@ -1860,10 +1897,13 @@ function AuthScreen() {
                 />
                 <TouchableOpacity
                   onPress={forgotPasswordHint}
-                  style={styles.forgotLinkWrap}
+                  style={[
+                    styles.forgotLinkWrap,
+                    Platform.OS === "web" && { cursor: "pointer" },
+                  ]}
                   activeOpacity={0.7}
                 >
-                  <Text style={styles.forgotLinkText}>
+                  <Text style={styles.forgotLinkText} pointerEvents="none">
                     Mot de passe oublié ?
                   </Text>
                 </TouchableOpacity>
