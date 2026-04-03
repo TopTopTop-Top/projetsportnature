@@ -1,5 +1,12 @@
 import "react-native-gesture-handler";
-import React, { useEffect, useMemo, useState } from "react";
+import React, {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 import {
   View,
   Text,
@@ -59,6 +66,9 @@ const AUTH_COLUMN =
   Platform.OS === "web"
     ? { maxWidth: 440, width: "100%", alignSelf: "center" }
     : {};
+
+const AuthUiContext = createContext(null);
+
 const DIFFICULTY_LABELS = {
   easy: "Facile",
   medium: "Modéré",
@@ -228,7 +238,7 @@ export default function App() {
         parseFloat(mapLon) || 6.1294,
       ];
 
-  const register = async () => {
+  const register = useCallback(async () => {
     const name = fullName.trim();
     const mail = email.trim().toLowerCase();
     if (!name) {
@@ -261,9 +271,9 @@ export default function App() {
     } finally {
       setAuthLoading(false);
     }
-  };
+  }, [fullName, email, password, role]);
 
-  const login = async () => {
+  const login = useCallback(async () => {
     const mail = email.trim().toLowerCase();
     if (!mail || !mail.includes("@")) {
       Alert.alert("Email invalide", "Saisis l’email de ton compte.");
@@ -288,7 +298,7 @@ export default function App() {
     } finally {
       setAuthLoading(false);
     }
-  };
+  }, [email, password]);
 
   const refreshSession = async () => {
     if (!refreshToken) return;
@@ -578,193 +588,6 @@ export default function App() {
           ))}
         </MapContainer>
       </View>
-    );
-  }
-
-  function AuthScreen() {
-    const isRegister = authMode === "register";
-    return (
-      <SafeAreaView style={styles.screen} edges={["top", "left", "right"]}>
-        <StatusBar style="light" />
-        <ScrollView
-          keyboardShouldPersistTaps="handled"
-          contentContainerStyle={styles.authScrollContent}
-          showsVerticalScrollIndicator={false}
-        >
-          <View style={[styles.authColumn, AUTH_COLUMN]}>
-            <View style={styles.hero}>
-              <View style={styles.heroDecor} pointerEvents="none">
-                <View style={[styles.heroBlob, styles.heroBlob1]} />
-                <View style={[styles.heroBlob, styles.heroBlob2]} />
-              </View>
-              <View style={styles.heroBrandRow}>
-                <View style={styles.heroLogoMark}>
-                  <Ionicons name="leaf" size={26} color={theme.heroAccent} />
-                </View>
-                <View style={styles.heroTitleBlock}>
-                  <Text style={styles.heroKicker}>
-                    Outdoor & ravitaillement
-                  </Text>
-                  <Text style={styles.heroTitle}>RavitoBox</Text>
-                </View>
-              </View>
-              <Text style={styles.heroSubtitle}>
-                Réserve un point ravito sur ton parcours et découvre des traces
-                GPX locales.
-              </Text>
-            </View>
-
-            <View style={styles.panel}>
-              <View style={styles.authSegment}>
-                <TouchableOpacity
-                  style={[
-                    styles.authSegmentBtn,
-                    !isRegister && styles.authSegmentBtnActive,
-                  ]}
-                  onPress={() => setAuthMode("login")}
-                  activeOpacity={0.9}
-                  disabled={authLoading}
-                >
-                  <Ionicons
-                    name="log-in-outline"
-                    size={18}
-                    color={!isRegister ? "#fff" : theme.inkMuted}
-                    style={styles.authSegmentIcon}
-                  />
-                  <Text
-                    style={[
-                      styles.authSegmentLabel,
-                      !isRegister && styles.authSegmentLabelActive,
-                    ]}
-                  >
-                    Connexion
-                  </Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[
-                    styles.authSegmentBtn,
-                    isRegister && styles.authSegmentBtnActive,
-                  ]}
-                  onPress={() => setAuthMode("register")}
-                  activeOpacity={0.9}
-                  disabled={authLoading}
-                >
-                  <Ionicons
-                    name="person-add-outline"
-                    size={18}
-                    color={isRegister ? "#fff" : theme.inkMuted}
-                    style={styles.authSegmentIcon}
-                  />
-                  <Text
-                    style={[
-                      styles.authSegmentLabel,
-                      isRegister && styles.authSegmentLabelActive,
-                    ]}
-                  >
-                    Inscription
-                  </Text>
-                </TouchableOpacity>
-              </View>
-
-              <Text style={styles.panelHint}>
-                {isRegister
-                  ? "Crée un compte : nom affiché, email et mot de passe. Choisis ton rôle."
-                  : "Connecte-toi uniquement avec ton email et ton mot de passe."}
-              </Text>
-
-              {isRegister ? (
-                <>
-                  <Text style={styles.inputLabel}>Nom affiché</Text>
-                  <TextInput
-                    style={styles.input}
-                    placeholder="Ex. Camille Martin"
-                    placeholderTextColor={theme.inkMuted}
-                    value={fullName}
-                    onChangeText={setFullName}
-                    autoCapitalize="words"
-                    editable={!authLoading}
-                  />
-                </>
-              ) : null}
-
-              <Text style={styles.inputLabel}>Email</Text>
-              <TextInput
-                style={styles.input}
-                placeholder="toi@exemple.com"
-                placeholderTextColor={theme.inkMuted}
-                value={email}
-                onChangeText={setEmail}
-                autoCapitalize="none"
-                keyboardType="email-address"
-                autoComplete="email"
-                textContentType="emailAddress"
-                editable={!authLoading}
-              />
-
-              <Text style={styles.inputLabel}>Mot de passe</Text>
-              <TextInput
-                style={styles.input}
-                placeholder={
-                  isRegister ? "Au moins 6 caractères" : "Ton mot de passe"
-                }
-                placeholderTextColor={theme.inkMuted}
-                value={password}
-                onChangeText={setPassword}
-                secureTextEntry
-                textContentType={isRegister ? "newPassword" : "password"}
-                autoComplete={isRegister ? "password-new" : "password"}
-                editable={!authLoading}
-              />
-
-              {isRegister ? (
-                <>
-                  <Text style={styles.fieldLabel}>Ton profil</Text>
-                  <Text style={styles.roleHelp}>
-                    Athlète : réserver des box. Hôte : en publier. Les deux :
-                    les deux.
-                  </Text>
-                  <View style={styles.roleRow}>
-                    {["athlete", "host", "both"].map((r) => (
-                      <TouchableOpacity
-                        key={r}
-                        style={[
-                          styles.roleChip,
-                          role === r && styles.roleChipActive,
-                        ]}
-                        onPress={() => setRole(r)}
-                        activeOpacity={0.85}
-                        disabled={authLoading}
-                      >
-                        <Text
-                          style={[
-                            styles.roleChipText,
-                            role === r && styles.roleChipTextActive,
-                          ]}
-                        >
-                          {ROLE_LABELS[r]}
-                        </Text>
-                      </TouchableOpacity>
-                    ))}
-                  </View>
-                  <PrimaryButton
-                    label="Créer mon compte"
-                    icon="checkmark-circle-outline"
-                    onPress={register}
-                    loading={authLoading}
-                  />
-                </>
-              ) : (
-                <PrimaryButton
-                  label="Se connecter"
-                  icon="arrow-forward-outline"
-                  onPress={login}
-                  loading={authLoading}
-                />
-              )}
-            </View>
-          </View>
-        </ScrollView>
-      </SafeAreaView>
     );
   }
 
@@ -1271,18 +1094,48 @@ export default function App() {
     );
   }
 
+  const authUiValue = useMemo(
+    () => ({
+      authMode,
+      setAuthMode,
+      email,
+      setEmail,
+      password,
+      setPassword,
+      fullName,
+      setFullName,
+      role,
+      setRole,
+      authLoading,
+      register,
+      login,
+    }),
+    [
+      authMode,
+      email,
+      password,
+      fullName,
+      role,
+      authLoading,
+      register,
+      login,
+    ]
+  );
+
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
-        <NavigationContainer>
-          <Stack.Navigator screenOptions={{ headerShown: false }}>
-            {!isAuthed ? (
-              <Stack.Screen name="Auth" component={AuthScreen} />
-            ) : (
-              <Stack.Screen name="Main" component={MainTabs} />
-            )}
-          </Stack.Navigator>
-        </NavigationContainer>
+        <AuthUiContext.Provider value={authUiValue}>
+          <NavigationContainer>
+            <Stack.Navigator screenOptions={{ headerShown: false }}>
+              {!isAuthed ? (
+                <Stack.Screen name="Auth" component={AuthScreen} />
+              ) : (
+                <Stack.Screen name="Main" component={MainTabs} />
+              )}
+            </Stack.Navigator>
+          </NavigationContainer>
+        </AuthUiContext.Provider>
       </SafeAreaProvider>
     </GestureHandlerRootView>
   );
@@ -1784,4 +1637,241 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: theme.inkMuted,
   },
+  forgotLinkWrap: {
+    marginTop: 12,
+    alignItems: "center",
+    marginBottom: 4,
+  },
+  forgotLinkText: {
+    color: theme.primary,
+    fontWeight: "600",
+    fontSize: 14,
+  },
 });
+
+function AuthScreen() {
+  const ctx = useContext(AuthUiContext);
+  if (!ctx) return null;
+  const {
+    authMode,
+    setAuthMode,
+    email,
+    setEmail,
+    password,
+    setPassword,
+    fullName,
+    setFullName,
+    role,
+    setRole,
+    authLoading,
+    register,
+    login,
+  } = ctx;
+
+  const isRegister = authMode === "register";
+
+  const forgotPasswordHint = () => {
+    Alert.alert(
+      "Mot de passe oublié",
+      "Il n’y a pas encore de réinitialisation automatique par email.\n\n" +
+        "Solution gratuite typique : envoyer un lien signé par email (Resend ou Brevo : " +
+        "niveaux gratuits, ou SMTP).\n\n" +
+        "Pour ce MVP, recrée un compte avec un autre email ou contacte l’administrateur du service."
+    );
+  };
+
+  return (
+    <SafeAreaView style={styles.screen} edges={["top", "left", "right"]}>
+      <StatusBar style="light" />
+      <ScrollView
+        keyboardShouldPersistTaps="handled"
+        contentContainerStyle={styles.authScrollContent}
+        showsVerticalScrollIndicator={false}
+      >
+        <View style={[styles.authColumn, AUTH_COLUMN]}>
+          <View style={styles.hero}>
+            <View style={styles.heroDecor} pointerEvents="none">
+              <View style={[styles.heroBlob, styles.heroBlob1]} />
+              <View style={[styles.heroBlob, styles.heroBlob2]} />
+            </View>
+            <View style={styles.heroBrandRow}>
+              <View style={styles.heroLogoMark}>
+                <Ionicons name="leaf" size={26} color={theme.heroAccent} />
+              </View>
+              <View style={styles.heroTitleBlock}>
+                <Text style={styles.heroKicker}>
+                  Outdoor & ravitaillement
+                </Text>
+                <Text style={styles.heroTitle}>RavitoBox</Text>
+              </View>
+            </View>
+            <Text style={styles.heroSubtitle}>
+              Réserve un point ravito sur ton parcours et découvre des traces
+              GPX locales.
+            </Text>
+          </View>
+
+          <View style={styles.panel}>
+            <View style={styles.authSegment}>
+              <TouchableOpacity
+                style={[
+                  styles.authSegmentBtn,
+                  !isRegister && styles.authSegmentBtnActive,
+                ]}
+                onPress={() => setAuthMode("login")}
+                activeOpacity={0.9}
+                disabled={authLoading}
+              >
+                <Ionicons
+                  name="log-in-outline"
+                  size={18}
+                  color={!isRegister ? "#fff" : theme.inkMuted}
+                  style={styles.authSegmentIcon}
+                />
+                <Text
+                  style={[
+                    styles.authSegmentLabel,
+                    !isRegister && styles.authSegmentLabelActive,
+                  ]}
+                >
+                  Connexion
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[
+                  styles.authSegmentBtn,
+                  isRegister && styles.authSegmentBtnActive,
+                ]}
+                onPress={() => setAuthMode("register")}
+                activeOpacity={0.9}
+                disabled={authLoading}
+              >
+                <Ionicons
+                  name="person-add-outline"
+                  size={18}
+                  color={isRegister ? "#fff" : theme.inkMuted}
+                  style={styles.authSegmentIcon}
+                />
+                <Text
+                  style={[
+                    styles.authSegmentLabel,
+                    isRegister && styles.authSegmentLabelActive,
+                  ]}
+                >
+                  Inscription
+                </Text>
+              </TouchableOpacity>
+            </View>
+
+            <Text style={styles.panelHint}>
+              {isRegister
+                ? "Crée un compte : nom affiché, email et mot de passe. Choisis ton rôle."
+                : "Connecte-toi uniquement avec ton email et ton mot de passe."}
+            </Text>
+
+            {isRegister ? (
+              <>
+                <Text style={styles.inputLabel}>Nom affiché</Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder="Ex. Camille Martin"
+                  placeholderTextColor={theme.inkMuted}
+                  value={fullName}
+                  onChangeText={setFullName}
+                  autoCapitalize="words"
+                  editable={!authLoading}
+                />
+              </>
+            ) : null}
+
+            <Text style={styles.inputLabel}>Email</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="toi@exemple.com"
+              placeholderTextColor={theme.inkMuted}
+              value={email}
+              onChangeText={setEmail}
+              autoCapitalize="none"
+              keyboardType="email-address"
+              autoComplete="email"
+              textContentType="emailAddress"
+              editable={!authLoading}
+            />
+
+            <Text style={styles.inputLabel}>Mot de passe</Text>
+            <TextInput
+              style={styles.input}
+              placeholder={
+                isRegister ? "Au moins 6 caractères" : "Ton mot de passe"
+              }
+              placeholderTextColor={theme.inkMuted}
+              value={password}
+              onChangeText={setPassword}
+              secureTextEntry
+              textContentType={isRegister ? "newPassword" : "password"}
+              autoComplete={isRegister ? "password-new" : "password"}
+              editable={!authLoading}
+            />
+
+            {isRegister ? (
+              <>
+                <Text style={styles.fieldLabel}>Ton profil</Text>
+                <Text style={styles.roleHelp}>
+                  Athlète : réserver des box. Hôte : en publier. Les deux : les
+                  deux.
+                </Text>
+                <View style={styles.roleRow}>
+                  {["athlete", "host", "both"].map((r) => (
+                    <TouchableOpacity
+                      key={r}
+                      style={[
+                        styles.roleChip,
+                        role === r && styles.roleChipActive,
+                      ]}
+                      onPress={() => setRole(r)}
+                      activeOpacity={0.85}
+                      disabled={authLoading}
+                    >
+                      <Text
+                        style={[
+                          styles.roleChipText,
+                          role === r && styles.roleChipTextActive,
+                        ]}
+                      >
+                        {ROLE_LABELS[r]}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+                <PrimaryButton
+                  label="Créer mon compte"
+                  icon="checkmark-circle-outline"
+                  onPress={register}
+                  loading={authLoading}
+                />
+              </>
+            ) : (
+              <>
+                <PrimaryButton
+                  label="Se connecter"
+                  icon="arrow-forward-outline"
+                  onPress={login}
+                  loading={authLoading}
+                />
+                <TouchableOpacity
+                  onPress={forgotPasswordHint}
+                  style={styles.forgotLinkWrap}
+                  activeOpacity={0.7}
+                >
+                  <Text style={styles.forgotLinkText}>
+                    Mot de passe oublié ?
+                  </Text>
+                </TouchableOpacity>
+              </>
+            )}
+          </View>
+        </View>
+      </ScrollView>
+    </SafeAreaView>
+  );
+}
