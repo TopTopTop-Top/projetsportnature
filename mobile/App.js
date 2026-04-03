@@ -204,8 +204,20 @@ export default function App() {
     priceCents: "700",
     capacityLiters: "20",
   });
+  const [mapLat, setMapLat] = useState("45.8992");
+  const [mapLon, setMapLon] = useState("6.1294");
+  const [specialRequest, setSpecialRequest] = useState("");
+  const [webDropHover, setWebDropHover] = useState(false);
 
   const isAuthed = useMemo(() => Boolean(token), [token]);
+  const canHost = useMemo(
+    () => user?.role === "host" || user?.role === "both",
+    [user?.role]
+  );
+  const canBook = useMemo(
+    () => user?.role === "athlete" || user?.role === "both",
+    [user?.role]
+  );
 
   const selectedBox = boxes.find((box) => box.id === selectedBoxId) || null;
 
