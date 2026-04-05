@@ -53,6 +53,7 @@ const createBoxSchema = z.object({
   priceCents: z.number().int().nonnegative(),
   capacityLiters: z.number().int().positive().optional(),
   hasWater: z.boolean().optional(),
+  availabilityNote: z.string().max(2000).optional(),
 });
 
 const createHostBoxSchema = z.object({
@@ -64,6 +65,7 @@ const createHostBoxSchema = z.object({
   priceCents: z.number().int().nonnegative(),
   capacityLiters: z.number().int().positive().optional(),
   hasWater: z.boolean().optional(),
+  availabilityNote: z.string().max(2000).optional(),
 });
 
 const createTrailSchema = z.object({
@@ -170,8 +172,7 @@ function parseGpxStats(gpxContent) {
     }
   }
 
-  const polylineLatLngs =
-    points.length > 0 ? simplifyLatLngs(points, 450) : [];
+  const polylineLatLngs = points.length > 0 ? simplifyLatLngs(points, 450) : [];
 
   return {
     trackPoints: points.length,
@@ -337,8 +338,8 @@ router.post("/boxes", requireAuth, async (req, res) => {
 
   const input = parsed.data;
   const { rows } = await pool.query(
-    `INSERT INTO boxes (host_user_id, title, description, latitude, longitude, city, price_cents, capacity_liters, has_water)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+    `INSERT INTO boxes (host_user_id, title, description, latitude, longitude, city, price_cents, capacity_liters, has_water, availability_note)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
      RETURNING *`,
     [
       input.hostUserId,
@@ -350,6 +351,7 @@ router.post("/boxes", requireAuth, async (req, res) => {
       input.priceCents,
       input.capacityLiters ?? 20,
       input.hasWater ? 1 : 0,
+      input.availabilityNote?.trim() || null,
     ]
   );
   return res.status(201).json(rows[0]);
@@ -373,8 +375,8 @@ router.post("/host/boxes", requireAuth, async (req, res) => {
 
   const input = parsed.data;
   const { rows } = await pool.query(
-    `INSERT INTO boxes (host_user_id, title, description, latitude, longitude, city, price_cents, capacity_liters, has_water)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+    `INSERT INTO boxes (host_user_id, title, description, latitude, longitude, city, price_cents, capacity_liters, has_water, availability_note)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
      RETURNING *`,
     [
       req.auth.sub,
@@ -386,6 +388,7 @@ router.post("/host/boxes", requireAuth, async (req, res) => {
       input.priceCents,
       input.capacityLiters ?? 20,
       input.hasWater ? 1 : 0,
+      input.availabilityNote?.trim() || null,
     ]
   );
   return res.status(201).json(rows[0]);

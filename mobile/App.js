@@ -1,10 +1,13 @@
 import "react-native-gesture-handler";
 import React, {
   createContext,
+  memo,
   useCallback,
   useContext,
   useEffect,
+  useLayoutEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import {
@@ -18,7 +21,9 @@ import {
   ScrollView,
   Platform,
   ActivityIndicator,
+  Linking,
 } from "react-native";
+import NativeExplorerMap from "./NativeExplorerMap";
 import { StatusBar } from "expo-status-bar";
 import * as DocumentPicker from "expo-document-picker";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
@@ -31,6 +36,15 @@ import { Ionicons } from "@expo/vector-icons";
 const API_BASE_URL =
   process.env.EXPO_PUBLIC_API_URL ||
   "https://projetsportnature.onrender.com/api";
+
+/** Origine du serveur (fichiers statiques /uploads, sans /api). */
+const API_STATIC_ORIGIN = API_BASE_URL.replace(/\/api\/?$/i, "");
+
+function absoluteUploadUrl(path) {
+  if (!path) return null;
+  if (/^https?:\/\//i.test(path)) return path;
+  return `${API_STATIC_ORIGIN}${path.startsWith("/") ? "" : "/"}${path}`;
+}
 
 const theme = {
   bg: "#EEF4F0",
@@ -66,6 +80,129 @@ const AUTH_COLUMN =
   Platform.OS === "web"
     ? { maxWidth: 440, width: "100%", alignSelf: "center" }
     : {};
+
+/** Espace sous le contenu pour défiler au-delà de la barre d’onglets (surtout le web). */
+const TABBAR_SCROLL_PADDING = Platform.OS === "web" ? 120 : 48;
+
+let leafletDefaultIconsPatched = false;
+
+function patchLeafletDefaultIcons(L) {
+  if (leafletDefaultIconsPatched) return;
+  leafletDefaultIconsPatched = true;
+  delete L.Icon.Default.prototype._getIconUrl;
+  L.Icon.Default.mergeOptions({
+    iconUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png",
+    iconRetinaUrl:
+      "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png",
+    shadowUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png",
+  });
+}
+
+const LEAFLET_TRAIL_PATH_OPTIONS = {
+  color: "#0F766E",
+  weight: 4,
+  opacity: 0.85,
+};
+
+function escapeHtmlForLeafletPopup(text) {
+  return String(text ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+const LEAFLET_RN_WEB_STYLE_ID = "ravitobox-leaflet-tile-fix";
+
+function ensureLeafletRnWebTileStyles() {
+  if (Platform.OS !== "web" || typeof document === "undefined") return;
+  if (document.getElementById(LEAFLET_RN_WEB_STYLE_ID)) return;
+  const el = document.createElement("style");
+  el.id = LEAFLET_RN_WEB_STYLE_ID;
+  el.textContent = `
+    .leaflet-container img.leaflet-tile {
+      max-width: none !important;
+      max-height: none !important;
+    }
+    .leaflet-container img.leaflet-marker-icon,
+    .leaflet-container img.leaflet-marker-shadow {
+      max-width: none !important;
+    }
+  `;
+  document.head.appendChild(el);
+}
+
+function boxWaterLabel(box) {
+  const w = box.has_water;
+  return w === 1 || w === true || w === "1" ? "Oui" : "Non";
+}
+
+function truncateForPopup(text, max) {
+  const t = String(text ?? "").trim();
+  if (t.length <= max) return escapeHtmlForLeafletPopup(t);
+  return `${escapeHtmlForLeafletPopup(t.slice(0, max))}…`;
+}
+
+function buildBoxPopupHtml(box) {
+  const lines = [
+    `<strong>${escapeHtmlForLeafletPopup(box.title)}</strong>`,
+    `${escapeHtmlForLeafletPopup(box.city)} · ${(box.price_cents / 100).toFixed(
+      2
+    )} €`,
+  ];
+  if (box.distance_km != null) {
+    lines.push(`≈ ${Number(box.distance_km).toFixed(1)} km`);
+  }
+  lines.push(
+    '<hr style="border:none;border-top:1px solid #ccc;margin:6px 0"/>'
+  );
+  lines.push(
+    `Capacité : ${box.capacity_liters ?? "?"} L · Eau : ${boxWaterLabel(box)}`
+  );
+  lines.push(
+    "<em>Statut : box active — réservation par créneau ci-dessous.</em>"
+  );
+  if (box.description) {
+    lines.push(
+      `<span style="font-size:12px;color:#334155">${truncateForPopup(
+        box.description,
+        240
+      )}</span>`
+    );
+  }
+  if (box.availability_note) {
+    lines.push(
+      `<strong>Disponibilités / infos</strong><br/><span style="font-size:12px;color:#334155">${truncateForPopup(
+        box.availability_note,
+        320
+      )}</span>`
+    );
+  }
+  return lines.join("<br/>");
+}
+
+function buildTrailPopupHtml(trail, staticOrigin) {
+  const raw = trail.gpx_url;
+  const gpx =
+    raw && staticOrigin
+      ? `${staticOrigin}${raw.startsWith("/") ? "" : "/"}${raw}`
+      : null;
+  const gpxLine = gpx
+    ? `<a href="${escapeHtmlForLeafletPopup(
+        gpx
+      )}" download target="_blank" rel="noopener">Télécharger le GPX</a>`
+    : "<span style='font-size:12px'>GPX non disponible</span>";
+  return [
+    `<strong>${escapeHtmlForLeafletPopup(trail.name)}</strong>`,
+    `${escapeHtmlForLeafletPopup(trail.territory)} · ${
+      trail.distance_km
+    } km · D+ ${trail.elevation_m} m`,
+    `<span style="font-size:12px">${escapeHtmlForLeafletPopup(
+      DIFFICULTY_LABELS[trail.difficulty] || trail.difficulty
+    )}</span>`,
+    gpxLine,
+  ].join("<br/>");
+}
 
 const AuthUiContext = createContext(null);
 
@@ -110,8 +247,8 @@ async function apiFetch(path, { method = "GET", body, token } = {}) {
       typeof err === "string"
         ? err
         : err && typeof err === "object"
-          ? JSON.stringify(err)
-          : "Erreur réseau ou serveur";
+        ? JSON.stringify(err)
+        : "Erreur réseau ou serveur";
     throw new Error(msg);
   }
   return data;
@@ -209,6 +346,37 @@ function SecondaryButton({ label, onPress, icon }) {
 }
 
 export default function App() {
+  useEffect(() => {
+    if (Platform.OS !== "web" || typeof document === "undefined") return;
+    const { documentElement, body } = document;
+    const prev = {
+      htmlH: documentElement.style.height,
+      bodyH: body.style.height,
+      bodyM: body.style.margin,
+    };
+    documentElement.style.height = "100%";
+    body.style.minHeight = "100vh";
+    body.style.height = "100%";
+    body.style.margin = "0";
+    const root = document.getElementById("root");
+    if (root) {
+      root.style.flex = "1";
+      root.style.minHeight = "100vh";
+      root.style.height = "100%";
+    }
+    return () => {
+      documentElement.style.height = prev.htmlH;
+      body.style.height = prev.bodyH;
+      body.style.margin = prev.bodyM;
+      body.style.minHeight = "";
+      if (root) {
+        root.style.flex = "";
+        root.style.minHeight = "";
+        root.style.height = "";
+      }
+    };
+  }, []);
+
   const [token, setToken] = useState(null);
   const [refreshToken, setRefreshToken] = useState(null);
   const [user, setUser] = useState(null);
@@ -231,11 +399,13 @@ export default function App() {
   const [hostForm, setHostForm] = useState({
     title: "",
     description: "",
+    availabilityNote: "",
     latitude: "45.8992",
     longitude: "6.1294",
     city: "Annecy",
     priceCents: "700",
     capacityLiters: "20",
+    hasWater: true,
   });
   const [mapLat, setMapLat] = useState("45.8992");
   const [mapLon, setMapLon] = useState("6.1294");
@@ -256,10 +426,7 @@ export default function App() {
 
   const webMapCenter = selectedBox
     ? [selectedBox.latitude, selectedBox.longitude]
-    : [
-        parseFloat(mapLat) || 45.8992,
-        parseFloat(mapLon) || 6.1294,
-      ];
+    : [parseFloat(mapLat) || 45.8992, parseFloat(mapLon) || 6.1294];
 
   const register = useCallback(async () => {
     const name = fullName.trim();
@@ -526,94 +693,6 @@ export default function App() {
     }
   };
 
-  function WebInteractiveMap() {
-    if (Platform.OS !== "web") {
-      return (
-        <View style={styles.infoBanner}>
-          <Ionicons
-            name="information-circle-outline"
-            size={22}
-            color={theme.primary}
-            style={{ marginRight: 10 }}
-          />
-          <View style={{ flex: 1 }}>
-            <Text style={styles.infoBannerTitle}>Carte sur le web</Text>
-            <Text style={styles.infoBannerText}>
-              Sur mobile, la liste des box et les distances affichées
-              ci-dessous remplacent la carte interactive.
-            </Text>
-          </View>
-        </View>
-      );
-    }
-
-    // eslint-disable-next-line global-require
-    require("leaflet/dist/leaflet.css");
-    // eslint-disable-next-line global-require
-    const {
-      MapContainer,
-      TileLayer,
-      Marker,
-      Popup,
-      Polyline,
-    } = require("react-leaflet");
-
-    return (
-      <View style={styles.webMapWrapper}>
-        <MapContainer
-          center={webMapCenter}
-          zoom={12}
-          scrollWheelZoom
-          style={{ height: 420, width: "100%", borderRadius: 12 }}
-        >
-          <TileLayer
-            attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-            url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-          />
-          {trails.map((trail) => {
-            let positions = [];
-            try {
-              if (trail.polyline_json) {
-                positions = JSON.parse(trail.polyline_json);
-              }
-            } catch (_e) {
-              positions = [];
-            }
-            if (!positions.length) return null;
-            return (
-              <Polyline
-                key={`trail-line-${trail.id}`}
-                positions={positions}
-                pathOptions={{ color: "#0F766E", weight: 4, opacity: 0.85 }}
-              />
-            );
-          })}
-          {boxes.map((box) => (
-            <Marker
-              key={`map-${box.id}`}
-              position={[box.latitude, box.longitude]}
-              eventHandlers={{
-                click: () => setSelectedBoxId(box.id),
-              }}
-            >
-              <Popup>
-                <strong>{box.title}</strong>
-                <br />
-                {box.city} · {(box.price_cents / 100).toFixed(2)} €
-                {box.distance_km != null && (
-                  <>
-                    <br />
-                    ≈ {Number(box.distance_km).toFixed(1)} km
-                  </>
-                )}
-              </Popup>
-            </Marker>
-          ))}
-        </MapContainer>
-      </View>
-    );
-  }
-
   function ExplorerScreen() {
     useEffect(() => {
       loadTrails();
@@ -622,175 +701,243 @@ export default function App() {
       // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
+    const webSplit = Platform.OS === "web";
+
+    const explorerScrollContent = (
+      <>
+        <Section
+          title="Carte & hôtes"
+          subtitle={
+            canHost && !canBook
+              ? "Vue hôte : les athlètes réservent depuis leur compte."
+              : "Repère les box, les tracés GPX importés, et les hôtes les plus proches."
+          }
+          icon="map-outline"
+        >
+          <Text style={styles.inputLabel}>Centre carte (lat / lon)</Text>
+          <View style={styles.row}>
+            <TextInput
+              style={styles.inputHalf}
+              placeholder="Latitude"
+              placeholderTextColor={theme.inkMuted}
+              value={mapLat}
+              onChangeText={setMapLat}
+            />
+            <TextInput
+              style={styles.inputHalf}
+              placeholder="Longitude"
+              placeholderTextColor={theme.inkMuted}
+              value={mapLon}
+              onChangeText={setMapLon}
+            />
+          </View>
+          <PrimaryButton
+            label="Hôtes les plus proches"
+            icon="navigate-outline"
+            onPress={loadNearbyBoxes}
+          />
+          <Text style={styles.inputLabel}>Ou par ville</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="Ville"
+            placeholderTextColor={theme.inkMuted}
+            value={city}
+            onChangeText={setCity}
+          />
+          <SecondaryButton
+            label="Charger les box (ville)"
+            icon="refresh-outline"
+            onPress={loadBoxes}
+          />
+          <View style={styles.statBanner}>
+            <View style={styles.statBannerIcon}>
+              <Ionicons name="cube-outline" size={22} color={theme.primary} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.statBannerTitle}>
+                {boxes.length === 0
+                  ? "Aucune box chargée"
+                  : `${boxes.length} box affichée${
+                      boxes.length > 1 ? "s" : ""
+                    }`}
+              </Text>
+              <Text style={styles.statBannerText}>
+                {webSplit
+                  ? "Carte : fond CARTO + OSM, tracés verts, marqueurs. Clic = détail, offre et GPX."
+                  : "Charge une ville ou « Hôtes les plus proches ». Carte native : marqueurs et tracés."}
+              </Text>
+            </View>
+          </View>
+          {!webSplit ? (
+            <WebLeafletMap
+              center={webMapCenter}
+              boxes={boxes}
+              trails={trails}
+              onSelectBox={setSelectedBoxId}
+              inFixedPane={false}
+            />
+          ) : null}
+          {selectedBox ? (
+            <View style={styles.selectedHostCard}>
+              <Text style={styles.selectedLabel}>Box sélectionnée</Text>
+              <Text style={styles.cardTitle}>{selectedBox.title}</Text>
+              <Text style={styles.cardMeta}>
+                {selectedBox.city} ·{" "}
+                {(selectedBox.price_cents / 100).toFixed(2)} €
+                {selectedBox.distance_km != null && (
+                  <> · ≈ {Number(selectedBox.distance_km).toFixed(1)} km</>
+                )}
+              </Text>
+              {canBook ? (
+                <SecondaryButton
+                  label="Réserver ce box"
+                  icon="calendar-outline"
+                  onPress={() => bookBox(selectedBox.id)}
+                />
+              ) : (
+                <Text style={styles.roleHintOnlyHost}>
+                  Compte hôte : la réservation est faite par les athlètes.
+                </Text>
+              )}
+            </View>
+          ) : null}
+        </Section>
+
+        {canBook ? (
+          <>
+            <Section
+              title="Créneau & demande"
+              subtitle="Horaires et message optionnel pour l’hôte (allergies, groupe, etc.)."
+              icon="time-outline"
+            >
+              <View style={styles.row}>
+                <TextInput
+                  style={styles.inputHalf}
+                  placeholder="AAAA-MM-JJ"
+                  placeholderTextColor={theme.inkMuted}
+                  value={bookingDate}
+                  onChangeText={setBookingDate}
+                />
+                <TextInput
+                  style={styles.inputHalf}
+                  placeholder="Début"
+                  placeholderTextColor={theme.inkMuted}
+                  value={startTime}
+                  onChangeText={setStartTime}
+                />
+                <TextInput
+                  style={styles.inputHalf}
+                  placeholder="Fin"
+                  placeholderTextColor={theme.inkMuted}
+                  value={endTime}
+                  onChangeText={setEndTime}
+                />
+              </View>
+              <Text style={styles.inputLabel}>
+                Demande spéciale (optionnel)
+              </Text>
+              <TextInput
+                style={[styles.input, styles.textArea]}
+                placeholder="Ex. groupe de 4, sans gluten, besoin d’eau en bouteille…"
+                placeholderTextColor={theme.inkMuted}
+                value={specialRequest}
+                onChangeText={setSpecialRequest}
+                multiline
+              />
+            </Section>
+          </>
+        ) : null}
+
+        <Section title="Liste des box" icon="list-outline">
+          <FlatList
+            data={boxes}
+            scrollEnabled={false}
+            keyExtractor={(item) => `${item.id}`}
+            renderItem={({ item }) => (
+              <View style={styles.card}>
+                <View style={styles.cardAccent} />
+                <Text style={styles.cardTitle}>{item.title}</Text>
+                <Text style={styles.cardMeta}>
+                  {item.city} · {(item.price_cents / 100).toFixed(2)} €
+                  {item.distance_km != null &&
+                    ` · ≈ ${Number(item.distance_km).toFixed(1)} km`}
+                </Text>
+                <Text style={styles.cardDetailLine}>
+                  {item.capacity_liters ?? "?"} L · Eau : {boxWaterLabel(item)}
+                </Text>
+                {item.availability_note ? (
+                  <Text style={styles.cardAvailability} numberOfLines={2}>
+                    {item.availability_note}
+                  </Text>
+                ) : null}
+                <PrimaryButton
+                  label="Voir sur la carte"
+                  icon="location-outline"
+                  onPress={() => setSelectedBoxId(item.id)}
+                />
+                {canBook ? (
+                  <SecondaryButton
+                    label="Réserver"
+                    icon="checkmark-circle-outline"
+                    onPress={() => bookBox(item.id)}
+                  />
+                ) : null}
+              </View>
+            )}
+          />
+        </Section>
+      </>
+    );
+
+    if (webSplit) {
+      return (
+        <SafeAreaView style={styles.screen} edges={["left", "right"]}>
+          <View style={styles.explorerWebColumn}>
+            <ScrollView
+              style={styles.explorerWebScroll}
+              contentContainerStyle={[
+                styles.content,
+                WEB_READABLE,
+                { paddingBottom: 12 },
+              ]}
+              showsVerticalScrollIndicator
+              keyboardShouldPersistTaps="handled"
+            >
+              {explorerScrollContent}
+            </ScrollView>
+            <View style={styles.explorerWebMapHost}>
+              <Text style={styles.webMapPaneCaption}>
+                Carte — molette : zoom · glisser : déplacer
+              </Text>
+              <View style={styles.explorerWebMapInner}>
+                <WebLeafletMap
+                  center={webMapCenter}
+                  boxes={boxes}
+                  trails={trails}
+                  onSelectBox={setSelectedBoxId}
+                  staticOrigin={API_STATIC_ORIGIN}
+                  inFixedPane
+                />
+              </View>
+            </View>
+          </View>
+        </SafeAreaView>
+      );
+    }
+
     return (
       <SafeAreaView style={styles.screen} edges={["left", "right"]}>
         <ScrollView
-          contentContainerStyle={[styles.content, WEB_READABLE]}
+          style={styles.scrollFlex}
+          contentContainerStyle={[
+            styles.content,
+            WEB_READABLE,
+            { paddingBottom: TABBAR_SCROLL_PADDING },
+          ]}
           showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
         >
-          <Section
-            title="Carte & hôtes"
-            subtitle={
-              canHost && !canBook
-                ? "Vue hôte : les athlètes réservent depuis leur compte."
-                : "Repère les box, les tracés GPX importés, et les hôtes les plus proches."
-            }
-            icon="map-outline"
-          >
-            <Text style={styles.inputLabel}>Centre carte (lat / lon)</Text>
-            <View style={styles.row}>
-              <TextInput
-                style={styles.inputHalf}
-                placeholder="Latitude"
-                placeholderTextColor={theme.inkMuted}
-                value={mapLat}
-                onChangeText={setMapLat}
-              />
-              <TextInput
-                style={styles.inputHalf}
-                placeholder="Longitude"
-                placeholderTextColor={theme.inkMuted}
-                value={mapLon}
-                onChangeText={setMapLon}
-              />
-            </View>
-            <PrimaryButton
-              label="Hôtes les plus proches"
-              icon="navigate-outline"
-              onPress={loadNearbyBoxes}
-            />
-            <Text style={styles.inputLabel}>Ou par ville</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="Ville"
-              placeholderTextColor={theme.inkMuted}
-              value={city}
-              onChangeText={setCity}
-            />
-            <SecondaryButton
-              label="Charger les box (ville)"
-              icon="refresh-outline"
-              onPress={loadBoxes}
-            />
-            <View style={styles.statBanner}>
-              <View style={styles.statBannerIcon}>
-                <Ionicons name="cube-outline" size={22} color={theme.primary} />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.statBannerTitle}>
-                  {boxes.length === 0
-                    ? "Aucune box chargée"
-                    : `${boxes.length} box affichée${boxes.length > 1 ? "s" : ""}`}
-                </Text>
-                <Text style={styles.statBannerText}>
-                  Web : tracés verts + marqueurs box. Clique un marqueur pour le
-                  détail.
-                </Text>
-              </View>
-            </View>
-            <WebInteractiveMap />
-            {selectedBox ? (
-              <View style={styles.selectedHostCard}>
-                <Text style={styles.selectedLabel}>Box sélectionnée</Text>
-                <Text style={styles.cardTitle}>{selectedBox.title}</Text>
-                <Text style={styles.cardMeta}>
-                  {selectedBox.city} ·{" "}
-                  {(selectedBox.price_cents / 100).toFixed(2)} €
-                  {selectedBox.distance_km != null && (
-                    <>
-                      {" "}
-                      · ≈ {Number(selectedBox.distance_km).toFixed(1)} km
-                    </>
-                  )}
-                </Text>
-                {canBook ? (
-                  <SecondaryButton
-                    label="Réserver ce box"
-                    icon="calendar-outline"
-                    onPress={() => bookBox(selectedBox.id)}
-                  />
-                ) : (
-                  <Text style={styles.roleHintOnlyHost}>
-                    Compte hôte : la réservation est faite par les athlètes.
-                  </Text>
-                )}
-              </View>
-            ) : null}
-          </Section>
-
-          {canBook ? (
-            <>
-              <Section
-                title="Créneau & demande"
-                subtitle="Horaires et message optionnel pour l’hôte (allergies, groupe, etc.)."
-                icon="time-outline"
-              >
-                <View style={styles.row}>
-                  <TextInput
-                    style={styles.inputHalf}
-                    placeholder="AAAA-MM-JJ"
-                    placeholderTextColor={theme.inkMuted}
-                    value={bookingDate}
-                    onChangeText={setBookingDate}
-                  />
-                  <TextInput
-                    style={styles.inputHalf}
-                    placeholder="Début"
-                    placeholderTextColor={theme.inkMuted}
-                    value={startTime}
-                    onChangeText={setStartTime}
-                  />
-                  <TextInput
-                    style={styles.inputHalf}
-                    placeholder="Fin"
-                    placeholderTextColor={theme.inkMuted}
-                    value={endTime}
-                    onChangeText={setEndTime}
-                  />
-                </View>
-                <Text style={styles.inputLabel}>Demande spéciale (optionnel)</Text>
-                <TextInput
-                  style={[styles.input, styles.textArea]}
-                  placeholder="Ex. groupe de 4, sans gluten, besoin d’eau en bouteille…"
-                  placeholderTextColor={theme.inkMuted}
-                  value={specialRequest}
-                  onChangeText={setSpecialRequest}
-                  multiline
-                />
-              </Section>
-            </>
-          ) : null}
-
-          <Section title="Liste des box" icon="list-outline">
-            <FlatList
-              data={boxes}
-              scrollEnabled={false}
-              keyExtractor={(item) => `${item.id}`}
-              renderItem={({ item }) => (
-                <View style={styles.card}>
-                  <View style={styles.cardAccent} />
-                  <Text style={styles.cardTitle}>{item.title}</Text>
-                  <Text style={styles.cardMeta}>
-                    {item.city} · {(item.price_cents / 100).toFixed(2)} €
-                    {item.distance_km != null &&
-                      ` · ≈ ${Number(item.distance_km).toFixed(1)} km`}
-                  </Text>
-                  <PrimaryButton
-                    label="Voir sur la carte"
-                    icon="location-outline"
-                    onPress={() => setSelectedBoxId(item.id)}
-                  />
-                  {canBook ? (
-                    <SecondaryButton
-                      label="Réserver"
-                      icon="checkmark-circle-outline"
-                      onPress={() => bookBox(item.id)}
-                    />
-                  ) : null}
-                </View>
-              )}
-            />
-          </Section>
+          {explorerScrollContent}
         </ScrollView>
       </SafeAreaView>
     );
@@ -817,20 +964,23 @@ export default function App() {
     return (
       <SafeAreaView style={styles.screen} edges={["left", "right"]}>
         <ScrollView
-          contentContainerStyle={[styles.content, WEB_READABLE]}
-          showsVerticalScrollIndicator={false}
+          style={styles.scrollFlex}
+          contentContainerStyle={[
+            styles.content,
+            WEB_READABLE,
+            { paddingBottom: TABBAR_SCROLL_PADDING },
+          ]}
+          showsVerticalScrollIndicator={Platform.OS === "web"}
+          keyboardShouldPersistTaps="handled"
         >
           <Section
             title="Traces locales"
-            subtitle="Athlètes et hôtes : importez vos GPX. Elles apparaissent sur la carte (web)."
+            subtitle="Athlètes et hôtes : importez vos GPX. Tracés visibles sur la carte (web et appli)."
             icon="footsteps-outline"
           >
             {Platform.OS === "web" ? (
               <View
-                style={[
-                  styles.dropZone,
-                  webDropHover && styles.dropZoneActive,
-                ]}
+                style={[styles.dropZone, webDropHover && styles.dropZoneActive]}
                 {...webDropProps}
               >
                 <Ionicons
@@ -902,6 +1052,15 @@ export default function App() {
                       {DIFFICULTY_LABELS[trail.difficulty] || trail.difficulty}
                     </Text>
                   </View>
+                  {absoluteUploadUrl(trail.gpx_url) ? (
+                    <SecondaryButton
+                      label="Ouvrir / télécharger GPX"
+                      icon="download-outline"
+                      onPress={() =>
+                        Linking.openURL(absoluteUploadUrl(trail.gpx_url))
+                      }
+                    />
+                  ) : null}
                 </View>
               );
             })}
@@ -919,8 +1078,14 @@ export default function App() {
     return (
       <SafeAreaView style={styles.screen} edges={["left", "right"]}>
         <ScrollView
-          contentContainerStyle={[styles.content, WEB_READABLE]}
-          showsVerticalScrollIndicator={false}
+          style={styles.scrollFlex}
+          contentContainerStyle={[
+            styles.content,
+            WEB_READABLE,
+            { paddingBottom: TABBAR_SCROLL_PADDING },
+          ]}
+          showsVerticalScrollIndicator={Platform.OS === "web"}
+          keyboardShouldPersistTaps="handled"
         >
           <Section
             title="Publier un box"
@@ -1018,8 +1183,14 @@ export default function App() {
     return (
       <SafeAreaView style={styles.screen} edges={["left", "right"]}>
         <ScrollView
-          contentContainerStyle={[styles.content, WEB_READABLE]}
-          showsVerticalScrollIndicator={false}
+          style={styles.scrollFlex}
+          contentContainerStyle={[
+            styles.content,
+            WEB_READABLE,
+            { paddingBottom: TABBAR_SCROLL_PADDING },
+          ]}
+          showsVerticalScrollIndicator={Platform.OS === "web"}
+          keyboardShouldPersistTaps="handled"
         >
           <Section
             title="Mon profil"
@@ -1058,6 +1229,7 @@ export default function App() {
     return (
       <Tab.Navigator
         screenOptions={({ route }) => ({
+          sceneStyle: { flex: 1 },
           headerStyle: {
             backgroundColor: theme.hero,
             shadowOpacity: 0,
@@ -1133,16 +1305,7 @@ export default function App() {
       register,
       login,
     }),
-    [
-      authMode,
-      email,
-      password,
-      fullName,
-      role,
-      authLoading,
-      register,
-      login,
-    ]
+    [authMode, email, password, fullName, role, authLoading, register, login]
   );
 
   return (
@@ -1172,6 +1335,39 @@ const styles = StyleSheet.create({
   content: {
     padding: 16,
     paddingBottom: 28,
+  },
+  scrollFlex: {
+    flex: 1,
+  },
+  explorerWebColumn: {
+    flex: 1,
+    minHeight: 0,
+    flexDirection: "column",
+  },
+  explorerWebScroll: {
+    flex: 1,
+    minHeight: 0,
+  },
+  explorerWebMapHost: {
+    flexShrink: 0,
+    height: 336,
+    borderTopWidth: 1,
+    borderTopColor: theme.border,
+    backgroundColor: theme.surface,
+  },
+  explorerWebMapInner: {
+    flex: 1,
+    minHeight: 0,
+    marginHorizontal: 12,
+    marginBottom: 8,
+  },
+  webMapPaneCaption: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: theme.inkMuted,
+    paddingHorizontal: 16,
+    paddingTop: 8,
+    paddingBottom: 4,
   },
   authScrollContent: {
     flexGrow: 1,
@@ -1519,6 +1715,11 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: theme.border,
   },
+  webMapWrapperPane: {
+    flex: 1,
+    marginTop: 0,
+    minHeight: 0,
+  },
   selectedHostCard: {
     marginTop: 14,
     backgroundColor: theme.infoBg,
@@ -1678,6 +1879,169 @@ const styles = StyleSheet.create({
   },
 });
 
+/** Leaflet en impératif (pas react-leaflet) : une seule L.map, couches mises à jour sans remonter la carte. */
+const WebLeafletMap = memo(function WebLeafletMap({
+  center,
+  boxes,
+  trails,
+  onSelectBox,
+  staticOrigin,
+  inFixedPane = false,
+}) {
+  const containerRef = useRef(null);
+  const mapRef = useRef(null);
+  const layersRef = useRef(null);
+
+  const mapStyle = useMemo(
+    () =>
+      inFixedPane
+        ? { height: "100%", width: "100%", minHeight: 200, borderRadius: 12 }
+        : { height: 420, width: "100%", borderRadius: 12 },
+    [inFixedPane]
+  );
+
+  useLayoutEffect(() => {
+    if (Platform.OS !== "web") return undefined;
+    const el = containerRef.current;
+    if (!el) return undefined;
+
+    ensureLeafletRnWebTileStyles();
+
+    // eslint-disable-next-line global-require
+    const L = require("leaflet");
+    // eslint-disable-next-line global-require
+    require("leaflet/dist/leaflet.css");
+    patchLeafletDefaultIcons(L);
+
+    const map = L.map(el, {
+      scrollWheelZoom: true,
+      zoomControl: true,
+    }).setView(center, 12);
+
+    const carto = L.tileLayer(
+      "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png",
+      {
+        attribution:
+          '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions/">CARTO</a>',
+        subdomains: "abcd",
+        maxZoom: 20,
+      }
+    );
+    carto.addTo(map);
+    let switchedToOsm = false;
+    carto.on("tileerror", () => {
+      if (switchedToOsm) return;
+      switchedToOsm = true;
+      map.removeLayer(carto);
+      L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        attribution:
+          '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+        maxZoom: 19,
+      }).addTo(map);
+    });
+
+    const layerGroup = L.layerGroup().addTo(map);
+    mapRef.current = map;
+    layersRef.current = layerGroup;
+
+    const ro = new ResizeObserver(() => {
+      map.invalidateSize();
+    });
+    ro.observe(el);
+    requestAnimationFrame(() => map.invalidateSize());
+
+    return () => {
+      ro.disconnect();
+      map.remove();
+      mapRef.current = null;
+      layersRef.current = null;
+    };
+  }, [inFixedPane]);
+
+  useEffect(() => {
+    if (Platform.OS !== "web" || !mapRef.current) return;
+    const map = mapRef.current;
+    // eslint-disable-next-line global-require
+    const L = require("leaflet");
+    const next = L.latLng(center[0], center[1]);
+    const cur = map.getCenter();
+    if (
+      Math.abs(cur.lat - next.lat) > 1e-7 ||
+      Math.abs(cur.lng - next.lng) > 1e-7
+    ) {
+      map.setView(next, map.getZoom(), { animate: false });
+    }
+  }, [center[0], center[1]]);
+
+  useEffect(() => {
+    if (Platform.OS !== "web" || !layersRef.current) return;
+    // eslint-disable-next-line global-require
+    const L = require("leaflet");
+    const group = layersRef.current;
+    group.clearLayers();
+
+    trails.forEach((trail) => {
+      let positions = [];
+      try {
+        if (trail.polyline_json) {
+          positions = JSON.parse(trail.polyline_json);
+        }
+      } catch (_e) {
+        positions = [];
+      }
+      if (positions.length) {
+        const line = L.polyline(positions, LEAFLET_TRAIL_PATH_OPTIONS);
+        if (staticOrigin) {
+          line.bindPopup(buildTrailPopupHtml(trail, staticOrigin));
+        }
+        line.addTo(group);
+      }
+    });
+
+    boxes.forEach((box) => {
+      const marker = L.marker([box.latitude, box.longitude]);
+      marker.on("click", () => onSelectBox(box.id));
+      marker.bindPopup(buildBoxPopupHtml(box));
+      marker.addTo(group);
+    });
+  }, [boxes, trails, onSelectBox, staticOrigin]);
+
+  if (Platform.OS !== "web") {
+    return (
+      <View style={styles.infoBanner}>
+        <Ionicons
+          name="information-circle-outline"
+          size={22}
+          color={theme.primary}
+          style={{ marginRight: 10 }}
+        />
+        <View style={{ flex: 1 }}>
+          <Text style={styles.infoBannerTitle}>Carte sur le web</Text>
+          <Text style={styles.infoBannerText}>
+            Sur mobile, la liste des box et les distances affichées ci-dessous
+            remplacent la carte interactive.
+          </Text>
+        </View>
+      </View>
+    );
+  }
+
+  return (
+    <View
+      style={[
+        styles.webMapWrapper,
+        inFixedPane ? styles.webMapWrapperPane : null,
+      ]}
+    >
+      <View
+        ref={containerRef}
+        collapsable={false}
+        style={[mapStyle, { backgroundColor: "#e8efe9" }]}
+      />
+    </View>
+  );
+});
+
 function AuthScreen() {
   const ctx = useContext(AuthUiContext);
   if (!ctx) return null;
@@ -1728,9 +2092,7 @@ function AuthScreen() {
                 <Ionicons name="leaf" size={26} color={theme.heroAccent} />
               </View>
               <View style={styles.heroTitleBlock}>
-                <Text style={styles.heroKicker}>
-                  Outdoor & ravitaillement
-                </Text>
+                <Text style={styles.heroKicker}>Outdoor & ravitaillement</Text>
                 <Text style={styles.heroTitle}>RavitoBox</Text>
               </View>
             </View>

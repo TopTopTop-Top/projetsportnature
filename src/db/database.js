@@ -105,6 +105,9 @@ async function migrate() {
     await client.query(
       `ALTER TABLE bookings ADD COLUMN IF NOT EXISTS special_request TEXT`
     );
+    await client.query(
+      `ALTER TABLE boxes ADD COLUMN IF NOT EXISTS availability_note TEXT`
+    );
 
     await client.query("COMMIT");
     console.log("Migration PostgreSQL OK");
