@@ -793,7 +793,7 @@ export default function App() {
                 Carte — molette : zoom · glisser : déplacer
               </Text>
               <View style={styles.explorerWebMapInner}>
-                <WebLeafletMap
+                <ExplorerWebMap
                   center={webMapCenter}
                   boxes={boxes}
                   trails={trails}
