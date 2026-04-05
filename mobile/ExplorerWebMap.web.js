@@ -6,18 +6,46 @@ import React, {
   useRef,
   useState,
 } from "react";
-import { View, Text, Platform, StyleSheet } from "react-native";
-import maplibregl from "maplibre-gl";
-import "maplibre-gl/dist/maplibre-gl.css";
+import {
+  View,
+  Text,
+  Platform,
+  StyleSheet,
+  ActivityIndicator,
+} from "react-native";
 
 const CARTO_VOYAGER_STYLE =
   "https://basemaps.cartocdn.com/gl/voyager-gl-style/style.json";
+
+const MAPLIBRE_CSS_CDN =
+  "https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css";
 
 const DIFFICULTY_LABELS = {
   easy: "Facile",
   medium: "Modéré",
   hard: "Difficile",
 };
+
+function ensureMaplibreCss() {
+  if (typeof document === "undefined") return;
+  const id = "ravitobox-maplibre-css";
+  if (document.getElementById(id)) return;
+  const link = document.createElement("link");
+  link.id = id;
+  link.rel = "stylesheet";
+  link.href = MAPLIBRE_CSS_CDN;
+  document.head.appendChild(link);
+}
+
+async function loadMaplibreGl() {
+  try {
+    await import("maplibre-gl/dist/maplibre-gl.css");
+  } catch (_e) {
+    ensureMaplibreCss();
+  }
+  const mod = await import("maplibre-gl");
+  return mod.default;
+}
 
 function escapeHtml(text) {
   return String(text ?? "")
@@ -150,8 +178,11 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
   staticOriginRef.current = staticOrigin;
   const onSelectBoxRef = useRef(onSelectBox);
   onSelectBoxRef.current = onSelectBox;
+  const centerRef = useRef(center);
+  centerRef.current = center;
 
   const [mapError, setMapError] = useState(null);
+  const [mapLoading, setMapLoading] = useState(true);
 
   const mapStyle = useMemo(
     () =>
@@ -166,158 +197,191 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
     const el = containerRef.current;
     if (!el) return undefined;
 
-    if (!maplibregl.supported()) {
-      setMapError("WebGL indisponible sur ce navigateur.");
-      return undefined;
-    }
+    let cancelled = false;
+    let ro = null;
 
     setMapError(null);
+    setMapLoading(true);
 
-    const map = new maplibregl.Map({
-      container: el,
-      style: CARTO_VOYAGER_STYLE,
-      center: [center[1], center[0]],
-      zoom: 12,
-      attributionControl: true,
-    });
-
-    map.addControl(new maplibregl.NavigationControl(), "top-left");
-
-    const showPopup = (html, lngLat) => {
-      popupRef.current?.remove();
-      popupRef.current = new maplibregl.Popup({
-        offset: 14,
-        closeButton: true,
-        maxWidth: "320px",
-      })
-        .setLngLat(lngLat)
-        .setHTML(html)
-        .addTo(map);
-    };
-
-    const onMapError = (e) => {
-      const msg = e?.error?.message || "Erreur de chargement de la carte";
-      setMapError(msg);
-    };
-    map.on("error", onMapError);
-
-    map.on("load", () => {
-      map.addSource("trails", {
-        type: "geojson",
-        data: trailsGeoJSON([]),
-      });
-      map.addLayer({
-        id: "trails-line",
-        type: "line",
-        source: "trails",
-        layout: { "line-cap": "round", "line-join": "round" },
-        paint: {
-          "line-color": "#0F766E",
-          "line-width": 4,
-          "line-opacity": 0.88,
-        },
-      });
-      map.addLayer({
-        id: "trails-hit",
-        type: "line",
-        source: "trails",
-        layout: { "line-cap": "round", "line-join": "round" },
-        paint: {
-          "line-color": "#000",
-          "line-opacity": 0,
-          "line-width": 14,
-        },
-      });
-
-      map.addSource("boxes", {
-        type: "geojson",
-        data: boxesGeoJSON([]),
-      });
-      map.addLayer({
-        id: "boxes-circle",
-        type: "circle",
-        source: "boxes",
-        paint: {
-          "circle-radius": 9,
-          "circle-color": "#0F766E",
-          "circle-stroke-width": 2,
-          "circle-stroke-color": "#ffffff",
-        },
-      });
-
-      map.on("mouseenter", "boxes-circle", () => {
-        map.getCanvas().style.cursor = "pointer";
-      });
-      map.on("mouseleave", "boxes-circle", () => {
-        map.getCanvas().style.cursor = "";
-      });
-      map.on("mouseenter", "trails-hit", () => {
-        map.getCanvas().style.cursor = "pointer";
-      });
-      map.on("mouseleave", "trails-hit", () => {
-        map.getCanvas().style.cursor = "";
-      });
-
-      map.on("click", "boxes-circle", (e) => {
-        const f = e.features?.[0];
-        if (!f?.properties?.boxJson) return;
-        try {
-          const box = JSON.parse(f.properties.boxJson);
-          onSelectBoxRef.current?.(box.id);
-          showPopup(buildBoxPopupHtml(box), e.lngLat);
-        } catch (_err) {
-          /* ignore */
-        }
-      });
-
-      map.on("click", "trails-hit", (e) => {
-        const f = e.features?.[0];
-        if (!f?.properties?.trailJson) return;
-        try {
-          const trail = JSON.parse(f.properties.trailJson);
-          showPopup(
-            buildTrailPopupHtml(trail, staticOriginRef.current),
-            e.lngLat
-          );
-        } catch (_err) {
-          /* ignore */
-        }
-      });
-
-      map.on("click", (evt) => {
-        const feats = map.queryRenderedFeatures(evt.point, {
-          layers: ["boxes-circle", "trails-hit"],
-        });
-        if (!feats.length) {
-          popupRef.current?.remove();
-          popupRef.current = null;
-        }
-      });
-
+    (async () => {
       try {
-        map.getSource("trails").setData(trailsGeoJSON(trailsRef.current));
-        map.getSource("boxes").setData(boxesGeoJSON(boxesRef.current));
-      } catch (_e) {
-        /* ignore */
+        const maplibregl = await loadMaplibreGl();
+        if (cancelled || containerRef.current !== el) return;
+
+        if (!maplibregl.supported()) {
+          setMapError("WebGL indisponible sur ce navigateur.");
+          setMapLoading(false);
+          return;
+        }
+
+        const c = centerRef.current;
+        const map = new maplibregl.Map({
+          container: el,
+          style: CARTO_VOYAGER_STYLE,
+          center: [c[1], c[0]],
+          zoom: 12,
+          attributionControl: true,
+        });
+
+        map.addControl(new maplibregl.NavigationControl(), "top-left");
+
+        const showPopup = (html, lngLat) => {
+          popupRef.current?.remove();
+          popupRef.current = new maplibregl.Popup({
+            offset: 14,
+            closeButton: true,
+            maxWidth: "320px",
+          })
+            .setLngLat(lngLat)
+            .setHTML(html)
+            .addTo(map);
+        };
+
+        const onMapError = (e) => {
+          const msg = e?.error?.message || "Erreur de chargement de la carte";
+          if (!cancelled) setMapError(msg);
+        };
+        map.on("error", onMapError);
+
+        map.on("load", () => {
+          if (cancelled) return;
+          map.addSource("trails", {
+            type: "geojson",
+            data: trailsGeoJSON([]),
+          });
+          map.addLayer({
+            id: "trails-line",
+            type: "line",
+            source: "trails",
+            layout: { "line-cap": "round", "line-join": "round" },
+            paint: {
+              "line-color": "#0F766E",
+              "line-width": 4,
+              "line-opacity": 0.88,
+            },
+          });
+          map.addLayer({
+            id: "trails-hit",
+            type: "line",
+            source: "trails",
+            layout: { "line-cap": "round", "line-join": "round" },
+            paint: {
+              "line-color": "#000",
+              "line-opacity": 0,
+              "line-width": 14,
+            },
+          });
+
+          map.addSource("boxes", {
+            type: "geojson",
+            data: boxesGeoJSON([]),
+          });
+          map.addLayer({
+            id: "boxes-circle",
+            type: "circle",
+            source: "boxes",
+            paint: {
+              "circle-radius": 9,
+              "circle-color": "#0F766E",
+              "circle-stroke-width": 2,
+              "circle-stroke-color": "#ffffff",
+            },
+          });
+
+          map.on("mouseenter", "boxes-circle", () => {
+            map.getCanvas().style.cursor = "pointer";
+          });
+          map.on("mouseleave", "boxes-circle", () => {
+            map.getCanvas().style.cursor = "";
+          });
+          map.on("mouseenter", "trails-hit", () => {
+            map.getCanvas().style.cursor = "pointer";
+          });
+          map.on("mouseleave", "trails-hit", () => {
+            map.getCanvas().style.cursor = "";
+          });
+
+          map.on("click", "boxes-circle", (e) => {
+            const f = e.features?.[0];
+            if (!f?.properties?.boxJson) return;
+            try {
+              const box = JSON.parse(f.properties.boxJson);
+              onSelectBoxRef.current?.(box.id);
+              showPopup(buildBoxPopupHtml(box), e.lngLat);
+            } catch (_err) {
+              /* ignore */
+            }
+          });
+
+          map.on("click", "trails-hit", (e) => {
+            const f = e.features?.[0];
+            if (!f?.properties?.trailJson) return;
+            try {
+              const trail = JSON.parse(f.properties.trailJson);
+              showPopup(
+                buildTrailPopupHtml(trail, staticOriginRef.current),
+                e.lngLat
+              );
+            } catch (_err) {
+              /* ignore */
+            }
+          });
+
+          map.on("click", (evt) => {
+            const feats = map.queryRenderedFeatures(evt.point, {
+              layers: ["boxes-circle", "trails-hit"],
+            });
+            if (!feats.length) {
+              popupRef.current?.remove();
+              popupRef.current = null;
+            }
+          });
+
+          try {
+            map.getSource("trails").setData(trailsGeoJSON(trailsRef.current));
+            map.getSource("boxes").setData(boxesGeoJSON(boxesRef.current));
+          } catch (_e) {
+            /* ignore */
+          }
+        });
+
+        mapRef.current = map;
+
+        ro = new ResizeObserver(() => {
+          map.resize();
+        });
+        ro.observe(el);
+        requestAnimationFrame(() => map.resize());
+
+        if (!cancelled) setMapLoading(false);
+      } catch (err) {
+        if (!cancelled) {
+          setMapError(
+            err?.message
+              ? String(err.message)
+              : "Impossible de charger le moteur de carte."
+          );
+          setMapLoading(false);
+        }
       }
-    });
-
-    mapRef.current = map;
-
-    const ro = new ResizeObserver(() => {
-      map.resize();
-    });
-    ro.observe(el);
-    requestAnimationFrame(() => map.resize());
+    })();
 
     return () => {
-      ro.disconnect();
-      map.off("error", onMapError);
+      cancelled = true;
+      ro?.disconnect();
+      const m = mapRef.current;
+      if (m) {
+        try {
+          m.remove();
+        } catch (_e) {
+          /* ignore */
+        }
+      }
+      mapRef.current = null;
       popupRef.current?.remove();
       popupRef.current = null;
-      map.remove();
-      mapRef.current = null;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- recentrage via useEffect dédié
   }, [inFixedPane]);
 
   useEffect(() => {
@@ -347,21 +411,28 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
 
   return (
     <View style={[styles.wrapper, inFixedPane ? styles.wrapperPane : null]}>
-      {mapError ? (
-        <View style={[styles.fallback, mapStyle]}>
-          <Text style={styles.fallbackTitle}>Carte</Text>
-          <Text style={styles.fallbackText}>{mapError}</Text>
-        </View>
-      ) : null}
-      <View
-        ref={containerRef}
-        collapsable={false}
-        style={[
-          mapStyle,
-          { backgroundColor: "#e8efe9" },
-          mapError ? { height: 0, minHeight: 0, overflow: "hidden" } : null,
-        ]}
-      />
+      <View style={[styles.mapHost, mapStyle]}>
+        <View
+          ref={containerRef}
+          collapsable={false}
+          style={[
+            StyleSheet.absoluteFillObject,
+            { backgroundColor: "#e8efe9" },
+          ]}
+        />
+        {mapLoading && !mapError ? (
+          <View style={[StyleSheet.absoluteFillObject, styles.loadingOverlay]}>
+            <ActivityIndicator size="large" color="#0F766E" />
+            <Text style={styles.loadingText}>Chargement de la carte…</Text>
+          </View>
+        ) : null}
+        {mapError ? (
+          <View style={[StyleSheet.absoluteFillObject, styles.errorOverlay]}>
+            <Text style={styles.fallbackTitle}>Carte</Text>
+            <Text style={styles.fallbackText}>{mapError}</Text>
+          </View>
+        ) : null}
+      </View>
     </View>
   );
 });
@@ -382,6 +453,17 @@ const styles = StyleSheet.create({
   mapHost: {
     position: "relative",
     overflow: "hidden",
+  },
+  loadingOverlay: {
+    backgroundColor: "rgba(238, 244, 240, 0.92)",
+    justifyContent: "center",
+    alignItems: "center",
+    zIndex: 1,
+  },
+  loadingText: {
+    marginTop: 10,
+    fontSize: 14,
+    color: "#5C6F66",
   },
   errorOverlay: {
     backgroundColor: "rgba(238, 244, 240, 0.96)",

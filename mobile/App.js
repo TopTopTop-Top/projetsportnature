@@ -1,6 +1,8 @@
 import "react-native-gesture-handler";
 import React, {
   createContext,
+  Suspense,
+  lazy,
   useCallback,
   useContext,
   useEffect,
@@ -22,7 +24,8 @@ import {
   Linking,
 } from "react-native";
 import NativeExplorerMap from "./NativeExplorerMap";
-import ExplorerWebMap from "./ExplorerWebMap";
+
+const ExplorerWebMap = lazy(() => import("./ExplorerWebMap"));
 import { StatusBar } from "expo-status-bar";
 import * as DocumentPicker from "expo-document-picker";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
@@ -82,6 +85,58 @@ const AUTH_COLUMN =
 
 /** Espace sous le contenu pour défiler au-delà de la barre d’onglets (surtout le web). */
 const TABBAR_SCROLL_PADDING = Platform.OS === "web" ? 120 : 48;
+
+class RootErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { error: null };
+  }
+
+  static getDerivedStateFromError(error) {
+    return { error };
+  }
+
+  render() {
+    if (this.state.error) {
+      const msg = String(
+        this.state.error?.message || this.state.error || "Erreur"
+      );
+      return (
+        <View
+          style={{
+            flex: 1,
+            padding: 24,
+            justifyContent: "center",
+            backgroundColor: theme.bg,
+          }}
+        >
+          <Text style={{ fontSize: 20, fontWeight: "800", marginBottom: 8 }}>
+            RavitoBox
+          </Text>
+          <Text style={{ color: theme.inkMuted, marginBottom: 12 }}>
+            Une erreur a empêché l’affichage de l’application.
+          </Text>
+          <Text
+            style={{ fontSize: 13, color: "#991B1B", marginBottom: 20 }}
+            selectable
+          >
+            {msg}
+          </Text>
+          {Platform.OS === "web" ? (
+            <TouchableOpacity
+              onPress={() => globalThis.location?.reload?.()}
+              style={[styles.primaryButton, { alignSelf: "flex-start" }]}
+              activeOpacity={0.85}
+            >
+              <Text style={styles.primaryButtonText}>Recharger la page</Text>
+            </TouchableOpacity>
+          ) : null}
+        </View>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 function boxWaterLabel(box) {
   const w = box.has_water;
@@ -793,14 +848,40 @@ export default function App() {
                 Carte — molette : zoom · glisser : déplacer
               </Text>
               <View style={styles.explorerWebMapInner}>
-                <ExplorerWebMap
-                  center={webMapCenter}
-                  boxes={boxes}
-                  trails={trails}
-                  onSelectBox={setSelectedBoxId}
-                  staticOrigin={API_STATIC_ORIGIN}
-                  inFixedPane
-                />
+                <Suspense
+                  fallback={
+                    <View
+                      style={{
+                        flex: 1,
+                        minHeight: 200,
+                        justifyContent: "center",
+                        alignItems: "center",
+                        backgroundColor: "#e8efe9",
+                        borderRadius: 12,
+                      }}
+                    >
+                      <ActivityIndicator size="large" color={theme.primary} />
+                      <Text
+                        style={{
+                          marginTop: 10,
+                          fontSize: 14,
+                          color: theme.inkMuted,
+                        }}
+                      >
+                        Préparation de la carte…
+                      </Text>
+                    </View>
+                  }
+                >
+                  <ExplorerWebMap
+                    center={webMapCenter}
+                    boxes={boxes}
+                    trails={trails}
+                    onSelectBox={setSelectedBoxId}
+                    staticOrigin={API_STATIC_ORIGIN}
+                    inFixedPane
+                  />
+                </Suspense>
               </View>
             </View>
           </View>
