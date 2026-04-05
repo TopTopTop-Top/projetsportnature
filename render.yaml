@@ -21,3 +21,5 @@ services:
     envVars:
       - key: EXPO_PUBLIC_API_URL
         value: https://projetsportnature.onrender.com/api
+      - key: EXPO_NO_BUNDLE_SPLITTING
+        value: "1"

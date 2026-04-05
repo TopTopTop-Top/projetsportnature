@@ -1,8 +1,6 @@
 import "react-native-gesture-handler";
 import React, {
   createContext,
-  Suspense,
-  lazy,
   useCallback,
   useContext,
   useEffect,
@@ -848,40 +846,14 @@ export default function App() {
                 Carte — molette : zoom · glisser : déplacer
               </Text>
               <View style={styles.explorerWebMapInner}>
-                <Suspense
-                  fallback={
-                    <View
-                      style={{
-                        flex: 1,
-                        minHeight: 200,
-                        justifyContent: "center",
-                        alignItems: "center",
-                        backgroundColor: "#e8efe9",
-                        borderRadius: 12,
-                      }}
-                    >
-                      <ActivityIndicator size="large" color={theme.primary} />
-                      <Text
-                        style={{
-                          marginTop: 10,
-                          fontSize: 14,
-                          color: theme.inkMuted,
-                        }}
-                      >
-                        Préparation de la carte…
-                      </Text>
-                    </View>
-                  }
-                >
-                  <ExplorerWebMap
-                    center={webMapCenter}
-                    boxes={boxes}
-                    trails={trails}
-                    onSelectBox={setSelectedBoxId}
-                    staticOrigin={API_STATIC_ORIGIN}
-                    inFixedPane
-                  />
-                </Suspense>
+                <ExplorerWebMap
+                  center={webMapCenter}
+                  boxes={boxes}
+                  trails={trails}
+                  onSelectBox={setSelectedBoxId}
+                  staticOrigin={API_STATIC_ORIGIN}
+                  inFixedPane
+                />
               </View>
             </View>
           </View>
