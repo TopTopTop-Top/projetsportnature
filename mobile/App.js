@@ -1,11 +1,9 @@
 import "react-native-gesture-handler";
 import React, {
   createContext,
-  memo,
   useCallback,
   useContext,
   useEffect,
-  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -24,6 +22,7 @@ import {
   Linking,
 } from "react-native";
 import NativeExplorerMap from "./NativeExplorerMap";
+import ExplorerWebMap from "./ExplorerWebMap";
 import { StatusBar } from "expo-status-bar";
 import * as DocumentPicker from "expo-document-picker";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
@@ -84,124 +83,9 @@ const AUTH_COLUMN =
 /** Espace sous le contenu pour défiler au-delà de la barre d’onglets (surtout le web). */
 const TABBAR_SCROLL_PADDING = Platform.OS === "web" ? 120 : 48;
 
-let leafletDefaultIconsPatched = false;
-
-function patchLeafletDefaultIcons(L) {
-  if (leafletDefaultIconsPatched) return;
-  leafletDefaultIconsPatched = true;
-  delete L.Icon.Default.prototype._getIconUrl;
-  L.Icon.Default.mergeOptions({
-    iconUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png",
-    iconRetinaUrl:
-      "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png",
-    shadowUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png",
-  });
-}
-
-const LEAFLET_TRAIL_PATH_OPTIONS = {
-  color: "#0F766E",
-  weight: 4,
-  opacity: 0.85,
-};
-
-function escapeHtmlForLeafletPopup(text) {
-  return String(text ?? "")
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
-}
-
-const LEAFLET_RN_WEB_STYLE_ID = "ravitobox-leaflet-tile-fix";
-
-function ensureLeafletRnWebTileStyles() {
-  if (Platform.OS !== "web" || typeof document === "undefined") return;
-  if (document.getElementById(LEAFLET_RN_WEB_STYLE_ID)) return;
-  const el = document.createElement("style");
-  el.id = LEAFLET_RN_WEB_STYLE_ID;
-  el.textContent = `
-    .leaflet-container img.leaflet-tile {
-      max-width: none !important;
-      max-height: none !important;
-    }
-    .leaflet-container img.leaflet-marker-icon,
-    .leaflet-container img.leaflet-marker-shadow {
-      max-width: none !important;
-    }
-  `;
-  document.head.appendChild(el);
-}
-
 function boxWaterLabel(box) {
   const w = box.has_water;
   return w === 1 || w === true || w === "1" ? "Oui" : "Non";
-}
-
-function truncateForPopup(text, max) {
-  const t = String(text ?? "").trim();
-  if (t.length <= max) return escapeHtmlForLeafletPopup(t);
-  return `${escapeHtmlForLeafletPopup(t.slice(0, max))}…`;
-}
-
-function buildBoxPopupHtml(box) {
-  const lines = [
-    `<strong>${escapeHtmlForLeafletPopup(box.title)}</strong>`,
-    `${escapeHtmlForLeafletPopup(box.city)} · ${(box.price_cents / 100).toFixed(
-      2
-    )} €`,
-  ];
-  if (box.distance_km != null) {
-    lines.push(`≈ ${Number(box.distance_km).toFixed(1)} km`);
-  }
-  lines.push(
-    '<hr style="border:none;border-top:1px solid #ccc;margin:6px 0"/>'
-  );
-  lines.push(
-    `Capacité : ${box.capacity_liters ?? "?"} L · Eau : ${boxWaterLabel(box)}`
-  );
-  lines.push(
-    "<em>Statut : box active — réservation par créneau ci-dessous.</em>"
-  );
-  if (box.description) {
-    lines.push(
-      `<span style="font-size:12px;color:#334155">${truncateForPopup(
-        box.description,
-        240
-      )}</span>`
-    );
-  }
-  if (box.availability_note) {
-    lines.push(
-      `<strong>Disponibilités / infos</strong><br/><span style="font-size:12px;color:#334155">${truncateForPopup(
-        box.availability_note,
-        320
-      )}</span>`
-    );
-  }
-  return lines.join("<br/>");
-}
-
-function buildTrailPopupHtml(trail, staticOrigin) {
-  const raw = trail.gpx_url;
-  const gpx =
-    raw && staticOrigin
-      ? `${staticOrigin}${raw.startsWith("/") ? "" : "/"}${raw}`
-      : null;
-  const gpxLine = gpx
-    ? `<a href="${escapeHtmlForLeafletPopup(
-        gpx
-      )}" download target="_blank" rel="noopener">Télécharger le GPX</a>`
-    : "<span style='font-size:12px'>GPX non disponible</span>";
-  return [
-    `<strong>${escapeHtmlForLeafletPopup(trail.name)}</strong>`,
-    `${escapeHtmlForLeafletPopup(trail.territory)} · ${
-      trail.distance_km
-    } km · D+ ${trail.elevation_m} m`,
-    `<span style="font-size:12px">${escapeHtmlForLeafletPopup(
-      DIFFICULTY_LABELS[trail.difficulty] || trail.difficulty
-    )}</span>`,
-    gpxLine,
-  ].join("<br/>");
 }
 
 const AuthUiContext = createContext(null);
@@ -769,12 +653,11 @@ export default function App() {
             </View>
           </View>
           {!webSplit ? (
-            <WebLeafletMap
+            <NativeExplorerMap
               center={webMapCenter}
               boxes={boxes}
               trails={trails}
               onSelectBox={setSelectedBoxId}
-              inFixedPane={false}
             />
           ) : null}
           {selectedBox ? (
@@ -1708,18 +1591,6 @@ const styles = StyleSheet.create({
     fontSize: 13,
     lineHeight: 18,
   },
-  webMapWrapper: {
-    marginTop: 12,
-    borderRadius: 16,
-    overflow: "hidden",
-    borderWidth: 1,
-    borderColor: theme.border,
-  },
-  webMapWrapperPane: {
-    flex: 1,
-    marginTop: 0,
-    minHeight: 0,
-  },
   selectedHostCard: {
     marginTop: 14,
     backgroundColor: theme.infoBg,
@@ -1877,169 +1748,6 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     fontSize: 14,
   },
-});
-
-/** Leaflet en impératif (pas react-leaflet) : une seule L.map, couches mises à jour sans remonter la carte. */
-const WebLeafletMap = memo(function WebLeafletMap({
-  center,
-  boxes,
-  trails,
-  onSelectBox,
-  staticOrigin,
-  inFixedPane = false,
-}) {
-  const containerRef = useRef(null);
-  const mapRef = useRef(null);
-  const layersRef = useRef(null);
-
-  const mapStyle = useMemo(
-    () =>
-      inFixedPane
-        ? { height: "100%", width: "100%", minHeight: 200, borderRadius: 12 }
-        : { height: 420, width: "100%", borderRadius: 12 },
-    [inFixedPane]
-  );
-
-  useLayoutEffect(() => {
-    if (Platform.OS !== "web") return undefined;
-    const el = containerRef.current;
-    if (!el) return undefined;
-
-    ensureLeafletRnWebTileStyles();
-
-    // eslint-disable-next-line global-require
-    const L = require("leaflet");
-    // eslint-disable-next-line global-require
-    require("leaflet/dist/leaflet.css");
-    patchLeafletDefaultIcons(L);
-
-    const map = L.map(el, {
-      scrollWheelZoom: true,
-      zoomControl: true,
-    }).setView(center, 12);
-
-    const carto = L.tileLayer(
-      "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png",
-      {
-        attribution:
-          '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions/">CARTO</a>',
-        subdomains: "abcd",
-        maxZoom: 20,
-      }
-    );
-    carto.addTo(map);
-    let switchedToOsm = false;
-    carto.on("tileerror", () => {
-      if (switchedToOsm) return;
-      switchedToOsm = true;
-      map.removeLayer(carto);
-      L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
-        attribution:
-          '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
-        maxZoom: 19,
-      }).addTo(map);
-    });
-
-    const layerGroup = L.layerGroup().addTo(map);
-    mapRef.current = map;
-    layersRef.current = layerGroup;
-
-    const ro = new ResizeObserver(() => {
-      map.invalidateSize();
-    });
-    ro.observe(el);
-    requestAnimationFrame(() => map.invalidateSize());
-
-    return () => {
-      ro.disconnect();
-      map.remove();
-      mapRef.current = null;
-      layersRef.current = null;
-    };
-  }, [inFixedPane]);
-
-  useEffect(() => {
-    if (Platform.OS !== "web" || !mapRef.current) return;
-    const map = mapRef.current;
-    // eslint-disable-next-line global-require
-    const L = require("leaflet");
-    const next = L.latLng(center[0], center[1]);
-    const cur = map.getCenter();
-    if (
-      Math.abs(cur.lat - next.lat) > 1e-7 ||
-      Math.abs(cur.lng - next.lng) > 1e-7
-    ) {
-      map.setView(next, map.getZoom(), { animate: false });
-    }
-  }, [center[0], center[1]]);
-
-  useEffect(() => {
-    if (Platform.OS !== "web" || !layersRef.current) return;
-    // eslint-disable-next-line global-require
-    const L = require("leaflet");
-    const group = layersRef.current;
-    group.clearLayers();
-
-    trails.forEach((trail) => {
-      let positions = [];
-      try {
-        if (trail.polyline_json) {
-          positions = JSON.parse(trail.polyline_json);
-        }
-      } catch (_e) {
-        positions = [];
-      }
-      if (positions.length) {
-        const line = L.polyline(positions, LEAFLET_TRAIL_PATH_OPTIONS);
-        if (staticOrigin) {
-          line.bindPopup(buildTrailPopupHtml(trail, staticOrigin));
-        }
-        line.addTo(group);
-      }
-    });
-
-    boxes.forEach((box) => {
-      const marker = L.marker([box.latitude, box.longitude]);
-      marker.on("click", () => onSelectBox(box.id));
-      marker.bindPopup(buildBoxPopupHtml(box));
-      marker.addTo(group);
-    });
-  }, [boxes, trails, onSelectBox, staticOrigin]);
-
-  if (Platform.OS !== "web") {
-    return (
-      <View style={styles.infoBanner}>
-        <Ionicons
-          name="information-circle-outline"
-          size={22}
-          color={theme.primary}
-          style={{ marginRight: 10 }}
-        />
-        <View style={{ flex: 1 }}>
-          <Text style={styles.infoBannerTitle}>Carte sur le web</Text>
-          <Text style={styles.infoBannerText}>
-            Sur mobile, la liste des box et les distances affichées ci-dessous
-            remplacent la carte interactive.
-          </Text>
-        </View>
-      </View>
-    );
-  }
-
-  return (
-    <View
-      style={[
-        styles.webMapWrapper,
-        inFixedPane ? styles.webMapWrapperPane : null,
-      ]}
-    >
-      <View
-        ref={containerRef}
-        collapsable={false}
-        style={[mapStyle, { backgroundColor: "#e8efe9" }]}
-      />
-    </View>
-  );
 });
 
 function AuthScreen() {
