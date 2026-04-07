@@ -1273,6 +1273,75 @@ export default function App() {
     }
   };
 
+  const actionsRef = useRef({});
+
+  actionsRef.current = {
+    loadBoxes,
+    loadNearbyBoxes,
+    loadTrails,
+    bookBox,
+    createHostBox,
+    uploadGpx,
+    uploadGpxWebFile,
+    refreshSession,
+    logout,
+  };
+
+  const mainContextValue = useMemo(
+    () => ({
+      boxes,
+      trails,
+      city,
+      setCity,
+      mapLat,
+      mapLon,
+      setMapLat,
+      setMapLon,
+      hostForm,
+      setHostForm,
+      user,
+      webDropHover,
+      setWebDropHover,
+      trailDifficulty,
+      setTrailDifficulty,
+      bookingDate,
+      setBookingDate,
+      startTime,
+      setStartTime,
+      endTime,
+      setEndTime,
+      specialRequest,
+      setSpecialRequest,
+      selectedBoxId,
+      setSelectedBoxId,
+      canHost,
+      canBook,
+      selectedBox,
+      webMapCenter,
+      actionsRef,
+    }),
+    [
+      boxes,
+      trails,
+      city,
+      mapLat,
+      mapLon,
+      hostForm,
+      user,
+      webDropHover,
+      trailDifficulty,
+      bookingDate,
+      startTime,
+      endTime,
+      specialRequest,
+      selectedBoxId,
+      canHost,
+      canBook,
+      selectedBox,
+      webMapCenter,
+    ]
+  );
+
   const authUiValue = useMemo(
     () => ({
       authMode,
