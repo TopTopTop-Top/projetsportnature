@@ -142,6 +142,19 @@ function boxWaterLabel(box) {
 
 const AuthUiContext = createContext(null);
 
+/** Données / actions des écrans connectés — évite de définir les écrans dans App (sinon React Navigation remonte la carte à chaque render). */
+const AppMainContext = createContext(null);
+
+function useAppMain() {
+  const ctx = useContext(AppMainContext);
+  if (!ctx) {
+    throw new Error(
+      "useAppMain doit être utilisé sous AppMainContext (session connectée)."
+    );
+  }
+  return ctx;
+}
+
 const DIFFICULTY_LABELS = {
   easy: "Facile",
   medium: "Modéré",
@@ -279,6 +292,637 @@ function SecondaryButton({ label, onPress, icon }) {
       </Text>
     </TouchableOpacity>
   );
+}
+
+function ExplorerScreen() {
+  const {
+    boxes,
+    trails,
+    city,
+    setCity,
+    mapLat,
+    mapLon,
+    setMapLat,
+    setMapLon,
+    setSelectedBoxId,
+    selectedBox,
+    canBook,
+    canHost,
+    bookingDate,
+    setBookingDate,
+    startTime,
+    setStartTime,
+    endTime,
+    setEndTime,
+    specialRequest,
+    setSpecialRequest,
+    webMapCenter,
+    actionsRef,
+  } = useAppMain();
+
+  useEffect(() => {
+    actionsRef.current.loadTrails();
+    actionsRef.current.loadBoxes();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const webSplit = Platform.OS === "web";
+
+  const explorerScrollContent = (
+    <>
+      <Section
+        title="Carte & hôtes"
+        subtitle={
+          canHost && !canBook
+            ? "Vue hôte : les athlètes réservent depuis leur compte."
+            : "Repère les box, les tracés GPX importés, et les hôtes les plus proches."
+        }
+        icon="map-outline"
+      >
+        <Text style={styles.inputLabel}>Centre carte (lat / lon)</Text>
+        <View style={styles.row}>
+          <TextInput
+            style={styles.inputHalf}
+            placeholder="Latitude"
+            placeholderTextColor={theme.inkMuted}
+            value={mapLat}
+            onChangeText={setMapLat}
+          />
+          <TextInput
+            style={styles.inputHalf}
+            placeholder="Longitude"
+            placeholderTextColor={theme.inkMuted}
+            value={mapLon}
+            onChangeText={setMapLon}
+          />
+        </View>
+        <PrimaryButton
+          label="Hôtes les plus proches"
+          icon="navigate-outline"
+          onPress={() => actionsRef.current.loadNearbyBoxes()}
+        />
+        <Text style={styles.inputLabel}>Ou par ville</Text>
+        <TextInput
+          style={styles.input}
+          placeholder="Ville"
+          placeholderTextColor={theme.inkMuted}
+          value={city}
+          onChangeText={setCity}
+        />
+        <SecondaryButton
+          label="Charger les box (ville)"
+          icon="refresh-outline"
+          onPress={() => actionsRef.current.loadBoxes()}
+        />
+        <View style={styles.statBanner}>
+          <View style={styles.statBannerIcon}>
+            <Ionicons name="cube-outline" size={22} color={theme.primary} />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.statBannerTitle}>
+              {boxes.length === 0
+                ? "Aucune box chargée"
+                : `${boxes.length} box affichée${boxes.length > 1 ? "s" : ""}`}
+            </Text>
+            <Text style={styles.statBannerText}>
+              {webSplit
+                ? "Carte web : OpenStreetMap (Leaflet). Marqueurs = box hôtes ; lignes vertes = traces GPX."
+                : "Charge une ville ou « Hôtes les plus proches ». Carte native : marqueurs et tracés."}
+            </Text>
+          </View>
+        </View>
+        {!webSplit ? (
+          <NativeExplorerMap
+            center={webMapCenter}
+            boxes={boxes}
+            trails={trails}
+            onSelectBox={setSelectedBoxId}
+          />
+        ) : null}
+        {selectedBox ? (
+          <View style={styles.selectedHostCard}>
+            <Text style={styles.selectedLabel}>Box sélectionnée</Text>
+            <Text style={styles.cardTitle}>{selectedBox.title}</Text>
+            <Text style={styles.cardMeta}>
+              {selectedBox.city} · {(selectedBox.price_cents / 100).toFixed(2)}{" "}
+              €
+              {selectedBox.distance_km != null && (
+                <> · ≈ {Number(selectedBox.distance_km).toFixed(1)} km</>
+              )}
+            </Text>
+            {canBook ? (
+              <SecondaryButton
+                label="Réserver ce box"
+                icon="calendar-outline"
+                onPress={() => actionsRef.current.bookBox(selectedBox.id)}
+              />
+            ) : (
+              <Text style={styles.roleHintOnlyHost}>
+                Compte hôte : la réservation est faite par les athlètes.
+              </Text>
+            )}
+          </View>
+        ) : null}
+      </Section>
+
+      {canBook ? (
+        <>
+          <Section
+            title="Créneau & demande"
+            subtitle="Horaires et message optionnel pour l’hôte (allergies, groupe, etc.)."
+            icon="time-outline"
+          >
+            <View style={styles.row}>
+              <TextInput
+                style={styles.inputHalf}
+                placeholder="AAAA-MM-JJ"
+                placeholderTextColor={theme.inkMuted}
+                value={bookingDate}
+                onChangeText={setBookingDate}
+              />
+              <TextInput
+                style={styles.inputHalf}
+                placeholder="Début"
+                placeholderTextColor={theme.inkMuted}
+                value={startTime}
+                onChangeText={setStartTime}
+              />
+              <TextInput
+                style={styles.inputHalf}
+                placeholder="Fin"
+                placeholderTextColor={theme.inkMuted}
+                value={endTime}
+                onChangeText={setEndTime}
+              />
+            </View>
+            <Text style={styles.inputLabel}>Demande spéciale (optionnel)</Text>
+            <TextInput
+              style={[styles.input, styles.textArea]}
+              placeholder="Ex. groupe de 4, sans gluten, besoin d’eau en bouteille…"
+              placeholderTextColor={theme.inkMuted}
+              value={specialRequest}
+              onChangeText={setSpecialRequest}
+              multiline
+            />
+          </Section>
+        </>
+      ) : null}
+
+      <Section title="Liste des box" icon="list-outline">
+        <FlatList
+          data={boxes}
+          scrollEnabled={false}
+          keyExtractor={(item) => `${item.id}`}
+          renderItem={({ item }) => (
+            <View style={styles.card}>
+              <View style={styles.cardAccent} />
+              <Text style={styles.cardTitle}>{item.title}</Text>
+              <Text style={styles.cardMeta}>
+                {item.city} · {(item.price_cents / 100).toFixed(2)} €
+                {item.distance_km != null &&
+                  ` · ≈ ${Number(item.distance_km).toFixed(1)} km`}
+              </Text>
+              <Text style={styles.cardDetailLine}>
+                {item.capacity_liters ?? "?"} L · Eau : {boxWaterLabel(item)}
+              </Text>
+              {item.availability_note ? (
+                <Text style={styles.cardAvailability} numberOfLines={2}>
+                  {item.availability_note}
+                </Text>
+              ) : null}
+              <PrimaryButton
+                label="Voir sur la carte"
+                icon="location-outline"
+                onPress={() => setSelectedBoxId(item.id)}
+              />
+              {canBook ? (
+                <SecondaryButton
+                  label="Réserver"
+                  icon="checkmark-circle-outline"
+                  onPress={() => actionsRef.current.bookBox(item.id)}
+                />
+              ) : null}
+            </View>
+          )}
+        />
+      </Section>
+    </>
+  );
+
+  if (webSplit) {
+    return (
+      <SafeAreaView style={styles.screen} edges={["left", "right"]}>
+        <View style={styles.explorerWebColumn}>
+          <ScrollView
+            style={styles.explorerWebScroll}
+            contentContainerStyle={[
+              styles.content,
+              WEB_READABLE,
+              { paddingBottom: 12 },
+            ]}
+            showsVerticalScrollIndicator
+            keyboardShouldPersistTaps="handled"
+          >
+            {explorerScrollContent}
+          </ScrollView>
+          <View style={styles.explorerWebMapHost}>
+            <Text style={styles.webMapPaneCaption}>
+              Carte — molette : zoom · glisser : déplacer
+            </Text>
+            <View style={styles.explorerWebMapInner}>
+              <ExplorerWebMap
+                center={webMapCenter}
+                boxes={boxes}
+                trails={trails}
+                onSelectBox={setSelectedBoxId}
+                staticOrigin={API_STATIC_ORIGIN}
+                inFixedPane
+              />
+            </View>
+          </View>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  return (
+    <SafeAreaView style={styles.screen} edges={["left", "right"]}>
+      <ScrollView
+        style={styles.scrollFlex}
+        contentContainerStyle={[
+          styles.content,
+          WEB_READABLE,
+          { paddingBottom: TABBAR_SCROLL_PADDING },
+        ]}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+      >
+        {explorerScrollContent}
+      </ScrollView>
+    </SafeAreaView>
+  );
+}
+
+function TrailsScreen() {
+  const {
+    trails,
+    trailDifficulty,
+    setTrailDifficulty,
+    webDropHover,
+    setWebDropHover,
+    actionsRef,
+  } = useAppMain();
+
+  const webDropProps =
+    Platform.OS === "web"
+      ? {
+          onDragOver: (e) => {
+            e.preventDefault();
+            setWebDropHover(true);
+          },
+          onDragLeave: () => setWebDropHover(false),
+          onDrop: (e) => {
+            e.preventDefault();
+            setWebDropHover(false);
+            const f = e.dataTransfer?.files?.[0];
+            actionsRef.current.uploadGpxWebFile(f);
+          },
+        }
+      : {};
+
+  return (
+    <SafeAreaView style={styles.screen} edges={["left", "right"]}>
+      <ScrollView
+        style={styles.scrollFlex}
+        contentContainerStyle={[
+          styles.content,
+          WEB_READABLE,
+          { paddingBottom: TABBAR_SCROLL_PADDING },
+        ]}
+        showsVerticalScrollIndicator={Platform.OS === "web"}
+        keyboardShouldPersistTaps="handled"
+      >
+        <Section
+          title="Traces locales"
+          subtitle="Athlètes et hôtes : importez vos GPX. Tracés visibles sur la carte (web et appli)."
+          icon="footsteps-outline"
+        >
+          {Platform.OS === "web" ? (
+            <View
+              style={[styles.dropZone, webDropHover && styles.dropZoneActive]}
+              {...webDropProps}
+            >
+              <Ionicons
+                name="cloud-upload-outline"
+                size={28}
+                color={theme.primary}
+              />
+              <Text style={styles.dropZoneText}>
+                Glisse-dépose un fichier .gpx ici
+              </Text>
+              <Text style={styles.dropZoneHint}>
+                ou utilise le bouton ci-dessous (mobile / fichier)
+              </Text>
+            </View>
+          ) : null}
+          <Text style={styles.fieldLabel}>Difficulté</Text>
+          <View style={styles.roleRow}>
+            {["easy", "medium", "hard"].map((level) => (
+              <TouchableOpacity
+                key={level}
+                style={[
+                  styles.roleChip,
+                  trailDifficulty === level && styles.roleChipActive,
+                ]}
+                onPress={() => setTrailDifficulty(level)}
+                activeOpacity={0.85}
+              >
+                <Text
+                  style={[
+                    styles.roleChipText,
+                    trailDifficulty === level && styles.roleChipTextActive,
+                  ]}
+                >
+                  {DIFFICULTY_LABELS[level]}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+          <PrimaryButton
+            label="Charger les traces"
+            icon="download-outline"
+            onPress={() => actionsRef.current.loadTrails()}
+          />
+          <SecondaryButton
+            label="Importer un GPX"
+            icon="cloud-upload-outline"
+            onPress={() => actionsRef.current.uploadGpx()}
+          />
+        </Section>
+
+        <Section title="Traces disponibles" icon="navigate-outline">
+          {trails.map((trail) => {
+            const b = difficultyBadgeStyle(trail.difficulty);
+            return (
+              <View key={`${trail.id}`} style={styles.card}>
+                <View style={styles.cardAccent} />
+                <Text style={styles.cardTitle}>{trail.name}</Text>
+                <Text style={styles.cardMeta}>
+                  {trail.territory} · {trail.distance_km} km · D+{" "}
+                  {trail.elevation_m} m
+                </Text>
+                <View
+                  style={[
+                    styles.badge,
+                    { backgroundColor: b.bg, borderColor: b.border },
+                  ]}
+                >
+                  <Text style={[styles.badgeText, { color: b.fg }]}>
+                    {DIFFICULTY_LABELS[trail.difficulty] || trail.difficulty}
+                  </Text>
+                </View>
+                {absoluteUploadUrl(trail.gpx_url) ? (
+                  <SecondaryButton
+                    label="Ouvrir / télécharger GPX"
+                    icon="download-outline"
+                    onPress={() =>
+                      Linking.openURL(absoluteUploadUrl(trail.gpx_url))
+                    }
+                  />
+                ) : null}
+              </View>
+            );
+          })}
+          {trails.length === 0 ? (
+            <Text style={styles.emptyText}>Aucune trace chargée.</Text>
+          ) : null}
+        </Section>
+      </ScrollView>
+    </SafeAreaView>
+  );
+}
+
+function HostScreen() {
+  const { user, hostForm, setHostForm, actionsRef } = useAppMain();
+  const canHostLocal = user?.role === "host" || user?.role === "both";
+  return (
+    <SafeAreaView style={styles.screen} edges={["left", "right"]}>
+      <ScrollView
+        style={styles.scrollFlex}
+        contentContainerStyle={[
+          styles.content,
+          WEB_READABLE,
+          { paddingBottom: TABBAR_SCROLL_PADDING },
+        ]}
+        showsVerticalScrollIndicator={Platform.OS === "web"}
+        keyboardShouldPersistTaps="handled"
+      >
+        <Section
+          title="Publier un box"
+          subtitle="Accueille des sportifs et propose ton point ravito."
+          icon="storefront-outline"
+        >
+          {!canHostLocal ? (
+            <View style={styles.infoBanner}>
+              <Ionicons
+                name="lock-closed-outline"
+                size={22}
+                color={theme.primary}
+                style={{ marginRight: 10 }}
+              />
+              <View style={{ flex: 1 }}>
+                <Text style={styles.infoBannerTitle}>Rôle hôte requis</Text>
+                <Text style={styles.infoBannerText}>
+                  Passe en « Hôte » ou « Les deux » depuis ton profil (nouveau
+                  compte) pour publier.
+                </Text>
+              </View>
+            </View>
+          ) : (
+            <>
+              <TextInput
+                style={styles.input}
+                placeholder="Titre du box"
+                placeholderTextColor={theme.inkMuted}
+                value={hostForm.title}
+                onChangeText={(v) => setHostForm((s) => ({ ...s, title: v }))}
+              />
+              <TextInput
+                style={styles.input}
+                placeholder="Description"
+                placeholderTextColor={theme.inkMuted}
+                value={hostForm.description}
+                onChangeText={(v) =>
+                  setHostForm((s) => ({ ...s, description: v }))
+                }
+                multiline
+              />
+              <Text style={styles.fieldLabel}>Localisation</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="Latitude"
+                placeholderTextColor={theme.inkMuted}
+                value={hostForm.latitude}
+                onChangeText={(v) =>
+                  setHostForm((s) => ({ ...s, latitude: v }))
+                }
+                keyboardType="decimal-pad"
+              />
+              <TextInput
+                style={styles.input}
+                placeholder="Longitude"
+                placeholderTextColor={theme.inkMuted}
+                value={hostForm.longitude}
+                onChangeText={(v) =>
+                  setHostForm((s) => ({ ...s, longitude: v }))
+                }
+                keyboardType="decimal-pad"
+              />
+              <TextInput
+                style={styles.input}
+                placeholder="Ville"
+                placeholderTextColor={theme.inkMuted}
+                value={hostForm.city}
+                onChangeText={(v) => setHostForm((s) => ({ ...s, city: v }))}
+              />
+              <TextInput
+                style={styles.input}
+                placeholder="Prix (centimes)"
+                placeholderTextColor={theme.inkMuted}
+                value={hostForm.priceCents}
+                onChangeText={(v) =>
+                  setHostForm((s) => ({ ...s, priceCents: v }))
+                }
+                keyboardType="number-pad"
+              />
+              <PrimaryButton
+                label="Publier mon box"
+                icon="rocket-outline"
+                onPress={() => actionsRef.current.createHostBox()}
+              />
+            </>
+          )}
+        </Section>
+      </ScrollView>
+    </SafeAreaView>
+  );
+}
+
+function ProfileScreen() {
+  const { user, actionsRef } = useAppMain();
+  const roleLabel = ROLE_LABELS[user?.role] || user?.role;
+  return (
+    <SafeAreaView style={styles.screen} edges={["left", "right"]}>
+      <ScrollView
+        style={styles.scrollFlex}
+        contentContainerStyle={[
+          styles.content,
+          WEB_READABLE,
+          { paddingBottom: TABBAR_SCROLL_PADDING },
+        ]}
+        showsVerticalScrollIndicator={Platform.OS === "web"}
+        keyboardShouldPersistTaps="handled"
+      >
+        <Section
+          title="Mon profil"
+          subtitle="Compte connecté."
+          icon="person-outline"
+        >
+          <View style={styles.profileCard}>
+            <View style={styles.profileAvatar}>
+              <Text style={styles.profileAvatarText}>
+                {(user?.full_name || "?").trim().charAt(0).toUpperCase()}
+              </Text>
+            </View>
+            <Text style={styles.profileName}>{user?.full_name}</Text>
+            <Text style={styles.profileEmail}>{user?.email}</Text>
+            <View style={styles.profileRolePill}>
+              <Text style={styles.profileRoleText}>{roleLabel}</Text>
+            </View>
+          </View>
+        </Section>
+        <PrimaryButton
+          label="Rafraîchir la session"
+          icon="refresh-outline"
+          onPress={() => actionsRef.current.refreshSession()}
+        />
+        <SecondaryButton
+          label="Se déconnecter"
+          icon="log-out-outline"
+          onPress={() => actionsRef.current.logout()}
+        />
+      </ScrollView>
+    </SafeAreaView>
+  );
+}
+
+function MainTabs() {
+  const { canHost } = useAppMain();
+  return (
+    <Tab.Navigator
+      screenOptions={({ route }) => ({
+        sceneStyle: { flex: 1 },
+        headerStyle: {
+          backgroundColor: theme.hero,
+          shadowOpacity: 0,
+          elevation: 0,
+        },
+        headerTitleStyle: { fontWeight: "700", fontSize: 17 },
+        headerTintColor: "#fff",
+        tabBarStyle: {
+          backgroundColor: theme.surface,
+          borderTopColor: theme.borderSoft,
+          paddingTop: 6,
+          height: 62,
+        },
+        tabBarLabelStyle: { fontSize: 11, fontWeight: "600" },
+        tabBarActiveTintColor: theme.primary,
+        tabBarInactiveTintColor: theme.inkMuted,
+        tabBarIcon: ({ color, size }) => {
+          const map = {
+            Carte: "map-outline",
+            Trails: "navigate-outline",
+            Host: "home-outline",
+            Profil: "person-circle-outline",
+          };
+          return (
+            <Ionicons
+              name={map[route.name] || "ellipse"}
+              size={size}
+              color={color}
+            />
+          );
+        },
+      })}
+    >
+      <Tab.Screen
+        name="Carte"
+        component={ExplorerScreen}
+        options={{ title: "Carte" }}
+      />
+      <Tab.Screen
+        name="Trails"
+        component={TrailsScreen}
+        options={{ title: "Traces" }}
+      />
+      {canHost ? (
+        <Tab.Screen
+          name="Host"
+          component={HostScreen}
+          options={{ title: "Mes box" }}
+        />
+      ) : null}
+      <Tab.Screen
+        name="Profil"
+        component={ProfileScreen}
+        options={{ title: "Profil" }}
+      />
+    </Tab.Navigator>
+  );
+}
+
+function AuthenticatedRoot() {
+  return <MainTabs />;
 }
 
 export default function App() {
@@ -629,601 +1273,6 @@ export default function App() {
     }
   };
 
-  function ExplorerScreen() {
-    useEffect(() => {
-      loadTrails();
-      loadBoxes();
-      // chargement initial carte + tracés
-      // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []);
-
-    const webSplit = Platform.OS === "web";
-
-    const explorerScrollContent = (
-      <>
-        <Section
-          title="Carte & hôtes"
-          subtitle={
-            canHost && !canBook
-              ? "Vue hôte : les athlètes réservent depuis leur compte."
-              : "Repère les box, les tracés GPX importés, et les hôtes les plus proches."
-          }
-          icon="map-outline"
-        >
-          <Text style={styles.inputLabel}>Centre carte (lat / lon)</Text>
-          <View style={styles.row}>
-            <TextInput
-              style={styles.inputHalf}
-              placeholder="Latitude"
-              placeholderTextColor={theme.inkMuted}
-              value={mapLat}
-              onChangeText={setMapLat}
-            />
-            <TextInput
-              style={styles.inputHalf}
-              placeholder="Longitude"
-              placeholderTextColor={theme.inkMuted}
-              value={mapLon}
-              onChangeText={setMapLon}
-            />
-          </View>
-          <PrimaryButton
-            label="Hôtes les plus proches"
-            icon="navigate-outline"
-            onPress={loadNearbyBoxes}
-          />
-          <Text style={styles.inputLabel}>Ou par ville</Text>
-          <TextInput
-            style={styles.input}
-            placeholder="Ville"
-            placeholderTextColor={theme.inkMuted}
-            value={city}
-            onChangeText={setCity}
-          />
-          <SecondaryButton
-            label="Charger les box (ville)"
-            icon="refresh-outline"
-            onPress={loadBoxes}
-          />
-          <View style={styles.statBanner}>
-            <View style={styles.statBannerIcon}>
-              <Ionicons name="cube-outline" size={22} color={theme.primary} />
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.statBannerTitle}>
-                {boxes.length === 0
-                  ? "Aucune box chargée"
-                  : `${boxes.length} box affichée${
-                      boxes.length > 1 ? "s" : ""
-                    }`}
-              </Text>
-              <Text style={styles.statBannerText}>
-                {webSplit
-                  ? "Carte web : OpenStreetMap (Leaflet). Marqueurs = box hôtes ; lignes vertes = traces GPX."
-                  : "Charge une ville ou « Hôtes les plus proches ». Carte native : marqueurs et tracés."}
-              </Text>
-            </View>
-          </View>
-          {!webSplit ? (
-            <NativeExplorerMap
-              center={webMapCenter}
-              boxes={boxes}
-              trails={trails}
-              onSelectBox={setSelectedBoxId}
-            />
-          ) : null}
-          {selectedBox ? (
-            <View style={styles.selectedHostCard}>
-              <Text style={styles.selectedLabel}>Box sélectionnée</Text>
-              <Text style={styles.cardTitle}>{selectedBox.title}</Text>
-              <Text style={styles.cardMeta}>
-                {selectedBox.city} ·{" "}
-                {(selectedBox.price_cents / 100).toFixed(2)} €
-                {selectedBox.distance_km != null && (
-                  <> · ≈ {Number(selectedBox.distance_km).toFixed(1)} km</>
-                )}
-              </Text>
-              {canBook ? (
-                <SecondaryButton
-                  label="Réserver ce box"
-                  icon="calendar-outline"
-                  onPress={() => bookBox(selectedBox.id)}
-                />
-              ) : (
-                <Text style={styles.roleHintOnlyHost}>
-                  Compte hôte : la réservation est faite par les athlètes.
-                </Text>
-              )}
-            </View>
-          ) : null}
-        </Section>
-
-        {canBook ? (
-          <>
-            <Section
-              title="Créneau & demande"
-              subtitle="Horaires et message optionnel pour l’hôte (allergies, groupe, etc.)."
-              icon="time-outline"
-            >
-              <View style={styles.row}>
-                <TextInput
-                  style={styles.inputHalf}
-                  placeholder="AAAA-MM-JJ"
-                  placeholderTextColor={theme.inkMuted}
-                  value={bookingDate}
-                  onChangeText={setBookingDate}
-                />
-                <TextInput
-                  style={styles.inputHalf}
-                  placeholder="Début"
-                  placeholderTextColor={theme.inkMuted}
-                  value={startTime}
-                  onChangeText={setStartTime}
-                />
-                <TextInput
-                  style={styles.inputHalf}
-                  placeholder="Fin"
-                  placeholderTextColor={theme.inkMuted}
-                  value={endTime}
-                  onChangeText={setEndTime}
-                />
-              </View>
-              <Text style={styles.inputLabel}>
-                Demande spéciale (optionnel)
-              </Text>
-              <TextInput
-                style={[styles.input, styles.textArea]}
-                placeholder="Ex. groupe de 4, sans gluten, besoin d’eau en bouteille…"
-                placeholderTextColor={theme.inkMuted}
-                value={specialRequest}
-                onChangeText={setSpecialRequest}
-                multiline
-              />
-            </Section>
-          </>
-        ) : null}
-
-        <Section title="Liste des box" icon="list-outline">
-          <FlatList
-            data={boxes}
-            scrollEnabled={false}
-            keyExtractor={(item) => `${item.id}`}
-            renderItem={({ item }) => (
-              <View style={styles.card}>
-                <View style={styles.cardAccent} />
-                <Text style={styles.cardTitle}>{item.title}</Text>
-                <Text style={styles.cardMeta}>
-                  {item.city} · {(item.price_cents / 100).toFixed(2)} €
-                  {item.distance_km != null &&
-                    ` · ≈ ${Number(item.distance_km).toFixed(1)} km`}
-                </Text>
-                <Text style={styles.cardDetailLine}>
-                  {item.capacity_liters ?? "?"} L · Eau : {boxWaterLabel(item)}
-                </Text>
-                {item.availability_note ? (
-                  <Text style={styles.cardAvailability} numberOfLines={2}>
-                    {item.availability_note}
-                  </Text>
-                ) : null}
-                <PrimaryButton
-                  label="Voir sur la carte"
-                  icon="location-outline"
-                  onPress={() => setSelectedBoxId(item.id)}
-                />
-                {canBook ? (
-                  <SecondaryButton
-                    label="Réserver"
-                    icon="checkmark-circle-outline"
-                    onPress={() => bookBox(item.id)}
-                  />
-                ) : null}
-              </View>
-            )}
-          />
-        </Section>
-      </>
-    );
-
-    if (webSplit) {
-      return (
-        <SafeAreaView style={styles.screen} edges={["left", "right"]}>
-          <View style={styles.explorerWebColumn}>
-            <ScrollView
-              style={styles.explorerWebScroll}
-              contentContainerStyle={[
-                styles.content,
-                WEB_READABLE,
-                { paddingBottom: 12 },
-              ]}
-              showsVerticalScrollIndicator
-              keyboardShouldPersistTaps="handled"
-            >
-              {explorerScrollContent}
-            </ScrollView>
-            <View style={styles.explorerWebMapHost}>
-              <Text style={styles.webMapPaneCaption}>
-                Carte — molette : zoom · glisser : déplacer
-              </Text>
-              <View style={styles.explorerWebMapInner}>
-                <ExplorerWebMap
-                  center={webMapCenter}
-                  boxes={boxes}
-                  trails={trails}
-                  onSelectBox={setSelectedBoxId}
-                  staticOrigin={API_STATIC_ORIGIN}
-                  inFixedPane
-                />
-              </View>
-            </View>
-          </View>
-        </SafeAreaView>
-      );
-    }
-
-    return (
-      <SafeAreaView style={styles.screen} edges={["left", "right"]}>
-        <ScrollView
-          style={styles.scrollFlex}
-          contentContainerStyle={[
-            styles.content,
-            WEB_READABLE,
-            { paddingBottom: TABBAR_SCROLL_PADDING },
-          ]}
-          showsVerticalScrollIndicator={false}
-          keyboardShouldPersistTaps="handled"
-        >
-          {explorerScrollContent}
-        </ScrollView>
-      </SafeAreaView>
-    );
-  }
-
-  function TrailsScreen() {
-    const webDropProps =
-      Platform.OS === "web"
-        ? {
-            onDragOver: (e) => {
-              e.preventDefault();
-              setWebDropHover(true);
-            },
-            onDragLeave: () => setWebDropHover(false),
-            onDrop: (e) => {
-              e.preventDefault();
-              setWebDropHover(false);
-              const f = e.dataTransfer?.files?.[0];
-              uploadGpxWebFile(f);
-            },
-          }
-        : {};
-
-    return (
-      <SafeAreaView style={styles.screen} edges={["left", "right"]}>
-        <ScrollView
-          style={styles.scrollFlex}
-          contentContainerStyle={[
-            styles.content,
-            WEB_READABLE,
-            { paddingBottom: TABBAR_SCROLL_PADDING },
-          ]}
-          showsVerticalScrollIndicator={Platform.OS === "web"}
-          keyboardShouldPersistTaps="handled"
-        >
-          <Section
-            title="Traces locales"
-            subtitle="Athlètes et hôtes : importez vos GPX. Tracés visibles sur la carte (web et appli)."
-            icon="footsteps-outline"
-          >
-            {Platform.OS === "web" ? (
-              <View
-                style={[styles.dropZone, webDropHover && styles.dropZoneActive]}
-                {...webDropProps}
-              >
-                <Ionicons
-                  name="cloud-upload-outline"
-                  size={28}
-                  color={theme.primary}
-                />
-                <Text style={styles.dropZoneText}>
-                  Glisse-dépose un fichier .gpx ici
-                </Text>
-                <Text style={styles.dropZoneHint}>
-                  ou utilise le bouton ci-dessous (mobile / fichier)
-                </Text>
-              </View>
-            ) : null}
-            <Text style={styles.fieldLabel}>Difficulté</Text>
-            <View style={styles.roleRow}>
-              {["easy", "medium", "hard"].map((level) => (
-                <TouchableOpacity
-                  key={level}
-                  style={[
-                    styles.roleChip,
-                    trailDifficulty === level && styles.roleChipActive,
-                  ]}
-                  onPress={() => setTrailDifficulty(level)}
-                  activeOpacity={0.85}
-                >
-                  <Text
-                    style={[
-                      styles.roleChipText,
-                      trailDifficulty === level && styles.roleChipTextActive,
-                    ]}
-                  >
-                    {DIFFICULTY_LABELS[level]}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-            <PrimaryButton
-              label="Charger les traces"
-              icon="download-outline"
-              onPress={loadTrails}
-            />
-            <SecondaryButton
-              label="Importer un GPX"
-              icon="cloud-upload-outline"
-              onPress={uploadGpx}
-            />
-          </Section>
-
-          <Section title="Traces disponibles" icon="navigate-outline">
-            {trails.map((trail) => {
-              const b = difficultyBadgeStyle(trail.difficulty);
-              return (
-                <View key={`${trail.id}`} style={styles.card}>
-                  <View style={styles.cardAccent} />
-                  <Text style={styles.cardTitle}>{trail.name}</Text>
-                  <Text style={styles.cardMeta}>
-                    {trail.territory} · {trail.distance_km} km · D+{" "}
-                    {trail.elevation_m} m
-                  </Text>
-                  <View
-                    style={[
-                      styles.badge,
-                      { backgroundColor: b.bg, borderColor: b.border },
-                    ]}
-                  >
-                    <Text style={[styles.badgeText, { color: b.fg }]}>
-                      {DIFFICULTY_LABELS[trail.difficulty] || trail.difficulty}
-                    </Text>
-                  </View>
-                  {absoluteUploadUrl(trail.gpx_url) ? (
-                    <SecondaryButton
-                      label="Ouvrir / télécharger GPX"
-                      icon="download-outline"
-                      onPress={() =>
-                        Linking.openURL(absoluteUploadUrl(trail.gpx_url))
-                      }
-                    />
-                  ) : null}
-                </View>
-              );
-            })}
-            {trails.length === 0 ? (
-              <Text style={styles.emptyText}>Aucune trace chargée.</Text>
-            ) : null}
-          </Section>
-        </ScrollView>
-      </SafeAreaView>
-    );
-  }
-
-  function HostScreen() {
-    const canHost = user?.role === "host" || user?.role === "both";
-    return (
-      <SafeAreaView style={styles.screen} edges={["left", "right"]}>
-        <ScrollView
-          style={styles.scrollFlex}
-          contentContainerStyle={[
-            styles.content,
-            WEB_READABLE,
-            { paddingBottom: TABBAR_SCROLL_PADDING },
-          ]}
-          showsVerticalScrollIndicator={Platform.OS === "web"}
-          keyboardShouldPersistTaps="handled"
-        >
-          <Section
-            title="Publier un box"
-            subtitle="Accueille des sportifs et propose ton point ravito."
-            icon="storefront-outline"
-          >
-            {!canHost ? (
-              <View style={styles.infoBanner}>
-                <Ionicons
-                  name="lock-closed-outline"
-                  size={22}
-                  color={theme.primary}
-                  style={{ marginRight: 10 }}
-                />
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.infoBannerTitle}>Rôle hôte requis</Text>
-                  <Text style={styles.infoBannerText}>
-                    Passe en « Hôte » ou « Les deux » depuis ton profil (nouveau
-                    compte) pour publier.
-                  </Text>
-                </View>
-              </View>
-            ) : (
-              <>
-                <TextInput
-                  style={styles.input}
-                  placeholder="Titre du box"
-                  placeholderTextColor={theme.inkMuted}
-                  value={hostForm.title}
-                  onChangeText={(v) => setHostForm((s) => ({ ...s, title: v }))}
-                />
-                <TextInput
-                  style={styles.input}
-                  placeholder="Description"
-                  placeholderTextColor={theme.inkMuted}
-                  value={hostForm.description}
-                  onChangeText={(v) =>
-                    setHostForm((s) => ({ ...s, description: v }))
-                  }
-                  multiline
-                />
-                <Text style={styles.fieldLabel}>Localisation</Text>
-                <TextInput
-                  style={styles.input}
-                  placeholder="Latitude"
-                  placeholderTextColor={theme.inkMuted}
-                  value={hostForm.latitude}
-                  onChangeText={(v) =>
-                    setHostForm((s) => ({ ...s, latitude: v }))
-                  }
-                  keyboardType="decimal-pad"
-                />
-                <TextInput
-                  style={styles.input}
-                  placeholder="Longitude"
-                  placeholderTextColor={theme.inkMuted}
-                  value={hostForm.longitude}
-                  onChangeText={(v) =>
-                    setHostForm((s) => ({ ...s, longitude: v }))
-                  }
-                  keyboardType="decimal-pad"
-                />
-                <TextInput
-                  style={styles.input}
-                  placeholder="Ville"
-                  placeholderTextColor={theme.inkMuted}
-                  value={hostForm.city}
-                  onChangeText={(v) => setHostForm((s) => ({ ...s, city: v }))}
-                />
-                <TextInput
-                  style={styles.input}
-                  placeholder="Prix (centimes)"
-                  placeholderTextColor={theme.inkMuted}
-                  value={hostForm.priceCents}
-                  onChangeText={(v) =>
-                    setHostForm((s) => ({ ...s, priceCents: v }))
-                  }
-                  keyboardType="number-pad"
-                />
-                <PrimaryButton
-                  label="Publier mon box"
-                  icon="rocket-outline"
-                  onPress={createHostBox}
-                />
-              </>
-            )}
-          </Section>
-        </ScrollView>
-      </SafeAreaView>
-    );
-  }
-
-  function ProfileScreen() {
-    const roleLabel = ROLE_LABELS[user?.role] || user?.role;
-    return (
-      <SafeAreaView style={styles.screen} edges={["left", "right"]}>
-        <ScrollView
-          style={styles.scrollFlex}
-          contentContainerStyle={[
-            styles.content,
-            WEB_READABLE,
-            { paddingBottom: TABBAR_SCROLL_PADDING },
-          ]}
-          showsVerticalScrollIndicator={Platform.OS === "web"}
-          keyboardShouldPersistTaps="handled"
-        >
-          <Section
-            title="Mon profil"
-            subtitle="Compte connecté."
-            icon="person-outline"
-          >
-            <View style={styles.profileCard}>
-              <View style={styles.profileAvatar}>
-                <Text style={styles.profileAvatarText}>
-                  {(user?.full_name || "?").trim().charAt(0).toUpperCase()}
-                </Text>
-              </View>
-              <Text style={styles.profileName}>{user?.full_name}</Text>
-              <Text style={styles.profileEmail}>{user?.email}</Text>
-              <View style={styles.profileRolePill}>
-                <Text style={styles.profileRoleText}>{roleLabel}</Text>
-              </View>
-            </View>
-          </Section>
-          <PrimaryButton
-            label="Rafraîchir la session"
-            icon="refresh-outline"
-            onPress={refreshSession}
-          />
-          <SecondaryButton
-            label="Se déconnecter"
-            icon="log-out-outline"
-            onPress={logout}
-          />
-        </ScrollView>
-      </SafeAreaView>
-    );
-  }
-
-  function MainTabs() {
-    return (
-      <Tab.Navigator
-        screenOptions={({ route }) => ({
-          sceneStyle: { flex: 1 },
-          headerStyle: {
-            backgroundColor: theme.hero,
-            shadowOpacity: 0,
-            elevation: 0,
-          },
-          headerTitleStyle: { fontWeight: "700", fontSize: 17 },
-          headerTintColor: "#fff",
-          tabBarStyle: {
-            backgroundColor: theme.surface,
-            borderTopColor: theme.borderSoft,
-            paddingTop: 6,
-            height: 62,
-          },
-          tabBarLabelStyle: { fontSize: 11, fontWeight: "600" },
-          tabBarActiveTintColor: theme.primary,
-          tabBarInactiveTintColor: theme.inkMuted,
-          tabBarIcon: ({ color, size }) => {
-            const map = {
-              Carte: "map-outline",
-              Trails: "navigate-outline",
-              Host: "home-outline",
-              Profil: "person-circle-outline",
-            };
-            return (
-              <Ionicons
-                name={map[route.name] || "ellipse"}
-                size={size}
-                color={color}
-              />
-            );
-          },
-        })}
-      >
-        <Tab.Screen
-          name="Carte"
-          component={ExplorerScreen}
-          options={{ title: "Carte" }}
-        />
-        <Tab.Screen
-          name="Trails"
-          component={TrailsScreen}
-          options={{ title: "Traces" }}
-        />
-        {canHost ? (
-          <Tab.Screen
-            name="Host"
-            component={HostScreen}
-            options={{ title: "Mes box" }}
-          />
-        ) : null}
-        <Tab.Screen
-          name="Profil"
-          component={ProfileScreen}
-          options={{ title: "Profil" }}
-        />
-      </Tab.Navigator>
-    );
-  }
-
   const authUiValue = useMemo(
     () => ({
       authMode,
@@ -1248,13 +1297,15 @@ export default function App() {
       <SafeAreaProvider>
         <AuthUiContext.Provider value={authUiValue}>
           <NavigationContainer>
-            <Stack.Navigator screenOptions={{ headerShown: false }}>
-              {!isAuthed ? (
-                <Stack.Screen name="Auth" component={AuthScreen} />
-              ) : (
-                <Stack.Screen name="Main" component={MainTabs} />
-              )}
-            </Stack.Navigator>
+            <AppMainContext.Provider value={isAuthed ? mainContextValue : null}>
+              <Stack.Navigator screenOptions={{ headerShown: false }}>
+                {!isAuthed ? (
+                  <Stack.Screen name="Auth" component={AuthScreen} />
+                ) : (
+                  <Stack.Screen name="Main" component={AuthenticatedRoot} />
+                )}
+              </Stack.Navigator>
+            </AppMainContext.Provider>
           </NavigationContainer>
         </AuthUiContext.Provider>
       </SafeAreaProvider>
