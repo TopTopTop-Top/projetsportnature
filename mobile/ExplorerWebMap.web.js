@@ -47,7 +47,17 @@ function loadMaplibreSync() {
   }
   // eslint-disable-next-line global-require
   const mod = require("maplibre-gl");
-  return mod.default ?? mod;
+  const candidates = [mod, mod?.default, mod?.default?.default].filter(Boolean);
+  for (const candidate of candidates) {
+    if (
+      typeof candidate?.supported === "function" &&
+      typeof candidate?.Map === "function" &&
+      typeof candidate?.Popup === "function"
+    ) {
+      return candidate;
+    }
+  }
+  throw new Error("MapLibre API shape unsupported (supported/Map/Popup missing)");
 }
 
 function escapeHtml(text) {
