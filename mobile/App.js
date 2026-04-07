@@ -22,8 +22,7 @@ import {
   Linking,
 } from "react-native";
 import NativeExplorerMap from "./NativeExplorerMap";
-
-const ExplorerWebMap = lazy(() => import("./ExplorerWebMap"));
+import ExplorerWebMap from "./ExplorerWebMap";
 import { StatusBar } from "expo-status-bar";
 import * as DocumentPicker from "expo-document-picker";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
