@@ -699,7 +699,7 @@ export default function App() {
               </Text>
               <Text style={styles.statBannerText}>
                 {webSplit
-                  ? "Carte : fond CARTO + OSM, tracés verts, marqueurs. Clic = détail, offre et GPX."
+                  ? "Carte web : OpenStreetMap (Leaflet). Marqueurs = box hôtes ; lignes vertes = traces GPX."
                   : "Charge une ville ou « Hôtes les plus proches ». Carte native : marqueurs et tracés."}
               </Text>
             </View>

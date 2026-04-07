@@ -4,60 +4,50 @@ import React, {
   useLayoutEffect,
   useMemo,
   useRef,
-  useState,
 } from "react";
-import {
-  View,
-  Text,
-  Platform,
-  StyleSheet,
-  ActivityIndicator,
-} from "react-native";
+import { View, Text, Platform, StyleSheet } from "react-native";
 
-const CARTO_VOYAGER_STYLE =
-  "https://basemaps.cartocdn.com/gl/voyager-gl-style/style.json";
+const LEAFLET_TILE_FIX_ID = "ravitobox-leaflet-rnweb-tiles";
 
-const MAPLIBRE_CSS_CDN =
-  "https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css";
+function ensureLeafletTileFix() {
+  if (typeof document === "undefined") return;
+  if (document.getElementById(LEAFLET_TILE_FIX_ID)) return;
+  const s = document.createElement("style");
+  s.id = LEAFLET_TILE_FIX_ID;
+  s.textContent = `
+    .leaflet-container img.leaflet-tile {
+      max-width: none !important;
+      max-height: none !important;
+    }
+    .leaflet-container img.leaflet-marker-icon,
+    .leaflet-container img.leaflet-marker-shadow {
+      max-width: none !important;
+    }
+  `;
+  document.head.appendChild(s);
+}
+
+let leafletIconsPatched = false;
+
+function patchLeafletIcons(L) {
+  if (leafletIconsPatched) return;
+  leafletIconsPatched = true;
+  delete L.Icon.Default.prototype._getIconUrl;
+  L.Icon.Default.mergeOptions({
+    iconUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png",
+    iconRetinaUrl:
+      "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png",
+    shadowUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png",
+  });
+}
+
+const TRAIL_STYLE = { color: "#0F766E", weight: 4, opacity: 0.88 };
 
 const DIFFICULTY_LABELS = {
   easy: "Facile",
   medium: "Modéré",
   hard: "Difficile",
 };
-
-function ensureMaplibreCss() {
-  if (typeof document === "undefined") return;
-  const id = "ravitobox-maplibre-css";
-  if (document.getElementById(id)) return;
-  const link = document.createElement("link");
-  link.id = id;
-  link.rel = "stylesheet";
-  link.href = MAPLIBRE_CSS_CDN;
-  document.head.appendChild(link);
-}
-
-/** require() garde MapLibre dans le bundle principal — évite les chunks async (module 695) sur hébergement statique. */
-function loadMaplibreSync() {
-  try {
-    // eslint-disable-next-line global-require
-    require("maplibre-gl/dist/maplibre-gl.css");
-  } catch (_e) {
-    ensureMaplibreCss();
-  }
-  // eslint-disable-next-line global-require
-  const mod = require("maplibre-gl");
-  const candidates = [mod, mod?.default, mod?.default?.default].filter(Boolean);
-  for (const candidate of candidates) {
-    if (
-      typeof candidate?.Map === "function" &&
-      typeof candidate?.Popup === "function"
-    ) {
-      return candidate;
-    }
-  }
-  throw new Error("MapLibre API shape unsupported (Map/Popup missing)");
-}
 
 function escapeHtml(text) {
   return String(text ?? "")
@@ -92,22 +82,19 @@ function buildBoxPopupHtml(box) {
   lines.push(
     `Capacité : ${box.capacity_liters ?? "?"} L · Eau : ${boxWaterLabel(box)}`
   );
-  lines.push(
-    "<em>Statut : box active — réservation par créneau ci-dessous.</em>"
-  );
   if (box.description) {
     lines.push(
       `<span style="font-size:12px;color:#334155">${truncateForPopup(
         box.description,
-        240
+        220
       )}</span>`
     );
   }
   if (box.availability_note) {
     lines.push(
-      `<strong>Disponibilités / infos</strong><br/><span style="font-size:12px;color:#334155">${truncateForPopup(
+      `<strong>Disponibilités</strong><br/><span style="font-size:12px;color:#334155">${truncateForPopup(
         box.availability_note,
-        320
+        300
       )}</span>`
     );
   }
@@ -121,56 +108,25 @@ function buildTrailPopupHtml(trail, staticOrigin) {
       ? `${staticOrigin}${raw.startsWith("/") ? "" : "/"}${raw}`
       : null;
   const gpxLine = gpx
-    ? `<a href="${escapeHtml(
-        gpx
-      )}" download target="_blank" rel="noopener">Télécharger le GPX</a>`
-    : "<span style='font-size:12px'>GPX non disponible</span>";
+    ? `<a href="${escapeHtml(gpx)}" target="_blank" rel="noopener">GPX</a>`
+    : "";
   return [
     `<strong>${escapeHtml(trail.name)}</strong>`,
-    `${escapeHtml(trail.territory)} · ${trail.distance_km} km · D+ ${
-      trail.elevation_m
-    } m`,
+    `${escapeHtml(trail.territory)} · ${trail.distance_km} km`,
     `<span style="font-size:12px">${escapeHtml(
       DIFFICULTY_LABELS[trail.difficulty] || trail.difficulty
     )}</span>`,
     gpxLine,
-  ].join("<br/>");
+  ]
+    .filter(Boolean)
+    .join("<br/>");
 }
 
-function trailsGeoJSON(trails) {
-  const features = [];
-  for (const trail of trails) {
-    let positions = [];
-    try {
-      if (trail.polyline_json) positions = JSON.parse(trail.polyline_json);
-    } catch (_e) {
-      positions = [];
-    }
-    if (positions.length < 2) continue;
-    const coordinates = positions.map(([lat, lng]) => [lng, lat]);
-    features.push({
-      type: "Feature",
-      geometry: { type: "LineString", coordinates },
-      properties: { trailJson: JSON.stringify(trail) },
-    });
-  }
-  return { type: "FeatureCollection", features };
-}
-
-function boxesGeoJSON(boxes) {
-  return {
-    type: "FeatureCollection",
-    features: boxes.map((b) => ({
-      type: "Feature",
-      geometry: {
-        type: "Point",
-        coordinates: [b.longitude, b.latitude],
-      },
-      properties: { id: b.id, boxJson: JSON.stringify(b) },
-    })),
-  };
-}
-
+/**
+ * Carte web : Leaflet + tuiles OSM (raster).
+ * - La map est créée une seule fois (useLayoutEffect dépend seulement de inFixedPane).
+ * - box / tracés : couche mise à jour sans recréer L.map.
+ */
 const ExplorerWebMap = memo(function ExplorerWebMap({
   center,
   boxes,
@@ -181,20 +137,9 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
 }) {
   const containerRef = useRef(null);
   const mapRef = useRef(null);
-  const popupRef = useRef(null);
-  const boxesRef = useRef(boxes);
-  const trailsRef = useRef(trails);
-  boxesRef.current = boxes;
-  trailsRef.current = trails;
-  const staticOriginRef = useRef(staticOrigin);
-  staticOriginRef.current = staticOrigin;
+  const overlayRef = useRef(null);
   const onSelectBoxRef = useRef(onSelectBox);
   onSelectBoxRef.current = onSelectBox;
-  const centerRef = useRef(center);
-  centerRef.current = center;
-
-  const [mapError, setMapError] = useState(null);
-  const [mapLoading, setMapLoading] = useState(true);
 
   const mapStyle = useMemo(
     () =>
@@ -209,208 +154,94 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
     const el = containerRef.current;
     if (!el) return undefined;
 
-    let cancelled = false;
-    let ro = null;
+    ensureLeafletTileFix();
+    // eslint-disable-next-line global-require
+    const L = require("leaflet");
+    // eslint-disable-next-line global-require
+    require("leaflet/dist/leaflet.css");
+    patchLeafletIcons(L);
 
-    setMapError(null);
-    setMapLoading(true);
+    const map = L.map(el, {
+      scrollWheelZoom: true,
+      zoomControl: true,
+    }).setView([center[0], center[1]], 12);
 
-    try {
-      const maplibregl = loadMaplibreSync();
-      if (cancelled || containerRef.current !== el) {
-        setMapLoading(false);
-        return undefined;
-      }
+    const osm = L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      attribution:
+        '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+      maxZoom: 19,
+    });
+    osm.addTo(map);
 
-      const c = centerRef.current;
-      const map = new maplibregl.Map({
-        container: el,
-        style: CARTO_VOYAGER_STYLE,
-        center: [c[1], c[0]],
-        zoom: 12,
-        attributionControl: true,
-      });
+    const overlay = L.layerGroup().addTo(map);
+    mapRef.current = map;
+    overlayRef.current = overlay;
 
-      map.addControl(new maplibregl.NavigationControl(), "top-left");
-
-      const showPopup = (html, lngLat) => {
-        popupRef.current?.remove();
-        popupRef.current = new maplibregl.Popup({
-          offset: 14,
-          closeButton: true,
-          maxWidth: "320px",
-        })
-          .setLngLat(lngLat)
-          .setHTML(html)
-          .addTo(map);
-      };
-
-      const onMapError = (e) => {
-        const msg = e?.error?.message || "Erreur de chargement de la carte";
-        if (!cancelled) setMapError(msg);
-      };
-      map.on("error", onMapError);
-
-      map.on("load", () => {
-        if (cancelled) return;
-        map.addSource("trails", {
-          type: "geojson",
-          data: trailsGeoJSON([]),
-        });
-        map.addLayer({
-          id: "trails-line",
-          type: "line",
-          source: "trails",
-          layout: { "line-cap": "round", "line-join": "round" },
-          paint: {
-            "line-color": "#0F766E",
-            "line-width": 4,
-            "line-opacity": 0.88,
-          },
-        });
-        map.addLayer({
-          id: "trails-hit",
-          type: "line",
-          source: "trails",
-          layout: { "line-cap": "round", "line-join": "round" },
-          paint: {
-            "line-color": "#000",
-            "line-opacity": 0,
-            "line-width": 14,
-          },
-        });
-
-        map.addSource("boxes", {
-          type: "geojson",
-          data: boxesGeoJSON([]),
-        });
-        map.addLayer({
-          id: "boxes-circle",
-          type: "circle",
-          source: "boxes",
-          paint: {
-            "circle-radius": 9,
-            "circle-color": "#0F766E",
-            "circle-stroke-width": 2,
-            "circle-stroke-color": "#ffffff",
-          },
-        });
-
-        map.on("mouseenter", "boxes-circle", () => {
-          map.getCanvas().style.cursor = "pointer";
-        });
-        map.on("mouseleave", "boxes-circle", () => {
-          map.getCanvas().style.cursor = "";
-        });
-        map.on("mouseenter", "trails-hit", () => {
-          map.getCanvas().style.cursor = "pointer";
-        });
-        map.on("mouseleave", "trails-hit", () => {
-          map.getCanvas().style.cursor = "";
-        });
-
-        map.on("click", "boxes-circle", (e) => {
-          const f = e.features?.[0];
-          if (!f?.properties?.boxJson) return;
-          try {
-            const box = JSON.parse(f.properties.boxJson);
-            onSelectBoxRef.current?.(box.id);
-            showPopup(buildBoxPopupHtml(box), e.lngLat);
-          } catch (_err) {
-            /* ignore */
-          }
-        });
-
-        map.on("click", "trails-hit", (e) => {
-          const f = e.features?.[0];
-          if (!f?.properties?.trailJson) return;
-          try {
-            const trail = JSON.parse(f.properties.trailJson);
-            showPopup(
-              buildTrailPopupHtml(trail, staticOriginRef.current),
-              e.lngLat
-            );
-          } catch (_err) {
-            /* ignore */
-          }
-        });
-
-        map.on("click", (evt) => {
-          const feats = map.queryRenderedFeatures(evt.point, {
-            layers: ["boxes-circle", "trails-hit"],
-          });
-          if (!feats.length) {
-            popupRef.current?.remove();
-            popupRef.current = null;
-          }
-        });
-
-        try {
-          map.getSource("trails").setData(trailsGeoJSON(trailsRef.current));
-          map.getSource("boxes").setData(boxesGeoJSON(boxesRef.current));
-        } catch (_e) {
-          /* ignore */
-        }
-      });
-
-      mapRef.current = map;
-
-      ro = new ResizeObserver(() => {
-        map.resize();
-      });
-      ro.observe(el);
-      requestAnimationFrame(() => map.resize());
-
-      if (!cancelled) setMapLoading(false);
-    } catch (err) {
-      if (!cancelled) {
-        setMapError(
-          err?.message
-            ? String(err.message)
-            : "Impossible de charger le moteur de carte."
-        );
-        setMapLoading(false);
-      }
-    }
+    const ro = new ResizeObserver(() => {
+      map.invalidateSize();
+    });
+    ro.observe(el);
+    requestAnimationFrame(() => map.invalidateSize());
 
     return () => {
-      cancelled = true;
-      ro?.disconnect();
-      const m = mapRef.current;
-      if (m) {
-        try {
-          m.remove();
-        } catch (_e) {
-          /* ignore */
-        }
-      }
+      ro.disconnect();
+      map.remove();
       mapRef.current = null;
-      popupRef.current?.remove();
-      popupRef.current = null;
+      overlayRef.current = null;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- recentrage via useEffect dédié
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- carte unique, centre géré ailleurs
   }, [inFixedPane]);
 
   useEffect(() => {
     const map = mapRef.current;
-    if (!map?.getSource?.("boxes")) return;
-    try {
-      map.getSource("trails").setData(trailsGeoJSON(trails));
-      map.getSource("boxes").setData(boxesGeoJSON(boxes));
-    } catch (_e) {
-      /* style not ready */
+    if (!map) return;
+    const L = require("leaflet");
+    const next = L.latLng(center[0], center[1]);
+    const cur = map.getCenter();
+    if (
+      Math.abs(cur.lat - next.lat) > 1e-7 ||
+      Math.abs(cur.lng - next.lng) > 1e-7
+    ) {
+      map.setView(next, map.getZoom(), { animate: false });
     }
-  }, [boxes, trails]);
+  }, [center[0], center[1]]);
 
   useEffect(() => {
-    const map = mapRef.current;
-    if (!map?.isStyleLoaded?.()) return;
-    map.easeTo({
-      center: [center[1], center[0]],
-      duration: 450,
-      essential: true,
+    const group = overlayRef.current;
+    const L = require("leaflet");
+    if (!group) return;
+    group.clearLayers();
+
+    trails.forEach((trail) => {
+      let positions = [];
+      try {
+        if (trail.polyline_json) positions = JSON.parse(trail.polyline_json);
+      } catch (_e) {
+        positions = [];
+      }
+      if (positions.length < 2) return;
+      const line = L.polyline(positions, TRAIL_STYLE);
+      if (staticOrigin) {
+        line.bindPopup(buildTrailPopupHtml(trail, staticOrigin));
+      }
+      line.addTo(group);
     });
-  }, [center[0], center[1]]);
+
+    boxes.forEach((box) => {
+      const m = L.marker([box.latitude, box.longitude]);
+      m.bindPopup(buildBoxPopupHtml(box));
+      m.on("click", () => onSelectBoxRef.current?.(box.id));
+      m.addTo(group);
+    });
+
+    const map = mapRef.current;
+    if (map && group.getLayers().length > 0) {
+      const b = group.getBounds();
+      if (b.isValid()) {
+        map.fitBounds(b, { padding: [28, 28], maxZoom: 15, animate: false });
+      }
+    }
+  }, [boxes, trails, staticOrigin]);
 
   if (Platform.OS !== "web") {
     return null;
@@ -427,18 +258,9 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
             { backgroundColor: "#e8efe9" },
           ]}
         />
-        {mapLoading && !mapError ? (
-          <View style={[StyleSheet.absoluteFillObject, styles.loadingOverlay]}>
-            <ActivityIndicator size="large" color="#0F766E" />
-            <Text style={styles.loadingText}>Chargement de la carte…</Text>
-          </View>
-        ) : null}
-        {mapError ? (
-          <View style={[StyleSheet.absoluteFillObject, styles.errorOverlay]}>
-            <Text style={styles.fallbackTitle}>Carte</Text>
-            <Text style={styles.fallbackText}>{mapError}</Text>
-          </View>
-        ) : null}
+        <View style={styles.hint} pointerEvents="none">
+          <Text style={styles.hintText}>OSM · zoom molette · glisser</Text>
+        </View>
       </View>
     </View>
   );
@@ -461,32 +283,21 @@ const styles = StyleSheet.create({
     position: "relative",
     overflow: "hidden",
   },
-  loadingOverlay: {
-    backgroundColor: "rgba(238, 244, 240, 0.92)",
-    justifyContent: "center",
-    alignItems: "center",
-    zIndex: 1,
+  hint: {
+    position: "absolute",
+    bottom: 6,
+    right: 8,
+    left: 8,
+    alignItems: "flex-end",
   },
-  loadingText: {
-    marginTop: 10,
-    fontSize: 14,
-    color: "#5C6F66",
-  },
-  errorOverlay: {
-    backgroundColor: "rgba(238, 244, 240, 0.96)",
-    padding: 16,
-    justifyContent: "center",
-    zIndex: 2,
-  },
-  fallbackTitle: {
-    fontWeight: "700",
-    fontSize: 16,
-    marginBottom: 6,
-    color: "#0C1B16",
-  },
-  fallbackText: {
-    fontSize: 14,
-    color: "#5C6F66",
+  hintText: {
+    fontSize: 10,
+    color: "rgba(12, 27, 22, 0.45)",
+    backgroundColor: "rgba(255,255,255,0.75)",
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+    overflow: "hidden",
   },
 });
 

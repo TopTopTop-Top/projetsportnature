@@ -1,6 +1,6 @@
 import React from "react";
 
-/** Résolu par Metro pour le web ; la carte web utilise ExplorerWebMap (MapLibre). */
+/** Stub web : la carte est dans ExplorerWebMap (Leaflet + OSM). */
 export default function NativeExplorerMap() {
   return null;
 }
