@@ -8,7 +8,7 @@
     "android": "expo start --android",
     "ios": "expo start --ios",
     "web": "expo start --web",
-    "build:web": "EXPO_NO_BUNDLE_SPLITTING=1 expo export --platform web"
+    "build:web": "EXPO_NO_BUNDLE_SPLITTING=1 expo export --platform web && node scripts/guard-web-index.js"
   },
   "dependencies": {
     "@expo/metro-runtime": "~5.0.5",

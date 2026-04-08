@@ -122,6 +122,21 @@ function buildTrailPopupHtml(trail, staticOrigin) {
     .join("<br/>");
 }
 
+function normalizePoint(point) {
+  if (Array.isArray(point) && point.length >= 2) {
+    const lat = Number(point[0]);
+    const lng = Number(point[1]);
+    if (Number.isFinite(lat) && Number.isFinite(lng)) return [lat, lng];
+    return null;
+  }
+  if (point && typeof point === "object") {
+    const lat = Number(point.lat ?? point.latitude);
+    const lng = Number(point.lng ?? point.longitude);
+    if (Number.isFinite(lat) && Number.isFinite(lng)) return [lat, lng];
+  }
+  return null;
+}
+
 /**
  * Carte web : Leaflet + tuiles OSM (raster).
  * - La map est créée une seule fois (useLayoutEffect dépend seulement de inFixedPane).
@@ -220,37 +235,53 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
     group.clearLayers();
 
     trails.forEach((trail) => {
-      let positions = [];
       try {
-        if (trail.polyline_json) positions = JSON.parse(trail.polyline_json);
+        let positions = [];
+        if (trail.polyline_json) {
+          const raw = JSON.parse(trail.polyline_json);
+          positions = Array.isArray(raw)
+            ? raw.map(normalizePoint).filter(Boolean)
+            : [];
+        }
+        if (positions.length < 2) return;
+        const line = L.polyline(positions, TRAIL_STYLE);
+        if (staticOrigin) {
+          line.bindPopup(buildTrailPopupHtml(trail, staticOrigin));
+        }
+        line.addTo(group);
       } catch (_e) {
-        positions = [];
+        // Ignore a malformed trail instead of crashing the whole map.
       }
-      if (positions.length < 2) return;
-      const line = L.polyline(positions, TRAIL_STYLE);
-      if (staticOrigin) {
-        line.bindPopup(buildTrailPopupHtml(trail, staticOrigin));
-      }
-      line.addTo(group);
     });
 
     boxes.forEach((box) => {
-      const m = L.marker([box.latitude, box.longitude]);
-      m.bindPopup(buildBoxPopupHtml(box));
-      m.on("click", () => onSelectBoxRef.current?.(box.id));
-      m.addTo(group);
+      try {
+        const lat = Number(box.latitude);
+        const lng = Number(box.longitude);
+        if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+        const m = L.marker([lat, lng]);
+        m.bindPopup(buildBoxPopupHtml(box));
+        m.on("click", () => onSelectBoxRef.current?.(box.id));
+        m.addTo(group);
+      } catch (_e) {
+        // Ignore a malformed host point instead of crashing the whole map.
+      }
     });
 
     const map = mapRef.current;
-    if (
-      map &&
-      typeof group.getBounds === "function" &&
-      group.getLayers().length > 0
-    ) {
-      const b = group.getBounds();
-      if (b && typeof b.isValid === "function" && b.isValid()) {
-        map.fitBounds(b, { padding: [28, 28], maxZoom: 15, animate: false });
+    try {
+      if (
+        map &&
+        typeof group.getBounds === "function" &&
+        group.getLayers().length > 0
+      ) {
+        const b = group.getBounds();
+        if (b && typeof b.isValid === "function" && b.isValid()) {
+          map.fitBounds(b, { padding: [28, 28], maxZoom: 15, animate: false });
+        }
       }
+    } catch (_e) {
+      // Keep current viewport if bounds computation fails.
     }
   }, [boxes, trails, staticOrigin]);
 

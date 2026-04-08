@@ -1391,23 +1391,27 @@ export default function App() {
   );
 
   return (
-    <GestureHandlerRootView style={{ flex: 1 }}>
-      <SafeAreaProvider>
-        <AuthUiContext.Provider value={authUiValue}>
-          <NavigationContainer>
-            <AppMainContext.Provider value={isAuthed ? mainContextValue : null}>
-              <Stack.Navigator screenOptions={{ headerShown: false }}>
-                {!isAuthed ? (
-                  <Stack.Screen name="Auth" component={AuthScreen} />
-                ) : (
-                  <Stack.Screen name="Main" component={AuthenticatedRoot} />
-                )}
-              </Stack.Navigator>
-            </AppMainContext.Provider>
-          </NavigationContainer>
-        </AuthUiContext.Provider>
-      </SafeAreaProvider>
-    </GestureHandlerRootView>
+    <RootErrorBoundary>
+      <GestureHandlerRootView style={{ flex: 1 }}>
+        <SafeAreaProvider>
+          <AuthUiContext.Provider value={authUiValue}>
+            <NavigationContainer>
+              <AppMainContext.Provider
+                value={isAuthed ? mainContextValue : null}
+              >
+                <Stack.Navigator screenOptions={{ headerShown: false }}>
+                  {!isAuthed ? (
+                    <Stack.Screen name="Auth" component={AuthScreen} />
+                  ) : (
+                    <Stack.Screen name="Main" component={AuthenticatedRoot} />
+                  )}
+                </Stack.Navigator>
+              </AppMainContext.Provider>
+            </NavigationContainer>
+          </AuthUiContext.Provider>
+        </SafeAreaProvider>
+      </GestureHandlerRootView>
+    </RootErrorBoundary>
   );
 }
 
