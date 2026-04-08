@@ -149,6 +149,7 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
   onSelectBox,
   onPickLocation,
   draftPoint,
+  pickerMode = false,
   staticOrigin = "",
   inFixedPane = false,
 }) {
@@ -183,12 +184,12 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
     const map = L.map(el, {
       scrollWheelZoom: true,
       zoomControl: true,
-    }).setView([center[0], center[1]], 12);
+    }).setView([center[0], center[1]], pickerMode ? 17 : 12);
 
     const osm = L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
       attribution:
         '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
-      maxZoom: 19,
+      maxZoom: 20,
     });
     osm.addTo(map);
 
@@ -226,7 +227,7 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
       overlayRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- carte unique, centre géré ailleurs
-  }, [inFixedPane]);
+  }, [inFixedPane, pickerMode]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -302,19 +303,20 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
     const map = mapRef.current;
     try {
       if (
+        !pickerMode &&
         map &&
         typeof group.getBounds === "function" &&
         group.getLayers().length > 0
       ) {
         const b = group.getBounds();
         if (b && typeof b.isValid === "function" && b.isValid()) {
-          map.fitBounds(b, { padding: [28, 28], maxZoom: 15, animate: false });
+          map.fitBounds(b, { padding: [28, 28], maxZoom: 18, animate: false });
         }
       }
     } catch (_e) {
       // Keep current viewport if bounds computation fails.
     }
-  }, [boxes, trails, staticOrigin, draftPoint]);
+  }, [boxes, trails, staticOrigin, draftPoint, pickerMode]);
 
   if (Platform.OS !== "web") {
     return null;
@@ -332,7 +334,9 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
           ]}
         />
         <View style={styles.hint} pointerEvents="none">
-          <Text style={styles.hintText}>OSM · zoom molette · glisser</Text>
+          <Text style={styles.hintText}>
+            {pickerMode ? "Mode précis: zoom max + clic exact" : "OSM · zoom molette · glisser"}
+          </Text>
         </View>
       </View>
     </View>

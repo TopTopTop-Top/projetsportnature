@@ -767,6 +767,7 @@ function HostScreen() {
                 }
                 multiline
               />
+              <Text style={styles.fieldLabel}>Disponibilités</Text>
               <TextInput
                 style={styles.input}
                 placeholder="Disponibilités (ex: week-end matin)"
@@ -808,7 +809,7 @@ function HostScreen() {
               {Platform.OS === "web" ? (
                 <View style={{ marginTop: 8 }}>
                   <Text style={styles.fieldLabel}>
-                    Clique sur la carte pour choisir la position du box
+                    Clique précisément sur la carte (zoom max disponible)
                   </Text>
                   <ExplorerWebMap
                     center={[hostLat, hostLon]}
@@ -819,10 +820,15 @@ function HostScreen() {
                       actionsRef.current.setHostLocationFromMap(lat, lng)
                     }
                     draftPoint={[hostLat, hostLon]}
+                    pickerMode
                     inFixedPane={false}
                   />
+                  <Text style={styles.helperText}>
+                    Position actuelle: {hostLat.toFixed(6)}, {hostLon.toFixed(6)}
+                  </Text>
                 </View>
               ) : null}
+              <Text style={styles.fieldLabel}>Ville</Text>
               <TextInput
                 style={styles.input}
                 placeholder="Ville"
@@ -830,9 +836,10 @@ function HostScreen() {
                 value={hostForm.city}
                 onChangeText={(v) => setHostForm((s) => ({ ...s, city: v }))}
               />
+              <Text style={styles.fieldLabel}>Prix par réservation (centimes)</Text>
               <TextInput
                 style={styles.input}
-                placeholder="Prix (centimes)"
+                placeholder="Ex: 700 = 7,00 €"
                 placeholderTextColor={theme.inkMuted}
                 value={hostForm.priceCents}
                 onChangeText={(v) =>
@@ -840,9 +847,10 @@ function HostScreen() {
                 }
                 keyboardType="number-pad"
               />
+              <Text style={styles.fieldLabel}>Capacité totale (litres)</Text>
               <TextInput
                 style={styles.input}
-                placeholder="Capacité (litres)"
+                placeholder="Ex: 20"
                 placeholderTextColor={theme.inkMuted}
                 value={hostForm.capacityLiters}
                 onChangeText={(v) =>
@@ -1839,6 +1847,11 @@ const styles = StyleSheet.create({
     marginBottom: 8,
     textTransform: "uppercase",
     letterSpacing: 0.5,
+  },
+  helperText: {
+    fontSize: 12,
+    color: theme.inkMuted,
+    marginTop: 8,
   },
   section: {
     backgroundColor: theme.surface,
