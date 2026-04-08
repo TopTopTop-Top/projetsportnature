@@ -625,18 +625,32 @@ function TrailsScreen() {
     actionsRef,
   } = useAppMain();
 
+  const webGpxInputRef = useRef(null);
+
   const webDropProps =
     Platform.OS === "web"
       ? {
-          onDragOver: (e) => {
-            e.preventDefault();
+          onDragEnter: (e) => {
+            e.preventDefault?.();
+            e.stopPropagation?.();
             setWebDropHover(true);
           },
-          onDragLeave: () => setWebDropHover(false),
-          onDrop: (e) => {
-            e.preventDefault();
+          onDragOver: (e) => {
+            e.preventDefault?.();
+            e.stopPropagation?.();
+            setWebDropHover(true);
+          },
+          onDragLeave: (e) => {
+            e.preventDefault?.();
             setWebDropHover(false);
-            const f = e.dataTransfer?.files?.[0];
+          },
+          onDrop: (e) => {
+            e.preventDefault?.();
+            e.stopPropagation?.();
+            setWebDropHover(false);
+            const ne = e.nativeEvent;
+            const dt = ne?.dataTransfer ?? e.dataTransfer;
+            const f = dt?.files?.[0];
             actionsRef.current.uploadGpxWebFile(f);
           },
         }
@@ -784,12 +798,34 @@ function HostScreen() {
   const canHostLocal = user?.role === "host" || user?.role === "both";
   const hostLat = Number(hostForm.latitude) || 45.8992;
   const hostLon = Number(hostForm.longitude) || 6.1294;
+  const [selectedBoxIds, setSelectedBoxIds] = useState([]);
 
   useEffect(() => {
     if (!canHostLocal) return;
     actionsRef.current.loadHostBoxes();
     actionsRef.current.loadHostBookings();
   }, [canHostLocal, actionsRef]);
+
+  useEffect(() => {
+    setSelectedBoxIds((prev) =>
+      prev.filter((id) => hostBoxes.some((b) => b.id === id))
+    );
+  }, [hostBoxes]);
+
+  const toggleBoxSelect = (id) => {
+    setSelectedBoxIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    );
+  };
+
+  const selectAllBoxesToggle = () => {
+    if (hostBoxes.length === 0) return;
+    if (selectedBoxIds.length === hostBoxes.length) {
+      setSelectedBoxIds([]);
+    } else {
+      setSelectedBoxIds(hostBoxes.map((b) => b.id));
+    }
+  };
 
   return (
     <SafeAreaView style={styles.screen} edges={["left", "right"]}>
@@ -1055,6 +1091,13 @@ function HostScreen() {
                     {box.availability_note}
                   </Text>
                 ) : null}
+                <SecondaryButton
+                  label="Supprimer uniquement ce box"
+                  icon="trash-outline"
+                  onPress={() =>
+                    actionsRef.current.deleteHostBox(box.id, box.title)
+                  }
+                />
               </View>
             ))}
             {hostBoxes.length === 0 ? (
@@ -1776,6 +1819,31 @@ export default function App() {
     }
   };
 
+  const deleteHostBoxesByIds = async (ids) => {
+    if (!token) return;
+    const unique = [...new Set((ids || []).filter(Boolean))];
+    if (unique.length === 0) return;
+    const n = unique.length;
+    const ok = await confirmDestructive(
+      n === 1 ? "Supprimer ce box ?" : `Supprimer ${n} box ?`,
+      "Action définitive : chaque box et ses réservations liées seront supprimés."
+    );
+    if (!ok) return;
+    try {
+      await Promise.all(
+        unique.map((id) =>
+          apiFetch(`/host/boxes/${id}`, { method: "DELETE", token })
+        )
+      );
+      userAlert("OK", n === 1 ? "Box supprimé." : `${n} box supprimés.`);
+      await loadBoxes();
+      await loadHostBoxes();
+      await loadHostBookings();
+    } catch (error) {
+      userAlert("Erreur", error.message);
+    }
+  };
+
   const deleteAllHostBoxes = async () => {
     if (!token) return;
     const ok = await confirmDestructive(
@@ -1879,6 +1947,7 @@ export default function App() {
     bookBox,
     decideHostBooking,
     deleteHostBox,
+    deleteHostBoxesByIds,
     deleteAllHostBoxes,
     deleteHostBooking,
     deleteAllHostBookings,
@@ -2426,6 +2495,41 @@ const styles = StyleSheet.create({
     backgroundColor: theme.primary,
     borderTopLeftRadius: 16,
     borderBottomLeftRadius: 16,
+  },
+  hostBoxActionsRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    alignItems: "center",
+  },
+  selectAllChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: theme.border,
+    backgroundColor: theme.surfaceMuted,
+    alignSelf: "flex-start",
+  },
+  selectAllChipText: {
+    fontWeight: "600",
+    fontSize: 14,
+    color: theme.ink,
+    marginLeft: 8,
+  },
+  boxSelectRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 8,
+    paddingLeft: 4,
+  },
+  boxSelectLabel: {
+    flex: 1,
+    fontSize: 13,
+    color: theme.inkMuted,
+    fontWeight: "600",
+    marginLeft: 10,
   },
   cardTitle: {
     fontWeight: "700",
