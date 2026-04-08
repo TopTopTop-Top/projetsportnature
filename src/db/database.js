@@ -82,6 +82,7 @@ async function migrate() {
         host_earnings_cents INTEGER NOT NULL,
         access_code TEXT NOT NULL,
         status TEXT NOT NULL DEFAULT 'confirmed' CHECK (status IN ('confirmed', 'cancelled', 'completed')),
+        approval_status TEXT NOT NULL DEFAULT 'pending',
         special_request TEXT,
         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
       );
@@ -104,6 +105,9 @@ async function migrate() {
     );
     await client.query(
       `ALTER TABLE bookings ADD COLUMN IF NOT EXISTS special_request TEXT`
+    );
+    await client.query(
+      `ALTER TABLE bookings ADD COLUMN IF NOT EXISTS approval_status TEXT NOT NULL DEFAULT 'pending'`
     );
     await client.query(
       `ALTER TABLE boxes ADD COLUMN IF NOT EXISTS availability_note TEXT`

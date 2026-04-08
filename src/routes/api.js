@@ -95,6 +95,10 @@ const refreshSchema = z.object({
   refreshToken: z.string().min(10),
 });
 
+const hostBookingDecisionSchema = z.object({
+  decision: z.enum(["accept", "reject"]),
+});
+
 const updateMyRoleSchema = z.object({
   role: z.enum(["athlete", "host", "both"]),
 });
@@ -594,9 +598,9 @@ router.post("/bookings", requireAuth, async (req, res) => {
   const { rows } = await pool.query(
     `INSERT INTO bookings (
       box_id, athlete_user_id, booking_date, start_time, end_time,
-      amount_cents, platform_fee_cents, host_earnings_cents, access_code, special_request
+      amount_cents, platform_fee_cents, host_earnings_cents, access_code, special_request, approval_status
     )
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'pending')
     RETURNING *`,
     [
       input.boxId,
@@ -612,6 +616,53 @@ router.post("/bookings", requireAuth, async (req, res) => {
     ]
   );
   return res.status(201).json(rows[0]);
+});
+
+router.get("/host/bookings", requireAuth, async (req, res) => {
+  const { rows } = await pool.query(
+    `SELECT
+      b.*,
+      bx.title AS box_title,
+      bx.city AS box_city,
+      u.full_name AS athlete_full_name,
+      u.email AS athlete_email
+     FROM bookings b
+     JOIN boxes bx ON bx.id = b.box_id
+     JOIN users u ON u.id = b.athlete_user_id
+     WHERE bx.host_user_id = $1
+     ORDER BY b.created_at DESC`,
+    [req.auth.sub]
+  );
+  return res.json(rows);
+});
+
+router.patch("/host/bookings/:id/decision", requireAuth, async (req, res) => {
+  const bookingId = Number(req.params.id);
+  if (!Number.isInteger(bookingId) || bookingId <= 0) {
+    return res.status(400).json({ error: "Invalid booking id" });
+  }
+  const parsed = hostBookingDecisionSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error.flatten() });
+  }
+  const nextApproval = parsed.data.decision === "accept" ? "accepted" : "rejected";
+  const nextStatus = parsed.data.decision === "accept" ? "confirmed" : "cancelled";
+
+  const { rows } = await pool.query(
+    `UPDATE bookings b
+     SET approval_status = $1, status = $2
+     FROM boxes bx
+     WHERE b.id = $3
+       AND bx.id = b.box_id
+       AND bx.host_user_id = $4
+     RETURNING b.*`,
+    [nextApproval, nextStatus, bookingId, req.auth.sub]
+  );
+  const booking = rows[0];
+  if (!booking) {
+    return res.status(404).json({ error: "Booking not found for this host" });
+  }
+  return res.json(booking);
 });
 
 router.get("/bookings", requireAuth, async (req, res) => {

@@ -147,6 +147,8 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
   boxes,
   trails,
   onSelectBox,
+  onPickLocation,
+  draftPoint,
   staticOrigin = "",
   inFixedPane = false,
 }) {
@@ -155,6 +157,8 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
   const overlayRef = useRef(null);
   const onSelectBoxRef = useRef(onSelectBox);
   onSelectBoxRef.current = onSelectBox;
+  const onPickLocationRef = useRef(onPickLocation);
+  onPickLocationRef.current = onPickLocation;
 
   const mapStyle = useMemo(
     () =>
@@ -191,6 +195,16 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
     const overlay = L.featureGroup().addTo(map);
     mapRef.current = map;
     overlayRef.current = overlay;
+
+    if (typeof onPickLocationRef.current === "function") {
+      map.on("click", (ev) => {
+        const lat = Number(ev?.latlng?.lat);
+        const lng = Number(ev?.latlng?.lng);
+        if (Number.isFinite(lat) && Number.isFinite(lng)) {
+          onPickLocationRef.current?.(lat, lng);
+        }
+      });
+    }
 
     let raf = 0;
     const scheduleInvalidate = () => {
@@ -268,6 +282,23 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
       }
     });
 
+    const p = normalizePoint(draftPoint);
+    if (p) {
+      try {
+        const marker = L.circleMarker(p, {
+          radius: 8,
+          color: "#0369A1",
+          weight: 2,
+          fillColor: "#0EA5E9",
+          fillOpacity: 0.85,
+        });
+        marker.bindPopup("Position box (brouillon)");
+        marker.addTo(group);
+      } catch (_e) {
+        // Ignore marker draw issues.
+      }
+    }
+
     const map = mapRef.current;
     try {
       if (
@@ -283,7 +314,7 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
     } catch (_e) {
       // Keep current viewport if bounds computation fails.
     }
-  }, [boxes, trails, staticOrigin]);
+  }, [boxes, trails, staticOrigin, draftPoint]);
 
   if (Platform.OS !== "web") {
     return null;

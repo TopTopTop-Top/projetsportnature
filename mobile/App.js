@@ -703,8 +703,18 @@ function TrailsScreen() {
 }
 
 function HostScreen() {
-  const { user, hostForm, setHostForm, actionsRef } = useAppMain();
+  const { user, hostForm, setHostForm, hostBoxes, hostBookings, actionsRef } =
+    useAppMain();
   const canHostLocal = user?.role === "host" || user?.role === "both";
+  const hostLat = Number(hostForm.latitude) || 45.8992;
+  const hostLon = Number(hostForm.longitude) || 6.1294;
+
+  useEffect(() => {
+    if (!canHostLocal) return;
+    actionsRef.current.loadHostBoxes();
+    actionsRef.current.loadHostBookings();
+  }, [canHostLocal, actionsRef]);
+
   return (
     <SafeAreaView style={styles.screen} edges={["left", "right"]}>
       <ScrollView
@@ -757,6 +767,16 @@ function HostScreen() {
                 }
                 multiline
               />
+              <TextInput
+                style={styles.input}
+                placeholder="Disponibilités (ex: week-end matin)"
+                placeholderTextColor={theme.inkMuted}
+                value={hostForm.availabilityNote}
+                onChangeText={(v) =>
+                  setHostForm((s) => ({ ...s, availabilityNote: v }))
+                }
+                multiline
+              />
               <Text style={styles.fieldLabel}>Localisation</Text>
               <TextInput
                 style={styles.input}
@@ -778,6 +798,31 @@ function HostScreen() {
                 }
                 keyboardType="decimal-pad"
               />
+              <SecondaryButton
+                label="Utiliser cette position comme centre carte"
+                icon="locate-outline"
+                onPress={() =>
+                  actionsRef.current.setHostLocationFromMap(hostLat, hostLon)
+                }
+              />
+              {Platform.OS === "web" ? (
+                <View style={{ marginTop: 8 }}>
+                  <Text style={styles.fieldLabel}>
+                    Clique sur la carte pour choisir la position du box
+                  </Text>
+                  <ExplorerWebMap
+                    center={[hostLat, hostLon]}
+                    boxes={[]}
+                    trails={[]}
+                    onSelectBox={() => {}}
+                    onPickLocation={(lat, lng) =>
+                      actionsRef.current.setHostLocationFromMap(lat, lng)
+                    }
+                    draftPoint={[hostLat, hostLon]}
+                    inFixedPane={false}
+                  />
+                </View>
+              ) : null}
               <TextInput
                 style={styles.input}
                 placeholder="Ville"
@@ -795,6 +840,55 @@ function HostScreen() {
                 }
                 keyboardType="number-pad"
               />
+              <TextInput
+                style={styles.input}
+                placeholder="Capacité (litres)"
+                placeholderTextColor={theme.inkMuted}
+                value={hostForm.capacityLiters}
+                onChangeText={(v) =>
+                  setHostForm((s) => ({ ...s, capacityLiters: v }))
+                }
+                keyboardType="number-pad"
+              />
+              <Text style={styles.fieldLabel}>Eau disponible ?</Text>
+              <View style={styles.roleRow}>
+                <TouchableOpacity
+                  style={[
+                    styles.roleChip,
+                    hostForm.hasWater && styles.roleChipActive,
+                  ]}
+                  onPress={() => setHostForm((s) => ({ ...s, hasWater: true }))}
+                  activeOpacity={0.85}
+                >
+                  <Text
+                    style={[
+                      styles.roleChipText,
+                      hostForm.hasWater && styles.roleChipTextActive,
+                    ]}
+                  >
+                    Oui
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[
+                    styles.roleChip,
+                    !hostForm.hasWater && styles.roleChipActive,
+                  ]}
+                  onPress={() =>
+                    setHostForm((s) => ({ ...s, hasWater: false }))
+                  }
+                  activeOpacity={0.85}
+                >
+                  <Text
+                    style={[
+                      styles.roleChipText,
+                      !hostForm.hasWater && styles.roleChipTextActive,
+                    ]}
+                  >
+                    Non
+                  </Text>
+                </TouchableOpacity>
+              </View>
               <PrimaryButton
                 label="Publier mon box"
                 icon="rocket-outline"
@@ -803,6 +897,79 @@ function HostScreen() {
             </>
           )}
         </Section>
+        {canHostLocal ? (
+          <Section
+            title="Mes box actives"
+            subtitle="Toutes tes box publiées actuellement."
+            icon="layers-outline"
+          >
+            {hostBoxes.map((box) => (
+              <View key={`host-box-${box.id}`} style={styles.card}>
+                <View style={styles.cardAccent} />
+                <Text style={styles.cardTitle}>{box.title}</Text>
+                <Text style={styles.cardMeta}>
+                  {box.city} · {(box.price_cents / 100).toFixed(2)} €
+                </Text>
+                <Text style={styles.cardDetailLine}>
+                  {box.capacity_liters ?? "?"} L · Eau : {boxWaterLabel(box)}
+                </Text>
+                {box.availability_note ? (
+                  <Text style={styles.cardAvailability}>{box.availability_note}</Text>
+                ) : null}
+              </View>
+            ))}
+            {hostBoxes.length === 0 ? (
+              <Text style={styles.emptyText}>Aucune box active pour le moment.</Text>
+            ) : null}
+          </Section>
+        ) : null}
+        {canHostLocal ? (
+          <Section
+            title="Réservations reçues"
+            subtitle="Accepte ou refuse les demandes des athlètes."
+            icon="calendar-outline"
+          >
+            {hostBookings.map((b) => {
+              const approval = b.approval_status || "pending";
+              return (
+                <View key={`host-booking-${b.id}`} style={styles.card}>
+                  <View style={styles.cardAccent} />
+                  <Text style={styles.cardTitle}>{b.box_title || `Box #${b.box_id}`}</Text>
+                  <Text style={styles.cardMeta}>
+                    {b.athlete_full_name || "Athlète"} · {b.booking_date} {b.start_time}-{b.end_time}
+                  </Text>
+                  <Text style={styles.cardDetailLine}>
+                    Statut: {approval} · gain hôte {(Number(b.host_earnings_cents || 0) / 100).toFixed(2)} €
+                  </Text>
+                  {b.special_request ? (
+                    <Text style={styles.cardAvailability}>Demande: {b.special_request}</Text>
+                  ) : null}
+                  {approval === "pending" ? (
+                    <>
+                      <PrimaryButton
+                        label="Accepter"
+                        icon="checkmark-outline"
+                        onPress={() =>
+                          actionsRef.current.decideHostBooking(b.id, "accept")
+                        }
+                      />
+                      <SecondaryButton
+                        label="Refuser"
+                        icon="close-outline"
+                        onPress={() =>
+                          actionsRef.current.decideHostBooking(b.id, "reject")
+                        }
+                      />
+                    </>
+                  ) : null}
+                </View>
+              );
+            })}
+            {hostBookings.length === 0 ? (
+              <Text style={styles.emptyText}>Aucune réservation reçue.</Text>
+            ) : null}
+          </Section>
+        ) : null}
       </ScrollView>
     </SafeAreaView>
   );
@@ -995,6 +1162,8 @@ export default function App() {
     capacityLiters: "20",
     hasWater: true,
   });
+  const [hostBoxes, setHostBoxes] = useState([]);
+  const [hostBookings, setHostBookings] = useState([]);
   const [mapLat, setMapLat] = useState("45.8992");
   const [mapLon, setMapLon] = useState("6.1294");
   const [specialRequest, setSpecialRequest] = useState("");
@@ -1109,6 +1278,8 @@ export default function App() {
       setUser(null);
       setBoxes([]);
       setTrails([]);
+      setHostBoxes([]);
+      setHostBookings([]);
       setAuthMode("login");
     }
   };
@@ -1138,6 +1309,26 @@ export default function App() {
       const rows = await apiFetch(`/boxes?city=${encodeURIComponent(city)}`);
       setBoxes(rows);
       setSelectedBoxId(rows.length > 0 ? rows[0].id : null);
+    } catch (error) {
+      userAlert("Erreur", error.message);
+    }
+  };
+
+  const loadHostBoxes = async () => {
+    if (!token) return;
+    try {
+      const rows = await apiFetch("/host/boxes", { token });
+      setHostBoxes(rows);
+    } catch (error) {
+      userAlert("Erreur", error.message);
+    }
+  };
+
+  const loadHostBookings = async () => {
+    if (!token) return;
+    try {
+      const rows = await apiFetch("/host/bookings", { token });
+      setHostBookings(rows);
     } catch (error) {
       userAlert("Erreur", error.message);
     }
@@ -1291,23 +1482,51 @@ export default function App() {
           city: hostForm.city,
           priceCents: Number(hostForm.priceCents),
           capacityLiters: Number(hostForm.capacityLiters),
-          hasWater: true,
+          hasWater: Boolean(hostForm.hasWater),
+          availabilityNote: hostForm.availabilityNote?.trim() || undefined,
         },
       });
       userAlert("Publication", "Ton box est en ligne.");
       await loadBoxes();
+      await loadHostBoxes();
     } catch (error) {
       userAlert("Erreur", error.message);
     }
+  };
+
+  const decideHostBooking = async (bookingId, decision) => {
+    if (!token) return;
+    try {
+      await apiFetch(`/host/bookings/${bookingId}/decision`, {
+        method: "PATCH",
+        token,
+        body: { decision },
+      });
+      await loadHostBookings();
+    } catch (error) {
+      userAlert("Erreur", error.message);
+    }
+  };
+
+  const setHostLocationFromMap = (lat, lng) => {
+    setHostForm((s) => ({
+      ...s,
+      latitude: lat.toFixed(6),
+      longitude: lng.toFixed(6),
+    }));
   };
 
   const actionsRef = useRef({});
 
   actionsRef.current = {
     loadBoxes,
+    loadHostBoxes,
+    loadHostBookings,
     loadNearbyBoxes,
     loadTrails,
     bookBox,
+    decideHostBooking,
+    setHostLocationFromMap,
     createHostBox,
     uploadGpx,
     uploadGpxWebFile,
@@ -1328,6 +1547,8 @@ export default function App() {
       setMapLon,
       hostForm,
       setHostForm,
+      hostBoxes,
+      hostBookings,
       user,
       webDropHover,
       setWebDropHover,
@@ -1356,6 +1577,8 @@ export default function App() {
       mapLat,
       mapLon,
       hostForm,
+      hostBoxes,
+      hostBookings,
       user,
       webDropHover,
       trailDifficulty,
