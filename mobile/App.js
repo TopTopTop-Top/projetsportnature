@@ -644,22 +644,42 @@ function TrailsScreen() {
           icon="footsteps-outline"
         >
           {Platform.OS === "web" ? (
-            <View
-              style={[styles.dropZone, webDropHover && styles.dropZoneActive]}
-              {...webDropProps}
-            >
-              <Ionicons
-                name="cloud-upload-outline"
-                size={28}
-                color={theme.primary}
-              />
-              <Text style={styles.dropZoneText}>
-                Glisse-dépose un fichier .gpx ici
-              </Text>
-              <Text style={styles.dropZoneHint}>
-                ou utilise le bouton ci-dessous (mobile / fichier)
-              </Text>
-            </View>
+            <>
+              {React.createElement("input", {
+                ref: webGpxInputRef,
+                type: "file",
+                accept: ".gpx,application/gpx+xml",
+                style: {
+                  position: "absolute",
+                  width: 1,
+                  height: 1,
+                  opacity: 0,
+                  overflow: "hidden",
+                  clip: "rect(0,0,0,0)",
+                },
+                onChange: (ev) => {
+                  const f = ev.target?.files?.[0];
+                  ev.target.value = "";
+                  if (f) actionsRef.current.uploadGpxWebFile(f);
+                },
+              })}
+              <View
+                style={[styles.dropZone, webDropHover && styles.dropZoneActive]}
+                {...webDropProps}
+              >
+                <Ionicons
+                  name="cloud-upload-outline"
+                  size={28}
+                  color={theme.primary}
+                />
+                <Text style={styles.dropZoneText}>
+                  Glisse-dépose un fichier .gpx ici
+                </Text>
+                <Text style={styles.dropZoneHint}>
+                  ou choisis un fichier avec le bouton ci-dessous
+                </Text>
+              </View>
+            </>
           ) : null}
           <Text style={styles.fieldLabel}>Difficulté</Text>
           <View style={styles.roleRow}>
@@ -860,7 +880,8 @@ function HostScreen() {
                     inFixedPane={false}
                   />
                   <Text style={styles.helperText}>
-                    Position actuelle: {hostLat.toFixed(6)}, {hostLon.toFixed(6)}
+                    Position actuelle: {hostLat.toFixed(6)},{" "}
+                    {hostLon.toFixed(6)}
                   </Text>
                 </View>
               ) : null}
@@ -872,7 +893,9 @@ function HostScreen() {
                 value={hostForm.city}
                 onChangeText={(v) => setHostForm((s) => ({ ...s, city: v }))}
               />
-              <Text style={styles.fieldLabel}>Prix par réservation (centimes)</Text>
+              <Text style={styles.fieldLabel}>
+                Prix par réservation (centimes)
+              </Text>
               <TextInput
                 style={styles.input}
                 placeholder="Ex: 700 = 7,00 €"
@@ -963,7 +986,9 @@ function HostScreen() {
                   );
                 })}
               </View>
-              <Text style={styles.fieldLabel}>Texte libre sur les critères</Text>
+              <Text style={styles.fieldLabel}>
+                Texte libre sur les critères
+              </Text>
               <TextInput
                 style={[styles.input, styles.textArea]}
                 placeholder="Ex: accès portail bleu, sonnette à gauche, gel disponible..."
@@ -1004,15 +1029,21 @@ function HostScreen() {
                   </Text>
                 ) : null}
                 {box.criteria_note ? (
-                  <Text style={styles.cardAvailability}>{box.criteria_note}</Text>
+                  <Text style={styles.cardAvailability}>
+                    {box.criteria_note}
+                  </Text>
                 ) : null}
                 {box.availability_note ? (
-                  <Text style={styles.cardAvailability}>{box.availability_note}</Text>
+                  <Text style={styles.cardAvailability}>
+                    {box.availability_note}
+                  </Text>
                 ) : null}
               </View>
             ))}
             {hostBoxes.length === 0 ? (
-              <Text style={styles.emptyText}>Aucune box active pour le moment.</Text>
+              <Text style={styles.emptyText}>
+                Aucune box active pour le moment.
+              </Text>
             ) : null}
           </Section>
         ) : null}
@@ -1027,15 +1058,21 @@ function HostScreen() {
               return (
                 <View key={`host-booking-${b.id}`} style={styles.card}>
                   <View style={styles.cardAccent} />
-                  <Text style={styles.cardTitle}>{b.box_title || `Box #${b.box_id}`}</Text>
+                  <Text style={styles.cardTitle}>
+                    {b.box_title || `Box #${b.box_id}`}
+                  </Text>
                   <Text style={styles.cardMeta}>
-                    {b.athlete_full_name || "Athlète"} · {b.booking_date} {b.start_time}-{b.end_time}
+                    {b.athlete_full_name || "Athlète"} · {b.booking_date}{" "}
+                    {b.start_time}-{b.end_time}
                   </Text>
                   <Text style={styles.cardDetailLine}>
-                    Statut: {approval} · gain hôte {(Number(b.host_earnings_cents || 0) / 100).toFixed(2)} €
+                    Statut: {approval} · gain hôte{" "}
+                    {(Number(b.host_earnings_cents || 0) / 100).toFixed(2)} €
                   </Text>
                   {b.special_request ? (
-                    <Text style={styles.cardAvailability}>Demande: {b.special_request}</Text>
+                    <Text style={styles.cardAvailability}>
+                      Demande: {b.special_request}
+                    </Text>
                   ) : null}
                   {approval === "pending" ? (
                     <>
@@ -1520,7 +1557,7 @@ export default function App() {
       if (picked.canceled) return;
       const file = picked.assets[0];
       const formData = new FormData();
-      formData.append("name", file.name.replace(".gpx", ""));
+      formData.append("name", (file.name || "trace").replace(/\.gpx$/i, ""));
       formData.append("territory", city);
       formData.append("difficulty", trailDifficulty);
       formData.append("gpx", {
@@ -1541,18 +1578,33 @@ export default function App() {
   };
 
   const uploadGpxWebFile = async (file) => {
-    if (!file) return;
+    if (!file) {
+      userAlert(
+        "Erreur",
+        "Aucun fichier reçu (glisser-déposer ou choisir un fichier)."
+      );
+      return;
+    }
     const name = file.name || "trace.gpx";
     if (!name.toLowerCase().endsWith(".gpx")) {
       userAlert("Format", "Utilise un fichier .gpx");
       return;
     }
     try {
-      const formData = new FormData();
-      formData.append("name", name.replace(".gpx", ""));
-      formData.append("territory", city);
-      formData.append("difficulty", trailDifficulty);
-      formData.append("gpx", file);
+      let formData;
+      if (Platform.OS === "web" && typeof globalThis.FormData !== "undefined") {
+        formData = new globalThis.FormData();
+        formData.append("name", name.replace(/\.gpx$/i, ""));
+        formData.append("territory", city);
+        formData.append("difficulty", trailDifficulty);
+        formData.append("gpx", file, name);
+      } else {
+        formData = new FormData();
+        formData.append("name", name.replace(/\.gpx$/i, ""));
+        formData.append("territory", city);
+        formData.append("difficulty", trailDifficulty);
+        formData.append("gpx", file);
+      }
       const data = await uploadGpxWithFormData(formData);
       userAlert(
         "Trace importée",
@@ -1758,24 +1810,31 @@ const styles = StyleSheet.create({
   },
   explorerWebMapHost: {
     flexShrink: 0,
-    height: 336,
-    borderTopWidth: 1,
-    borderTopColor: theme.border,
-    backgroundColor: theme.surface,
+    paddingHorizontal: 16,
+    paddingTop: 8,
+    paddingBottom: 20,
+    backgroundColor: theme.bg,
   },
   explorerWebMapInner: {
-    flex: 1,
-    minHeight: 0,
-    marginHorizontal: 12,
-    marginBottom: 8,
+    height: 320,
+    borderRadius: 20,
+    overflow: "hidden",
+    backgroundColor: theme.surface,
+    borderWidth: 1,
+    borderColor: theme.borderSoft,
+    shadowColor: theme.shadow,
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 1,
+    shadowRadius: 16,
+    elevation: 6,
   },
   webMapPaneCaption: {
     fontSize: 12,
     fontWeight: "600",
     color: theme.inkMuted,
-    paddingHorizontal: 16,
-    paddingTop: 8,
-    paddingBottom: 4,
+    paddingHorizontal: 4,
+    paddingTop: 4,
+    paddingBottom: 8,
   },
   authScrollContent: {
     flexGrow: 1,
