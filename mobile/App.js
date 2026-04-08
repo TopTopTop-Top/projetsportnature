@@ -811,6 +811,7 @@ function HostScreen() {
 function ProfileScreen() {
   const { user, actionsRef } = useAppMain();
   const roleLabel = ROLE_LABELS[user?.role] || user?.role;
+  const canEnableBoth = user?.role !== "both";
   return (
     <SafeAreaView style={styles.screen} edges={["left", "right"]}>
       <ScrollView
@@ -846,6 +847,13 @@ function ProfileScreen() {
           icon="refresh-outline"
           onPress={() => actionsRef.current.refreshSession()}
         />
+        {canEnableBoth ? (
+          <PrimaryButton
+            label="Activer mode Athlète + Hôte"
+            icon="swap-horizontal-outline"
+            onPress={() => actionsRef.current.updateMyRole("both")}
+          />
+        ) : null}
         <SecondaryButton
           label="Se déconnecter"
           icon="log-out-outline"
@@ -1105,6 +1113,26 @@ export default function App() {
     }
   };
 
+  const updateMyRole = async (nextRole) => {
+    if (!token) return;
+    try {
+      const result = await apiFetch("/users/me/role", {
+        method: "PATCH",
+        token,
+        body: { role: nextRole },
+      });
+      setUser(result.user);
+      userAlert(
+        "Profil mis à jour",
+        `Ton rôle est maintenant : ${
+          ROLE_LABELS[result.user.role] || result.user.role
+        }.`
+      );
+    } catch (error) {
+      userAlert("Erreur", error.message);
+    }
+  };
+
   const loadBoxes = async () => {
     try {
       const rows = await apiFetch(`/boxes?city=${encodeURIComponent(city)}`);
@@ -1285,6 +1313,7 @@ export default function App() {
     uploadGpxWebFile,
     refreshSession,
     logout,
+    updateMyRole,
   };
 
   const mainContextValue = useMemo(

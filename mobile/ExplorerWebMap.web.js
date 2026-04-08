@@ -177,14 +177,21 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
     mapRef.current = map;
     overlayRef.current = overlay;
 
-    const ro = new ResizeObserver(() => {
-      map.invalidateSize();
-    });
-    ro.observe(el);
-    requestAnimationFrame(() => map.invalidateSize());
+    let raf = 0;
+    const scheduleInvalidate = () => {
+      if (raf) cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(() => {
+        raf = 0;
+        map.invalidateSize();
+      });
+    };
+    const onWindowResize = () => scheduleInvalidate();
+    window.addEventListener("resize", onWindowResize);
+    scheduleInvalidate();
 
     return () => {
-      ro.disconnect();
+      if (raf) cancelAnimationFrame(raf);
+      window.removeEventListener("resize", onWindowResize);
       map.remove();
       mapRef.current = null;
       overlayRef.current = null;

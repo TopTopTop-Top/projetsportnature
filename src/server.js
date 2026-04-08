@@ -24,6 +24,7 @@ app.get("/", (_req, res) => {
       "/api/auth/refresh",
       "/api/auth/logout",
       "/api/users",
+      "/api/users/me/role",
       "/api/boxes",
       "/api/boxes/nearby",
       "/api/host/boxes",

@@ -95,6 +95,10 @@ const refreshSchema = z.object({
   refreshToken: z.string().min(10),
 });
 
+const updateMyRoleSchema = z.object({
+  role: z.enum(["athlete", "host", "both"]),
+});
+
 const nearbyQuerySchema = z.object({
   lat: z.coerce.number().min(-90).max(90),
   lon: z.coerce.number().min(-180).max(180),
@@ -312,6 +316,24 @@ router.get("/users", requireAuth, async (_req, res) => {
     `SELECT id, full_name, email, role, city, created_at FROM users ORDER BY created_at DESC`
   );
   res.json(rows);
+});
+
+router.patch("/users/me/role", requireAuth, async (req, res) => {
+  const parsed = updateMyRoleSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error.flatten() });
+  }
+  const { role } = parsed.data;
+  const { rows } = await pool.query(
+    `UPDATE users
+     SET role = $1
+     WHERE id = $2
+     RETURNING id, full_name, email, role, city, created_at`,
+    [role, req.auth.sub]
+  );
+  const user = rows[0];
+  if (!user) return res.status(404).json({ error: "User not found" });
+  return res.json({ user });
 });
 
 router.post("/boxes", requireAuth, async (req, res) => {
