@@ -173,7 +173,7 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
     });
     osm.addTo(map);
 
-    const overlay = L.layerGroup().addTo(map);
+    const overlay = L.featureGroup().addTo(map);
     mapRef.current = map;
     overlayRef.current = overlay;
 
@@ -242,9 +242,13 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
     });
 
     const map = mapRef.current;
-    if (map && group.getLayers().length > 0) {
+    if (
+      map &&
+      typeof group.getBounds === "function" &&
+      group.getLayers().length > 0
+    ) {
       const b = group.getBounds();
-      if (b.isValid()) {
+      if (b && typeof b.isValid === "function" && b.isValid()) {
         map.fitBounds(b, { padding: [28, 28], maxZoom: 15, animate: false });
       }
     }
