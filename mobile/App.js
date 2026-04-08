@@ -1133,9 +1133,15 @@ function HostScreen() {
 }
 
 function ProfileScreen() {
-  const { user, actionsRef } = useAppMain();
+  const { user, canBook, athleteBookings, actionsRef } = useAppMain();
   const roleLabel = ROLE_LABELS[user?.role] || user?.role;
   const canEnableBoth = user?.role !== "both";
+
+  useEffect(() => {
+    if (!canBook) return;
+    actionsRef.current.loadAthleteBookings();
+  }, [canBook, actionsRef]);
+
   return (
     <SafeAreaView style={styles.screen} edges={["left", "right"]}>
       <ScrollView
@@ -1188,7 +1194,10 @@ function ProfileScreen() {
                     {b.box_title || `Box #${b.box_id}`}
                   </Text>
                   <Text style={styles.cardMeta}>
-                    {[b.box_city, `${b.booking_date} ${b.start_time}–${b.end_time}`]
+                    {[
+                      b.box_city,
+                      `${b.booking_date} ${b.start_time}–${b.end_time}`,
+                    ]
                       .filter(Boolean)
                       .join(" · ")}
                   </Text>
@@ -1204,13 +1213,17 @@ function ProfileScreen() {
                   <SecondaryButton
                     label="Supprimer cette entrée"
                     icon="trash-outline"
-                    onPress={() => actionsRef.current.deleteAthleteBooking(b.id)}
+                    onPress={() =>
+                      actionsRef.current.deleteAthleteBooking(b.id)
+                    }
                   />
                 </View>
               );
             })}
             {athleteBookings.length === 0 ? (
-              <Text style={styles.emptyText}>Aucune réservation enregistrée.</Text>
+              <Text style={styles.emptyText}>
+                Aucune réservation enregistrée.
+              </Text>
             ) : null}
           </Section>
         ) : null}
@@ -1542,6 +1555,16 @@ export default function App() {
     }
   };
 
+  const loadAthleteBookings = async () => {
+    if (!token) return;
+    try {
+      const rows = await apiFetch("/bookings", { token });
+      setAthleteBookings(Array.isArray(rows) ? rows : []);
+    } catch (error) {
+      userAlert("Erreur", error.message);
+    }
+  };
+
   const loadNearbyBoxes = async () => {
     const lat = parseFloat(mapLat);
     const lon = parseFloat(mapLon);
@@ -1728,6 +1751,109 @@ export default function App() {
         body: { decision },
       });
       await loadHostBookings();
+    } catch (error) {
+      userAlert("Erreur", error.message);
+    }
+  };
+
+  const deleteHostBox = async (boxId, title) => {
+    if (!token) return;
+    const ok = await confirmDestructive(
+      "Supprimer ce box ?",
+      `« ${
+        title || "Box"
+      } » sera retiré définitivement (réservations liées incluses).`
+    );
+    if (!ok) return;
+    try {
+      await apiFetch(`/host/boxes/${boxId}`, { method: "DELETE", token });
+      userAlert("Supprimé", "Le box a été retiré.");
+      await loadBoxes();
+      await loadHostBoxes();
+      await loadHostBookings();
+    } catch (error) {
+      userAlert("Erreur", error.message);
+    }
+  };
+
+  const deleteAllHostBoxes = async () => {
+    if (!token) return;
+    const ok = await confirmDestructive(
+      "Supprimer tous tes box ?",
+      "Action irréversible : chaque box et ses réservations seront supprimés."
+    );
+    if (!ok) return;
+    try {
+      await apiFetch("/host/boxes", { method: "DELETE", token });
+      userAlert("OK", "Tous tes box ont été supprimés.");
+      await loadBoxes();
+      await loadHostBoxes();
+      await loadHostBookings();
+    } catch (error) {
+      userAlert("Erreur", error.message);
+    }
+  };
+
+  const deleteHostBooking = async (bookingId, label) => {
+    if (!token) return;
+    const ok = await confirmDestructive(
+      "Supprimer cette réservation ?",
+      `L’entrée « ${label} » disparaîtra de ton historique hôte.`
+    );
+    if (!ok) return;
+    try {
+      await apiFetch(`/host/bookings/${bookingId}`, {
+        method: "DELETE",
+        token,
+      });
+      await loadHostBookings();
+    } catch (error) {
+      userAlert("Erreur", error.message);
+    }
+  };
+
+  const deleteAllHostBookings = async () => {
+    if (!token) return;
+    const ok = await confirmDestructive(
+      "Effacer tout l’historique ?",
+      "Toutes les réservations reçues (y compris acceptées ou refusées) seront supprimées."
+    );
+    if (!ok) return;
+    try {
+      await apiFetch("/host/bookings", { method: "DELETE", token });
+      await loadHostBookings();
+      userAlert("OK", "Historique des réservations effacé.");
+    } catch (error) {
+      userAlert("Erreur", error.message);
+    }
+  };
+
+  const deleteAthleteBooking = async (bookingId) => {
+    if (!token) return;
+    const ok = await confirmDestructive(
+      "Supprimer cette réservation ?",
+      "Elle disparaîtra de ton historique athlète."
+    );
+    if (!ok) return;
+    try {
+      await apiFetch(`/bookings/${bookingId}`, { method: "DELETE", token });
+      await loadAthleteBookings();
+    } catch (error) {
+      userAlert("Erreur", error.message);
+    }
+  };
+
+  const deleteAllAthleteBookings = async () => {
+    if (!token) return;
+    const ok = await confirmDestructive(
+      "Effacer toutes tes réservations ?",
+      "Ton historique de demandes sera vide."
+    );
+    if (!ok) return;
+    try {
+      await apiFetch("/bookings", { method: "DELETE", token });
+      await loadAthleteBookings();
+      userAlert("OK", "Historique effacé.");
     } catch (error) {
       userAlert("Erreur", error.message);
     }
