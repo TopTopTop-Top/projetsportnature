@@ -675,10 +675,88 @@ router.patch("/host/bookings/:id/decision", requireAuth, async (req, res) => {
 
 router.get("/bookings", requireAuth, async (req, res) => {
   const { rows } = await pool.query(
-    `SELECT * FROM bookings WHERE athlete_user_id = $1 ORDER BY created_at DESC`,
+    `SELECT b.*, bx.title AS box_title, bx.city AS box_city
+     FROM bookings b
+     JOIN boxes bx ON bx.id = b.box_id
+     WHERE b.athlete_user_id = $1
+     ORDER BY b.created_at DESC`,
     [req.auth.sub]
   );
   res.json(rows);
+});
+
+router.delete("/host/boxes/:id", requireAuth, async (req, res) => {
+  const boxId = Number(req.params.id);
+  if (!Number.isInteger(boxId) || boxId <= 0) {
+    return res.status(400).json({ error: "Invalid box id" });
+  }
+  const { rows } = await pool.query(
+    `DELETE FROM boxes WHERE id = $1 AND host_user_id = $2 RETURNING id`,
+    [boxId, req.auth.sub]
+  );
+  if (!rows[0]) {
+    return res.status(404).json({ error: "Box not found for this host" });
+  }
+  return res.json({ ok: true });
+});
+
+router.delete("/host/boxes", requireAuth, async (req, res) => {
+  await pool.query(`DELETE FROM boxes WHERE host_user_id = $1`, [
+    req.auth.sub,
+  ]);
+  return res.json({ ok: true });
+});
+
+router.delete("/host/bookings/:id", requireAuth, async (req, res) => {
+  const bookingId = Number(req.params.id);
+  if (!Number.isInteger(bookingId) || bookingId <= 0) {
+    return res.status(400).json({ error: "Invalid booking id" });
+  }
+  const { rows } = await pool.query(
+    `DELETE FROM bookings b
+     USING boxes bx
+     WHERE b.id = $1 AND b.box_id = bx.id AND bx.host_user_id = $2
+     RETURNING b.id`,
+    [bookingId, req.auth.sub]
+  );
+  if (!rows[0]) {
+    return res
+      .status(404)
+      .json({ error: "Booking not found for this host" });
+  }
+  return res.json({ ok: true });
+});
+
+router.delete("/host/bookings", requireAuth, async (req, res) => {
+  await pool.query(
+    `DELETE FROM bookings b
+     USING boxes bx
+     WHERE b.box_id = bx.id AND bx.host_user_id = $1`,
+    [req.auth.sub]
+  );
+  return res.json({ ok: true });
+});
+
+router.delete("/bookings/:id", requireAuth, async (req, res) => {
+  const bookingId = Number(req.params.id);
+  if (!Number.isInteger(bookingId) || bookingId <= 0) {
+    return res.status(400).json({ error: "Invalid booking id" });
+  }
+  const { rows } = await pool.query(
+    `DELETE FROM bookings WHERE id = $1 AND athlete_user_id = $2 RETURNING id`,
+    [bookingId, req.auth.sub]
+  );
+  if (!rows[0]) {
+    return res.status(404).json({ error: "Booking not found" });
+  }
+  return res.json({ ok: true });
+});
+
+router.delete("/bookings", requireAuth, async (req, res) => {
+  await pool.query(`DELETE FROM bookings WHERE athlete_user_id = $1`, [
+    req.auth.sub,
+  ]);
+  return res.json({ ok: true });
 });
 
 module.exports = router;

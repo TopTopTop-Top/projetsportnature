@@ -31,8 +31,11 @@ app.get("/", (_req, res) => {
       "/api/trails",
       "/api/trails/upload-gpx",
       "/api/bookings",
+      "/api/bookings/:id",
       "/api/host/bookings",
+      "/api/host/bookings/:id",
       "/api/host/bookings/:id/decision",
+      "/api/host/boxes/:id",
     ],
   });
 });

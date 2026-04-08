@@ -239,6 +239,22 @@ function userAlert(title, message) {
   }
 }
 
+function confirmDestructive(title, message) {
+  if (Platform.OS === "web") {
+    return Promise.resolve(window.confirm(`${title}\n\n${message}`));
+  }
+  return new Promise((resolve) => {
+    Alert.alert(title, message, [
+      { text: "Annuler", style: "cancel", onPress: () => resolve(false) },
+      {
+        text: "Supprimer",
+        style: "destructive",
+        onPress: () => resolve(true),
+      },
+    ]);
+  });
+}
+
 function Section({ title, subtitle, icon, children }) {
   return (
     <View style={styles.section}>
@@ -712,7 +728,11 @@ function TrailsScreen() {
           <SecondaryButton
             label="Importer un GPX"
             icon="cloud-upload-outline"
-            onPress={() => actionsRef.current.uploadGpx()}
+            onPress={() =>
+              Platform.OS === "web"
+                ? webGpxInputRef.current?.click?.()
+                : actionsRef.current.uploadGpx()
+            }
           />
         </Section>
 
@@ -814,8 +834,8 @@ function HostScreen() {
                 onChangeText={(v) => setHostForm((s) => ({ ...s, title: v }))}
               />
               <TextInput
-                style={styles.input}
-                placeholder="Description"
+                style={[styles.input, styles.textArea]}
+                placeholder="Description du box : présentation, accès, consignes… (un seul champ texte)"
                 placeholderTextColor={theme.inkMuted}
                 value={hostForm.description}
                 onChangeText={(v) =>
@@ -986,19 +1006,6 @@ function HostScreen() {
                   );
                 })}
               </View>
-              <Text style={styles.fieldLabel}>
-                Texte libre sur les critères
-              </Text>
-              <TextInput
-                style={[styles.input, styles.textArea]}
-                placeholder="Ex: accès portail bleu, sonnette à gauche, gel disponible..."
-                placeholderTextColor={theme.inkMuted}
-                value={hostForm.criteriaNote}
-                onChangeText={(v) =>
-                  setHostForm((s) => ({ ...s, criteriaNote: v }))
-                }
-                multiline
-              />
               <PrimaryButton
                 label="Publier mon box"
                 icon="rocket-outline"
@@ -1013,6 +1020,13 @@ function HostScreen() {
             subtitle="Toutes tes box publiées actuellement."
             icon="layers-outline"
           >
+            {hostBoxes.length > 0 ? (
+              <SecondaryButton
+                label="Supprimer tous mes box"
+                icon="trash-outline"
+                onPress={() => actionsRef.current.deleteAllHostBoxes()}
+              />
+            ) : null}
             {hostBoxes.map((box) => (
               <View key={`host-box-${box.id}`} style={styles.card}>
                 <View style={styles.cardAccent} />
@@ -1032,6 +1046,9 @@ function HostScreen() {
                   <Text style={styles.cardAvailability}>
                     {box.criteria_note}
                   </Text>
+                ) : null}
+                {box.description ? (
+                  <Text style={styles.cardAvailability}>{box.description}</Text>
                 ) : null}
                 {box.availability_note ? (
                   <Text style={styles.cardAvailability}>
@@ -1092,6 +1109,16 @@ function HostScreen() {
                       />
                     </>
                   ) : null}
+                  <SecondaryButton
+                    label="Supprimer cette entrée"
+                    icon="trash-outline"
+                    onPress={() =>
+                      actionsRef.current.deleteHostBooking(
+                        b.id,
+                        b.box_title || `Box #${b.box_id}`
+                      )
+                    }
+                  />
                 </View>
               );
             })}
@@ -1139,6 +1166,54 @@ function ProfileScreen() {
             </View>
           </View>
         </Section>
+        {canBook ? (
+          <Section
+            title="Mes réservations (athlète)"
+            subtitle="Tes demandes de box : tu peux retirer une entrée ou tout effacer."
+            icon="calendar-outline"
+          >
+            {athleteBookings.length > 0 ? (
+              <SecondaryButton
+                label="Effacer tout mon historique de réservations"
+                icon="trash-outline"
+                onPress={() => actionsRef.current.deleteAllAthleteBookings()}
+              />
+            ) : null}
+            {athleteBookings.map((b) => {
+              const approval = b.approval_status || "pending";
+              return (
+                <View key={`ath-booking-${b.id}`} style={styles.card}>
+                  <View style={styles.cardAccent} />
+                  <Text style={styles.cardTitle}>
+                    {b.box_title || `Box #${b.box_id}`}
+                  </Text>
+                  <Text style={styles.cardMeta}>
+                    {[b.box_city, `${b.booking_date} ${b.start_time}–${b.end_time}`]
+                      .filter(Boolean)
+                      .join(" · ")}
+                  </Text>
+                  <Text style={styles.cardDetailLine}>
+                    Statut : {approval}
+                    {b.access_code ? ` · code ${b.access_code}` : ""}
+                  </Text>
+                  {b.special_request ? (
+                    <Text style={styles.cardAvailability}>
+                      Demande : {b.special_request}
+                    </Text>
+                  ) : null}
+                  <SecondaryButton
+                    label="Supprimer cette entrée"
+                    icon="trash-outline"
+                    onPress={() => actionsRef.current.deleteAthleteBooking(b.id)}
+                  />
+                </View>
+              );
+            })}
+            {athleteBookings.length === 0 ? (
+              <Text style={styles.emptyText}>Aucune réservation enregistrée.</Text>
+            ) : null}
+          </Section>
+        ) : null}
         <PrimaryButton
           label="Rafraîchir la session"
           icon="refresh-outline"
@@ -1292,10 +1367,10 @@ export default function App() {
     capacityLiters: "20",
     hasWater: true,
     criteriaTags: [],
-    criteriaNote: "",
   });
   const [hostBoxes, setHostBoxes] = useState([]);
   const [hostBookings, setHostBookings] = useState([]);
+  const [athleteBookings, setAthleteBookings] = useState([]);
   const [mapLat, setMapLat] = useState("45.8992");
   const [mapLon, setMapLon] = useState("6.1294");
   const [specialRequest, setSpecialRequest] = useState("");
@@ -1412,6 +1487,7 @@ export default function App() {
       setTrails([]);
       setHostBoxes([]);
       setHostBookings([]);
+      setAthleteBookings([]);
       setAuthMode("login");
     }
   };
@@ -1523,6 +1599,7 @@ export default function App() {
           result.special_request ? `\nDemande : ${result.special_request}` : ""
         }`
       );
+      await loadAthleteBookings();
     } catch (error) {
       userAlert("Erreur", error.message);
     }
@@ -1632,7 +1709,6 @@ export default function App() {
           hasWater: Boolean(hostForm.hasWater),
           availabilityNote: hostForm.availabilityNote?.trim() || undefined,
           criteriaTags: hostForm.criteriaTags,
-          criteriaNote: hostForm.criteriaNote?.trim() || undefined,
         },
       });
       userAlert("Publication", "Ton box est en ligne.");
@@ -1671,10 +1747,17 @@ export default function App() {
     loadBoxes,
     loadHostBoxes,
     loadHostBookings,
+    loadAthleteBookings,
     loadNearbyBoxes,
     loadTrails,
     bookBox,
     decideHostBooking,
+    deleteHostBox,
+    deleteAllHostBoxes,
+    deleteHostBooking,
+    deleteAllHostBookings,
+    deleteAthleteBooking,
+    deleteAllAthleteBookings,
     setHostLocationFromMap,
     createHostBox,
     uploadGpx,
@@ -1698,6 +1781,7 @@ export default function App() {
       setHostForm,
       hostBoxes,
       hostBookings,
+      athleteBookings,
       user,
       webDropHover,
       setWebDropHover,
@@ -1728,6 +1812,7 @@ export default function App() {
       hostForm,
       hostBoxes,
       hostBookings,
+      athleteBookings,
       user,
       webDropHover,
       trailDifficulty,
