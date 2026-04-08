@@ -52,6 +52,8 @@ async function migrate() {
         price_cents INTEGER NOT NULL CHECK (price_cents >= 0),
         capacity_liters INTEGER NOT NULL DEFAULT 20,
         has_water SMALLINT NOT NULL DEFAULT 0,
+        criteria_json TEXT,
+        criteria_note TEXT,
         is_active SMALLINT NOT NULL DEFAULT 1,
         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
       );
@@ -111,6 +113,12 @@ async function migrate() {
     );
     await client.query(
       `ALTER TABLE boxes ADD COLUMN IF NOT EXISTS availability_note TEXT`
+    );
+    await client.query(
+      `ALTER TABLE boxes ADD COLUMN IF NOT EXISTS criteria_json TEXT`
+    );
+    await client.query(
+      `ALTER TABLE boxes ADD COLUMN IF NOT EXISTS criteria_note TEXT`
     );
 
     await client.query("COMMIT");

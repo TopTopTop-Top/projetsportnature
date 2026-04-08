@@ -140,6 +140,17 @@ function boxWaterLabel(box) {
   return w === 1 || w === true || w === "1" ? "Oui" : "Non";
 }
 
+function parseBoxCriteria(box) {
+  try {
+    const raw = box?.criteria_json;
+    if (!raw) return [];
+    const arr = typeof raw === "string" ? JSON.parse(raw) : raw;
+    return Array.isArray(arr) ? arr.filter(Boolean) : [];
+  } catch {
+    return [];
+  }
+}
+
 const AuthUiContext = createContext(null);
 
 /** Données / actions des écrans connectés — évite de définir les écrans dans App (sinon React Navigation remonte la carte à chaque render). */
@@ -160,6 +171,21 @@ const DIFFICULTY_LABELS = {
   medium: "Modéré",
   hard: "Difficile",
 };
+
+const HOST_CRITERIA_OPTIONS = [
+  "Douche",
+  "WC",
+  "Abri pluie",
+  "Prise électrique",
+  "Parking vélo",
+  "Pompe vélo",
+  "Kit réparation",
+  "Snacks sucrés",
+  "Snacks salés",
+  "Option vegan",
+  "Sans gluten",
+  "Eau fraîche",
+];
 
 function difficultyBadgeStyle(level) {
   switch (level) {
@@ -485,6 +511,16 @@ function ExplorerScreen() {
               <Text style={styles.cardDetailLine}>
                 {item.capacity_liters ?? "?"} L · Eau : {boxWaterLabel(item)}
               </Text>
+              {parseBoxCriteria(item).length > 0 ? (
+                <Text style={styles.cardAvailability} numberOfLines={2}>
+                  Critères: {parseBoxCriteria(item).join(" · ")}
+                </Text>
+              ) : null}
+              {item.criteria_note ? (
+                <Text style={styles.cardAvailability} numberOfLines={2}>
+                  {item.criteria_note}
+                </Text>
+              ) : null}
               {item.availability_note ? (
                 <Text style={styles.cardAvailability} numberOfLines={2}>
                   {item.availability_note}
@@ -897,6 +933,47 @@ function HostScreen() {
                   </Text>
                 </TouchableOpacity>
               </View>
+              <Text style={styles.fieldLabel}>Critères disponibles</Text>
+              <View style={styles.roleRow}>
+                {HOST_CRITERIA_OPTIONS.map((label) => {
+                  const active = hostForm.criteriaTags.includes(label);
+                  return (
+                    <TouchableOpacity
+                      key={label}
+                      style={[styles.roleChip, active && styles.roleChipActive]}
+                      onPress={() =>
+                        setHostForm((s) => ({
+                          ...s,
+                          criteriaTags: active
+                            ? s.criteriaTags.filter((c) => c !== label)
+                            : [...s.criteriaTags, label],
+                        }))
+                      }
+                      activeOpacity={0.85}
+                    >
+                      <Text
+                        style={[
+                          styles.roleChipText,
+                          active && styles.roleChipTextActive,
+                        ]}
+                      >
+                        {label}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+              <Text style={styles.fieldLabel}>Texte libre sur les critères</Text>
+              <TextInput
+                style={[styles.input, styles.textArea]}
+                placeholder="Ex: accès portail bleu, sonnette à gauche, gel disponible..."
+                placeholderTextColor={theme.inkMuted}
+                value={hostForm.criteriaNote}
+                onChangeText={(v) =>
+                  setHostForm((s) => ({ ...s, criteriaNote: v }))
+                }
+                multiline
+              />
               <PrimaryButton
                 label="Publier mon box"
                 icon="rocket-outline"
@@ -921,6 +998,14 @@ function HostScreen() {
                 <Text style={styles.cardDetailLine}>
                   {box.capacity_liters ?? "?"} L · Eau : {boxWaterLabel(box)}
                 </Text>
+                {parseBoxCriteria(box).length > 0 ? (
+                  <Text style={styles.cardAvailability}>
+                    Critères: {parseBoxCriteria(box).join(" · ")}
+                  </Text>
+                ) : null}
+                {box.criteria_note ? (
+                  <Text style={styles.cardAvailability}>{box.criteria_note}</Text>
+                ) : null}
                 {box.availability_note ? (
                   <Text style={styles.cardAvailability}>{box.availability_note}</Text>
                 ) : null}
@@ -1169,6 +1254,8 @@ export default function App() {
     priceCents: "700",
     capacityLiters: "20",
     hasWater: true,
+    criteriaTags: [],
+    criteriaNote: "",
   });
   const [hostBoxes, setHostBoxes] = useState([]);
   const [hostBookings, setHostBookings] = useState([]);
@@ -1492,6 +1579,8 @@ export default function App() {
           capacityLiters: Number(hostForm.capacityLiters),
           hasWater: Boolean(hostForm.hasWater),
           availabilityNote: hostForm.availabilityNote?.trim() || undefined,
+          criteriaTags: hostForm.criteriaTags,
+          criteriaNote: hostForm.criteriaNote?.trim() || undefined,
         },
       });
       userAlert("Publication", "Ton box est en ligne.");

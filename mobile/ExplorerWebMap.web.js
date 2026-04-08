@@ -68,6 +68,17 @@ function truncateForPopup(text, max) {
   return `${escapeHtml(t.slice(0, max))}…`;
 }
 
+function parseCriteria(box) {
+  try {
+    const raw = box?.criteria_json;
+    if (!raw) return [];
+    const arr = typeof raw === "string" ? JSON.parse(raw) : raw;
+    return Array.isArray(arr) ? arr.filter(Boolean) : [];
+  } catch {
+    return [];
+  }
+}
+
 function buildBoxPopupHtml(box) {
   const lines = [
     `<strong>${escapeHtml(box.title)}</strong>`,
@@ -94,6 +105,23 @@ function buildBoxPopupHtml(box) {
     lines.push(
       `<strong>Disponibilités</strong><br/><span style="font-size:12px;color:#334155">${truncateForPopup(
         box.availability_note,
+        300
+      )}</span>`
+    );
+  }
+  const criteria = parseCriteria(box);
+  if (criteria.length > 0) {
+    lines.push(
+      `<strong>Critères</strong><br/><span style="font-size:12px;color:#334155">${truncateForPopup(
+        criteria.join(" · "),
+        300
+      )}</span>`
+    );
+  }
+  if (box.criteria_note) {
+    lines.push(
+      `<strong>Détails</strong><br/><span style="font-size:12px;color:#334155">${truncateForPopup(
+        box.criteria_note,
         300
       )}</span>`
     );
