@@ -340,6 +340,7 @@ function ExplorerScreen() {
   const {
     boxes,
     trails,
+    trailsForMap,
     city,
     setCity,
     mapLat,
@@ -350,6 +351,13 @@ function ExplorerScreen() {
     selectedBox,
     canBook,
     canHost,
+    user,
+    mapShowTrails,
+    setMapShowTrails,
+    mapTrailDifficultyFilter,
+    setMapTrailDifficultyFilter,
+    mapTrailsScope,
+    setMapTrailsScope,
     bookingDate,
     setBookingDate,
     startTime,
@@ -585,7 +593,7 @@ function ExplorerScreen() {
               <ExplorerWebMap
                 center={webMapCenter}
                 boxes={boxes}
-                trails={trails}
+                trails={trailsForMap}
                 onSelectBox={setSelectedBoxId}
                 staticOrigin={API_STATIC_ORIGIN}
                 inFixedPane
@@ -711,7 +719,7 @@ function TrailsScreen() {
               </View>
             </>
           ) : null}
-          <Text style={styles.fieldLabel}>Difficulté</Text>
+          <Text style={styles.fieldLabel}>Difficulté à l’import GPX</Text>
           <View style={styles.roleRow}>
             {["easy", "medium", "hard"].map((level) => (
               <TouchableOpacity
@@ -734,6 +742,10 @@ function TrailsScreen() {
               </TouchableOpacity>
             ))}
           </View>
+          <Text style={styles.helperText}>
+            Cette difficulté est enregistrée avec le fichier GPX. Les filtres
+            d’affichage carte et liste sont ailleurs.
+          </Text>
           <PrimaryButton
             label="Charger les traces"
             icon="download-outline"
@@ -750,11 +762,156 @@ function TrailsScreen() {
           />
         </Section>
 
-        <Section title="Traces disponibles" icon="navigate-outline">
-          {trails.map((trail) => {
+        <Section
+          title="Mes traces"
+          subtitle="Traces que tu as importées : suppression une par une, plusieurs à la fois, ou tout effacer."
+          icon="person-outline"
+        >
+          {!user ? (
+            <Text style={styles.emptyText}>
+              Connecte-toi pour voir et gérer tes propres traces.
+            </Text>
+          ) : myTrails.length === 0 ? (
+            <Text style={styles.emptyText}>
+              Tu n’as pas encore de trace à ton nom. Importe un GPX ci-dessus.
+            </Text>
+          ) : (
+            <>
+              <View style={{ marginBottom: 12, gap: 10 }}>
+                <Text style={styles.fieldLabel}>Suppression</Text>
+                <TouchableOpacity
+                  style={styles.selectAllChip}
+                  onPress={selectAllMyTrailsToggle}
+                  activeOpacity={0.85}
+                >
+                  <Ionicons
+                    name={
+                      selectedTrailIds.length === myTrails.length &&
+                      myTrails.length > 0
+                        ? "checkbox"
+                        : "square-outline"
+                    }
+                    size={20}
+                    color={theme.primary}
+                  />
+                  <Text style={styles.selectAllChipText}>
+                    {selectedTrailIds.length === myTrails.length &&
+                    myTrails.length > 0
+                      ? "Tout désélectionner"
+                      : "Tout sélectionner"}
+                  </Text>
+                </TouchableOpacity>
+                {selectedTrailIds.length > 0 ? (
+                  <SecondaryButton
+                    label={`Supprimer la sélection (${selectedTrailIds.length})`}
+                    icon="trash-outline"
+                    onPress={() =>
+                      actionsRef.current.deleteTrailsByIds([
+                        ...selectedTrailIds,
+                      ])
+                    }
+                  />
+                ) : null}
+                <SecondaryButton
+                  label="Supprimer toutes mes traces"
+                  icon="trash-outline"
+                  onPress={() => actionsRef.current.deleteAllMyTrails()}
+                />
+              </View>
+              {myTrails.map((trail) => {
+                const b = difficultyBadgeStyle(trail.difficulty);
+                return (
+                  <View key={`my-trail-${trail.id}`} style={styles.card}>
+                    <View style={styles.cardAccent} />
+                    <TouchableOpacity
+                      style={styles.boxSelectRow}
+                      onPress={() => toggleTrailSelect(trail.id)}
+                      activeOpacity={0.85}
+                    >
+                      <Ionicons
+                        name={
+                          selectedTrailIds.includes(trail.id)
+                            ? "checkbox"
+                            : "square-outline"
+                        }
+                        size={22}
+                        color={theme.primary}
+                      />
+                      <Text style={styles.boxSelectLabel}>
+                        Inclure dans la suppression groupée
+                      </Text>
+                    </TouchableOpacity>
+                    <Text style={styles.cardTitle}>{trail.name}</Text>
+                    <Text style={styles.cardMeta}>
+                      {trail.territory} · {trail.distance_km} km · D+{" "}
+                      {trail.elevation_m} m
+                    </Text>
+                    <View
+                      style={[
+                        styles.badge,
+                        { backgroundColor: b.bg, borderColor: b.border },
+                      ]}
+                    >
+                      <Text style={[styles.badgeText, { color: b.fg }]}>
+                        {DIFFICULTY_LABELS[trail.difficulty] ||
+                          trail.difficulty}
+                      </Text>
+                    </View>
+                    {absoluteUploadUrl(trail.gpx_url) ? (
+                      <SecondaryButton
+                        label="Ouvrir / télécharger GPX"
+                        icon="download-outline"
+                        onPress={() =>
+                          Linking.openURL(absoluteUploadUrl(trail.gpx_url))
+                        }
+                      />
+                    ) : null}
+                    <SecondaryButton
+                      label="Supprimer uniquement cette trace"
+                      icon="trash-outline"
+                      onPress={() =>
+                        actionsRef.current.deleteTrail(trail.id, trail.name)
+                      }
+                    />
+                  </View>
+                );
+              })}
+            </>
+          )}
+        </Section>
+
+        <Section
+          title="Autres traces (communauté)"
+          subtitle="Traces des autres utilisateurs. Filtre par difficulté."
+          icon="navigate-outline"
+        >
+          <Text style={styles.fieldLabel}>Filtrer la liste</Text>
+          <View style={styles.roleRow}>
+            {["all", "easy", "medium", "hard"].map((level) => (
+              <TouchableOpacity
+                key={level}
+                style={[
+                  styles.roleChip,
+                  trailListFilter === level && styles.roleChipActive,
+                ]}
+                onPress={() => setTrailListFilter(level)}
+                activeOpacity={0.85}
+              >
+                <Text
+                  style={[
+                    styles.roleChipText,
+                    trailListFilter === level && styles.roleChipTextActive,
+                  ]}
+                >
+                  {level === "all" ? "Tous" : DIFFICULTY_LABELS[level]}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+          {communityTrails.map((trail) => {
             const b = difficultyBadgeStyle(trail.difficulty);
             return (
-              <View key={`${trail.id}`} style={styles.card}>
+              <View key={`co-trail-${trail.id}`} style={styles.card}>
                 <View style={styles.cardAccent} />
                 <Text style={styles.cardTitle}>{trail.name}</Text>
                 <Text style={styles.cardMeta}>
@@ -783,8 +940,10 @@ function TrailsScreen() {
               </View>
             );
           })}
-          {trails.length === 0 ? (
-            <Text style={styles.emptyText}>Aucune trace chargée.</Text>
+          {communityTrails.length === 0 ? (
+            <Text style={styles.emptyText}>
+              Aucune autre trace avec ce filtre.
+            </Text>
           ) : null}
         </Section>
       </ScrollView>
@@ -1431,6 +1590,15 @@ export default function App() {
   const [mapLon, setMapLon] = useState("6.1294");
   const [specialRequest, setSpecialRequest] = useState("");
   const [webDropHover, setWebDropHover] = useState(false);
+  const [trailListFilter, setTrailListFilter] = useState("all");
+  const [mapShowTrails, setMapShowTrails] = useState(true);
+  const [mapTrailDifficultyFilter, setMapTrailDifficultyFilter] =
+    useState("all");
+  const [mapTrailsScope, setMapTrailsScope] = useState("all");
+
+  useEffect(() => {
+    if (!user) setMapTrailsScope("all");
+  }, [user]);
 
   const isAuthed = useMemo(() => Boolean(token), [token]);
   const canHost = useMemo(
@@ -1628,10 +1796,8 @@ export default function App() {
 
   const loadTrails = async () => {
     try {
-      const rows = await apiFetch(
-        `/trails?difficulty=${encodeURIComponent(trailDifficulty)}`
-      );
-      setTrails(rows);
+      const rows = await apiFetch("/trails");
+      setTrails(Array.isArray(rows) ? rows : []);
     } catch (error) {
       userAlert("Erreur", error.message);
     }
@@ -1957,6 +2123,9 @@ export default function App() {
     createHostBox,
     uploadGpx,
     uploadGpxWebFile,
+    deleteTrail,
+    deleteTrailsByIds,
+    deleteAllMyTrails,
     refreshSession,
     logout,
     updateMyRole,
@@ -2001,6 +2170,7 @@ export default function App() {
     [
       boxes,
       trails,
+      trailsForMap,
       city,
       mapLat,
       mapLon,
@@ -2011,6 +2181,10 @@ export default function App() {
       user,
       webDropHover,
       trailDifficulty,
+      trailListFilter,
+      mapShowTrails,
+      mapTrailDifficultyFilter,
+      mapTrailsScope,
       bookingDate,
       startTime,
       endTime,

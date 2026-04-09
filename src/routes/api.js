@@ -516,6 +516,57 @@ router.get("/trails", async (req, res) => {
   res.json(rows);
 });
 
+function unlinkTrailGpxFile(gpxUrl) {
+  if (!gpxUrl || typeof gpxUrl !== "string") return;
+  if (!gpxUrl.startsWith("/uploads/")) return;
+  const base = path.basename(gpxUrl);
+  if (!base || base.includes("..") || base.includes("/")) return;
+  const full = path.resolve(path.join(uploadsDir, base));
+  const resolvedUploads = path.resolve(uploadsDir);
+  if (
+    !full.startsWith(resolvedUploads + path.sep) &&
+    full !== resolvedUploads
+  ) {
+    return;
+  }
+  try {
+    if (fs.existsSync(full)) fs.unlinkSync(full);
+  } catch (_e) {
+    // ignore
+  }
+}
+
+router.delete("/trails/:id", requireAuth, async (req, res) => {
+  const trailId = Number(req.params.id);
+  if (!Number.isInteger(trailId) || trailId <= 0) {
+    return res.status(400).json({ error: "Invalid trail id" });
+  }
+  const { rows } = await pool.query(
+    `DELETE FROM trails WHERE id = $1 AND creator_user_id = $2 RETURNING gpx_url`,
+    [trailId, req.auth.sub]
+  );
+  const row = rows[0];
+  if (!row) {
+    return res.status(404).json({ error: "Trail not found or not yours" });
+  }
+  unlinkTrailGpxFile(row.gpx_url);
+  return res.json({ ok: true });
+});
+
+router.delete("/trails", requireAuth, async (req, res) => {
+  const { rows } = await pool.query(
+    `SELECT gpx_url FROM trails WHERE creator_user_id = $1`,
+    [req.auth.sub]
+  );
+  await pool.query(`DELETE FROM trails WHERE creator_user_id = $1`, [
+    req.auth.sub,
+  ]);
+  for (const r of rows) {
+    unlinkTrailGpxFile(r.gpx_url);
+  }
+  return res.json({ ok: true, deleted: rows.length });
+});
+
 router.post(
   "/trails/upload-gpx",
   requireAuth,
@@ -653,8 +704,10 @@ router.patch("/host/bookings/:id/decision", requireAuth, async (req, res) => {
   if (!parsed.success) {
     return res.status(400).json({ error: parsed.error.flatten() });
   }
-  const nextApproval = parsed.data.decision === "accept" ? "accepted" : "rejected";
-  const nextStatus = parsed.data.decision === "accept" ? "confirmed" : "cancelled";
+  const nextApproval =
+    parsed.data.decision === "accept" ? "accepted" : "rejected";
+  const nextStatus =
+    parsed.data.decision === "accept" ? "confirmed" : "cancelled";
 
   const { rows } = await pool.query(
     `UPDATE bookings b
@@ -701,9 +754,7 @@ router.delete("/host/boxes/:id", requireAuth, async (req, res) => {
 });
 
 router.delete("/host/boxes", requireAuth, async (req, res) => {
-  await pool.query(`DELETE FROM boxes WHERE host_user_id = $1`, [
-    req.auth.sub,
-  ]);
+  await pool.query(`DELETE FROM boxes WHERE host_user_id = $1`, [req.auth.sub]);
   return res.json({ ok: true });
 });
 
@@ -720,9 +771,7 @@ router.delete("/host/bookings/:id", requireAuth, async (req, res) => {
     [bookingId, req.auth.sub]
   );
   if (!rows[0]) {
-    return res
-      .status(404)
-      .json({ error: "Booking not found for this host" });
+    return res.status(404).json({ error: "Booking not found for this host" });
   }
   return res.json({ ok: true });
 });

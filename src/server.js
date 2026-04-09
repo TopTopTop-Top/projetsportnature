@@ -29,6 +29,7 @@ app.get("/", (_req, res) => {
       "/api/boxes/nearby",
       "/api/host/boxes",
       "/api/trails",
+      "/api/trails/:id",
       "/api/trails/upload-gpx",
       "/api/bookings",
       "/api/bookings/:id",
