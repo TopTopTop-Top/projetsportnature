@@ -376,6 +376,8 @@ function ExplorerScreen() {
     actionsRef,
   } = useAppMain();
 
+  const trailsOnMap = Array.isArray(trailsForMap) ? trailsForMap : [];
+
   useEffect(() => {
     actionsRef.current.loadTrails();
     actionsRef.current.loadBoxes();
@@ -599,7 +601,7 @@ function ExplorerScreen() {
               <ExplorerWebMap
                 center={webMapCenter}
                 boxes={boxes}
-                trails={trailsForMap}
+                trails={trailsOnMap}
                 onSelectBox={setSelectedBoxId}
                 staticOrigin={API_STATIC_ORIGIN}
                 inFixedPane
@@ -1526,7 +1528,8 @@ function AuthenticatedRoot() {
   return <MainTabs />;
 }
 
-export default function App() {
+/** Toute la logique sous RootErrorBoundary pour que les erreurs de rendu (ex. ReferenceError) affichent l’écran d’erreur au lieu d’un blanc. */
+function RavitoApp() {
   useEffect(() => {
     if (Platform.OS !== "web" || typeof document === "undefined") return;
     const { documentElement, body } = document;
@@ -2287,26 +2290,32 @@ export default function App() {
   );
 
   return (
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <SafeAreaProvider>
+        <AuthUiContext.Provider value={authUiValue}>
+          <NavigationContainer>
+            <AppMainContext.Provider
+              value={isAuthed ? mainContextValue : null}
+            >
+              <Stack.Navigator screenOptions={{ headerShown: false }}>
+                {!isAuthed ? (
+                  <Stack.Screen name="Auth" component={AuthScreen} />
+                ) : (
+                  <Stack.Screen name="Main" component={AuthenticatedRoot} />
+                )}
+              </Stack.Navigator>
+            </AppMainContext.Provider>
+          </NavigationContainer>
+        </AuthUiContext.Provider>
+      </SafeAreaProvider>
+    </GestureHandlerRootView>
+  );
+}
+
+export default function App() {
+  return (
     <RootErrorBoundary>
-      <GestureHandlerRootView style={{ flex: 1 }}>
-        <SafeAreaProvider>
-          <AuthUiContext.Provider value={authUiValue}>
-            <NavigationContainer>
-              <AppMainContext.Provider
-                value={isAuthed ? mainContextValue : null}
-              >
-                <Stack.Navigator screenOptions={{ headerShown: false }}>
-                  {!isAuthed ? (
-                    <Stack.Screen name="Auth" component={AuthScreen} />
-                  ) : (
-                    <Stack.Screen name="Main" component={AuthenticatedRoot} />
-                  )}
-                </Stack.Navigator>
-              </AppMainContext.Provider>
-            </NavigationContainer>
-          </AuthUiContext.Provider>
-        </SafeAreaProvider>
-      </GestureHandlerRootView>
+      <RavitoApp />
     </RootErrorBoundary>
   );
 }

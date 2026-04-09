@@ -16,8 +16,45 @@ if (!html.includes(guardMarker)) {
   <script id="${guardMarker}">
     (function () {
       var bootOk = false;
-      window.addEventListener("error", function () {
-        // keep bootOk false, fallback may show
+      function showFatal(msg) {
+        if (document.getElementById("ravitobox-fatal-overlay")) return;
+        var box = document.createElement("div");
+        box.id = "ravitobox-fatal-overlay";
+        box.style.cssText = "position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:#eef4f0;color:#0f172a;font-family:system-ui,-apple-system,sans-serif;padding:24px;z-index:999999;overflow:auto";
+        var esc = (msg || "").replace(/</g, "&lt;").replace(/&/g, "&amp;");
+        box.innerHTML =
+          '<div style="max-width:640px;background:#fff;border:1px solid #d4e0d8;border-radius:12px;padding:18px 20px;box-shadow:0 10px 30px rgba(0,0,0,.08)">' +
+          '<h2 style="margin:0 0 8px;font-size:20px">RavitoBox : erreur au démarrage</h2>' +
+          '<pre style="margin:0 0 12px;white-space:pre-wrap;word-break:break-word;font-size:12px;line-height:1.4;color:#991b1b;background:#fef2f2;padding:10px;border-radius:8px;border:1px solid #fecaca">' +
+          esc +
+          "</pre>" +
+          '<p style="margin:0 0 10px;line-height:1.45;font-size:14px">Essaie un rechargement forcé (Ctrl/Cmd+Shift+R). Vide le cache du site si besoin.</p>' +
+          '<button type="button" style="background:#0f766e;color:#fff;border:0;border-radius:8px;padding:10px 14px;cursor:pointer;font-weight:600">Recharger</button>' +
+          "</div>";
+        box.querySelector("button").onclick = function () {
+          location.reload();
+        };
+        document.body.appendChild(box);
+      }
+      window.addEventListener("error", function (ev) {
+        bootOk = false;
+        var m = (ev && ev.message) || "Erreur JavaScript";
+        setTimeout(function () {
+          showFatal(m);
+        }, 0);
+      });
+      window.addEventListener("unhandledrejection", function (ev) {
+        bootOk = false;
+        var r = ev && ev.reason;
+        var m =
+          typeof r === "string"
+            ? r
+            : r && r.message
+            ? r.message
+            : "Promise rejetée";
+        setTimeout(function () {
+          showFatal(m);
+        }, 0);
       });
       setTimeout(function () {
         var root = document.getElementById("root");
