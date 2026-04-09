@@ -176,18 +176,28 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
   trails,
   onSelectBox,
   onPickLocation,
+  onVisibleBoundsChange,
   draftPoint,
   pickerMode = false,
   staticOrigin = "",
   inFixedPane = false,
+  /** Quand false : ne recentre pas la carte sur les données (évite les boucles avec chargement par viewport). */
+  autoFitToData = true,
+  /** Quand false : ignore les changements de `center` venant du parent (pan / zoom utilisateur préservés). */
+  followExternalCenter = true,
+  /** Chaque incrément force un setView (ex. sync GPS depuis Mes box). */
+  recenterNonce = 0,
 }) {
   const containerRef = useRef(null);
   const mapRef = useRef(null);
   const overlayRef = useRef(null);
+  const lastRecenterNonceRef = useRef(0);
   const onSelectBoxRef = useRef(onSelectBox);
   onSelectBoxRef.current = onSelectBox;
   const onPickLocationRef = useRef(onPickLocation);
   onPickLocationRef.current = onPickLocation;
+  const onVisibleBoundsChangeRef = useRef(onVisibleBoundsChange);
+  onVisibleBoundsChangeRef.current = onVisibleBoundsChange;
 
   const mapStyle = useMemo(
     () =>
@@ -224,6 +234,28 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
     const overlay = L.featureGroup().addTo(map);
     mapRef.current = map;
     overlayRef.current = overlay;
+
+    const emitBounds = () => {
+      const fn = onVisibleBoundsChangeRef.current;
+      if (typeof fn !== "function") return;
+      try {
+        const b = map.getBounds();
+        if (!b || typeof b.isValid !== "function" || !b.isValid()) return;
+        const sw = b.getSouthWest();
+        const ne = b.getNorthEast();
+        fn({
+          south: sw.lat,
+          west: sw.lng,
+          north: ne.lat,
+          east: ne.lng,
+        });
+      } catch (_e) {
+        /* ignore */
+      }
+    };
+    map.on("moveend", emitBounds);
+    map.on("zoomend", emitBounds);
+    setTimeout(emitBounds, 0);
 
     if (typeof onPickLocationRef.current === "function") {
       map.on("click", (ev) => {
@@ -262,6 +294,15 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
     if (!map) return;
     const L = require("leaflet");
     const next = L.latLng(center[0], center[1]);
+    if (
+      recenterNonce > 0 &&
+      recenterNonce !== lastRecenterNonceRef.current
+    ) {
+      lastRecenterNonceRef.current = recenterNonce;
+      map.setView(next, map.getZoom(), { animate: true });
+      return;
+    }
+    if (!followExternalCenter) return;
     const cur = map.getCenter();
     if (
       Math.abs(cur.lat - next.lat) > 1e-7 ||
@@ -269,7 +310,7 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
     ) {
       map.setView(next, map.getZoom(), { animate: false });
     }
-  }, [center[0], center[1]]);
+  }, [center[0], center[1], followExternalCenter, recenterNonce]);
 
   useEffect(() => {
     const group = overlayRef.current;
@@ -331,6 +372,7 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
     const map = mapRef.current;
     try {
       if (
+        autoFitToData &&
         !pickerMode &&
         map &&
         typeof group.getBounds === "function" &&
@@ -344,7 +386,7 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
     } catch (_e) {
       // Keep current viewport if bounds computation fails.
     }
-  }, [boxes, trails, staticOrigin, draftPoint, pickerMode]);
+  }, [boxes, trails, staticOrigin, draftPoint, pickerMode, autoFitToData]);
 
   if (Platform.OS !== "web") {
     return null;

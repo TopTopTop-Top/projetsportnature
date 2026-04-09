@@ -436,6 +436,7 @@ function ExplorerScreen() {
     setMapLat,
     setMapLon,
     setSelectedBoxId,
+    selectedBoxId,
     selectedBox,
     canBook,
     canHost,
@@ -457,6 +458,8 @@ function ExplorerScreen() {
     setMapBoxesNearTrailsOnly,
     mapTrailProximityKm,
     setMapTrailProximityKm,
+    setMapViewportBounds,
+    mapExplorerRecenterNonce,
     bookingDate,
     setBookingDate,
     startTime,
@@ -495,7 +498,24 @@ function ExplorerScreen() {
           Choisis la source : la liste se met à jour automatiquement après ta
           saisie (pas besoin de bouton « charger »).
         </Text>
-        <View style={styles.roleRow}>
+        <View style={[styles.roleRow, { flexWrap: "wrap" }]}>
+          <TouchableOpacity
+            style={[
+              styles.roleChip,
+              mapListSource === "viewport" && styles.roleChipActive,
+            ]}
+            onPress={() => setMapListSource("viewport")}
+            activeOpacity={0.85}
+          >
+            <Text
+              style={[
+                styles.roleChipText,
+                mapListSource === "viewport" && styles.roleChipTextActive,
+              ]}
+            >
+              Zone visible
+            </Text>
+          </TouchableOpacity>
           <TouchableOpacity
             style={[
               styles.roleChip,
@@ -527,10 +547,16 @@ function ExplorerScreen() {
                 mapListSource === "nearby" && styles.roleChipTextActive,
               ]}
             >
-              Par position (lat / lon)
+              Par GPS (lat / lon)
             </Text>
           </TouchableOpacity>
         </View>
+        {mapListSource === "viewport" ? (
+          <Text style={styles.helperText}>
+            Déplace ou zoome la carte : la liste et les marqueurs suivent la
+            zone affichée à l’écran (mise à jour automatique).
+          </Text>
+        ) : null}
         {mapListSource === "nearby" ? (
           <>
             <Text style={styles.inputLabel}>
@@ -591,11 +617,17 @@ function ExplorerScreen() {
                       ? "Carte : OSM · marqueurs = box ; lignes = traces."
                       : "Carte native : marqueurs et tracés."
                   }`
-                : `Box les plus proches du point lat/lon (automatique). ${
-                    webSplit
-                      ? "Carte : OSM · marqueurs = box ; lignes = traces."
-                      : "Carte native : marqueurs et tracés."
-                  }`}
+                : mapListSource === "viewport"
+                  ? `Zone visible sur la carte (automatique). ${
+                      webSplit
+                        ? "Carte : OSM · marqueurs = box ; lignes = traces."
+                        : "Carte native : marqueurs et tracés."
+                    }`
+                  : `Box les plus proches du point lat/lon (automatique). ${
+                      webSplit
+                        ? "Carte : OSM · marqueurs = box ; lignes = traces."
+                        : "Carte native : marqueurs et tracés."
+                    }`}
             </Text>
           </View>
         </View>
@@ -856,6 +888,15 @@ function ExplorerScreen() {
             boxes={boxesOnMap}
             trails={trailsOnMap}
             onSelectBox={setSelectedBoxId}
+            onVisibleBoundsChange={
+              mapListSource === "viewport"
+                ? setMapViewportBounds
+                : undefined
+            }
+            followExternalCenter={
+              !(mapListSource === "viewport" && selectedBoxId == null)
+            }
+            recenterNonce={mapExplorerRecenterNonce}
           />
         ) : null}
         {selectedBox ? (
@@ -1007,6 +1048,16 @@ function ExplorerScreen() {
                 boxes={boxesOnMap}
                 trails={trailsOnMap}
                 onSelectBox={setSelectedBoxId}
+                onVisibleBoundsChange={
+                  mapListSource === "viewport"
+                    ? setMapViewportBounds
+                    : undefined
+                }
+                autoFitToData={mapListSource !== "viewport"}
+                followExternalCenter={
+                  !(mapListSource === "viewport" && selectedBoxId == null)
+                }
+                recenterNonce={mapExplorerRecenterNonce}
                 staticOrigin={API_STATIC_ORIGIN}
                 inFixedPane
               />
@@ -2068,7 +2119,10 @@ function RavitoApp() {
   const [mapTrailsScope, setMapTrailsScope] = useState("all");
   const [mapShowBoxes, setMapShowBoxes] = useState(true);
   const [mapBoxCriteriaTags, setMapBoxCriteriaTags] = useState([]);
-  const [mapListSource, setMapListSource] = useState("city");
+  const [mapListSource, setMapListSource] = useState("viewport");
+  const [mapViewportBounds, setMapViewportBounds] = useState(null);
+  /** Incrémenté pour forcer un recentrage carte (ex. sync depuis Mes box). */
+  const [mapExplorerRecenterNonce, setMapExplorerRecenterNonce] = useState(0);
   const [mapBoxesNearTrailsOnly, setMapBoxesNearTrailsOnly] = useState(false);
   const [mapTrailProximityKm, setMapTrailProximityKm] = useState("3");
 
@@ -2317,6 +2371,51 @@ function RavitoApp() {
     }
   };
 
+  const refetchExplorerBoxes = useCallback(async () => {
+    try {
+      if (mapListSource === "nearby") {
+        const lat = parseFloat(mapLat);
+        const lon = parseFloat(mapLon);
+        if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
+        const rows = await apiFetch(
+          `/boxes/nearby?lat=${lat}&lon=${lon}&limit=35`
+        );
+        setBoxes(rows);
+        setSelectedBoxId(rows.length > 0 ? rows[0].id : null);
+      } else if (mapListSource === "viewport" && mapViewportBounds) {
+        const { south, north, west, east } = mapViewportBounds;
+        const rows = await apiFetch(
+          `/boxes/bounds?south=${encodeURIComponent(south)}&west=${encodeURIComponent(west)}&north=${encodeURIComponent(north)}&east=${encodeURIComponent(east)}&limit=200`
+        );
+        setBoxes(rows);
+        setSelectedBoxId((prev) =>
+          prev != null && rows.some((b) => b.id === prev) ? prev : null
+        );
+      } else {
+        const q = city.trim();
+        if (q.length < 2) return;
+        const rows = await apiFetch(`/boxes?city=${encodeURIComponent(q)}`);
+        setBoxes(rows);
+        setSelectedBoxId(rows.length > 0 ? rows[0].id : null);
+      }
+    } catch (error) {
+      userAlert("Erreur", error.message);
+    }
+  }, [mapListSource, mapLat, mapLon, city, mapViewportBounds]);
+
+  const syncExplorerMapFromHost = useCallback(() => {
+    const lat = parseFloat(hostForm.latitude);
+    const lng = parseFloat(hostForm.longitude);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+      userAlert("Position", "Coordonnées GPS invalides.");
+      return;
+    }
+    setMapLat(lat.toFixed(6));
+    setMapLon(lng.toFixed(6));
+    setMapListSource("viewport");
+    setMapExplorerRecenterNonce((n) => n + 1);
+  }, [hostForm.latitude, hostForm.longitude]);
+
   const loadTrails = async () => {
     try {
       const rows = await apiFetch("/trails");
@@ -2364,6 +2463,36 @@ function RavitoApp() {
     }, 550);
     return () => clearTimeout(t);
   }, [mapLat, mapLon, mapListSource]);
+
+  useEffect(() => {
+    if (mapListSource !== "viewport") return;
+    if (!mapViewportBounds) return;
+    const { south, north, west, east } = mapViewportBounds;
+    if (
+      !Number.isFinite(south) ||
+      !Number.isFinite(north) ||
+      !Number.isFinite(west) ||
+      !Number.isFinite(east)
+    ) {
+      return;
+    }
+    const t = setTimeout(() => {
+      (async () => {
+        try {
+          const rows = await apiFetch(
+            `/boxes/bounds?south=${encodeURIComponent(south)}&west=${encodeURIComponent(west)}&north=${encodeURIComponent(north)}&east=${encodeURIComponent(east)}&limit=200`
+          );
+          setBoxes(rows);
+          setSelectedBoxId((prev) =>
+            prev != null && rows.some((b) => b.id === prev) ? prev : null
+          );
+        } catch (error) {
+          userAlert("Erreur", error.message);
+        }
+      })();
+    }, 420);
+    return () => clearTimeout(t);
+  }, [mapViewportBounds, mapListSource]);
 
   useEffect(() => {
     const lat = parseFloat(hostForm.latitude);
@@ -2529,7 +2658,7 @@ function RavitoApp() {
         },
       });
       userAlert("Publication", "Ton box est en ligne.");
-      await loadBoxes();
+      await refetchExplorerBoxes();
       await loadHostBoxes();
     } catch (error) {
       userAlert("Erreur", error.message);
@@ -2749,6 +2878,7 @@ function RavitoApp() {
     loadHostBookings,
     loadAthleteBookings,
     loadNearbyBoxes,
+    refetchExplorerBoxes,
     loadTrails,
     bookBox,
     decideHostBooking,
@@ -2760,6 +2890,7 @@ function RavitoApp() {
     deleteAthleteBooking,
     deleteAllAthleteBookings,
     setHostLocationFromMap,
+    syncExplorerMapFromHost,
     createHostBox,
     uploadGpx,
     uploadGpxWebFile,
@@ -2811,6 +2942,9 @@ function RavitoApp() {
       setMapBoxesNearTrailsOnly,
       mapTrailProximityKm,
       setMapTrailProximityKm,
+      mapViewportBounds,
+      setMapViewportBounds,
+      mapExplorerRecenterNonce,
       bookingDate,
       setBookingDate,
       startTime,
@@ -2851,6 +2985,8 @@ function RavitoApp() {
       mapListSource,
       mapBoxesNearTrailsOnly,
       mapTrailProximityKm,
+      mapViewportBounds,
+      mapExplorerRecenterNonce,
       bookingDate,
       startTime,
       endTime,

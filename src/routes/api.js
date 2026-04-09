@@ -113,6 +113,15 @@ const nearbyQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).optional(),
 });
 
+/** Rectangle visible carte (pas d’antiméridien en v1). */
+const boundsQuerySchema = z.object({
+  south: z.coerce.number().min(-90).max(90),
+  north: z.coerce.number().min(-90).max(90),
+  west: z.coerce.number().min(-180).max(180),
+  east: z.coerce.number().min(-180).max(180),
+  limit: z.coerce.number().int().min(1).max(300).optional(),
+});
+
 function toArray(value) {
   if (!value) return [];
   return Array.isArray(value) ? value : [value];
@@ -477,6 +486,41 @@ router.get("/host/boxes", requireAuth, async (req, res) => {
   const { rows } = await pool.query(
     `SELECT * FROM boxes WHERE host_user_id = $1 ORDER BY created_at DESC`,
     [req.auth.sub]
+  );
+  res.json(rows);
+});
+
+router.get("/boxes/bounds", async (req, res) => {
+  const parsed = boundsQuerySchema.safeParse(req.query);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error.flatten() });
+  }
+  const { south, north, west, east, limit } = parsed.data;
+  if (south > north) {
+    return res.status(400).json({ error: "south must be <= north" });
+  }
+  if (west > east) {
+    return res
+      .status(400)
+      .json({ error: "Bounds crossing antimeridian not supported" });
+  }
+  const latSpan = north - south;
+  const lonSpan = east - west;
+  const maxSpan = 12;
+  if (latSpan > maxSpan || lonSpan > maxSpan) {
+    return res.status(400).json({
+      error: `Viewport too large (max ${maxSpan}° per axis). Zoom in.`,
+    });
+  }
+  const lim = limit ?? 200;
+  const { rows } = await pool.query(
+    `SELECT * FROM boxes
+     WHERE is_active = 1
+       AND latitude >= $1 AND latitude <= $2
+       AND longitude >= $3 AND longitude <= $4
+     ORDER BY created_at DESC
+     LIMIT $5`,
+    [south, north, west, east, lim]
   );
   res.json(rows);
 });

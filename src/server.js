@@ -27,6 +27,7 @@ app.get("/", (_req, res) => {
       "/api/users",
       "/api/users/me/role",
       "/api/boxes",
+      "/api/boxes/bounds",
       "/api/boxes/nearby",
       "/api/host/boxes",
       "/api/trails",

@@ -7,8 +7,12 @@ export default function NativeExplorerMap({
   boxes,
   trails,
   onSelectBox,
+  onVisibleBoundsChange,
+  followExternalCenter = true,
+  recenterNonce = 0,
 }) {
   const mapRef = useRef(null);
+  const lastRecenterNonceRef = useRef(0);
 
   const region = useMemo(
     () => ({
@@ -21,8 +25,15 @@ export default function NativeExplorerMap({
   );
 
   useEffect(() => {
-    mapRef.current?.animateToRegion(region, 280);
-  }, [region]);
+    if (recenterNonce > 0 && recenterNonce !== lastRecenterNonceRef.current) {
+      lastRecenterNonceRef.current = recenterNonce;
+      mapRef.current?.animateToRegion(region, 280);
+      return;
+    }
+    if (followExternalCenter) {
+      mapRef.current?.animateToRegion(region, 280);
+    }
+  }, [region, followExternalCenter, recenterNonce]);
 
   const trailPolylines = useMemo(() => {
     return trails
@@ -42,8 +53,25 @@ export default function NativeExplorerMap({
       .filter((t) => t.coordinates.length > 1);
   }, [trails]);
 
+  const reportBounds = (r) => {
+    if (typeof onVisibleBoundsChange !== "function" || !r) return;
+    const halfLat = r.latitudeDelta / 2;
+    const halfLon = r.longitudeDelta / 2;
+    onVisibleBoundsChange({
+      south: r.latitude - halfLat,
+      north: r.latitude + halfLat,
+      west: r.longitude - halfLon,
+      east: r.longitude + halfLon,
+    });
+  };
+
   return (
-    <MapView ref={mapRef} style={styles.map} initialRegion={region}>
+    <MapView
+      ref={mapRef}
+      style={styles.map}
+      initialRegion={region}
+      onRegionChangeComplete={reportBounds}
+    >
       {trailPolylines.map((t) => (
         <Polyline
           key={t.id}
