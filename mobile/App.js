@@ -2099,6 +2099,61 @@ export default function App() {
     }
   };
 
+  const deleteTrail = async (trailId, name) => {
+    if (!token) return;
+    const ok = await confirmDestructive(
+      "Supprimer cette trace ?",
+      `« ${name || "Trace"} » sera retirée définitivement.`
+    );
+    if (!ok) return;
+    try {
+      await apiFetch(`/trails/${trailId}`, { method: "DELETE", token });
+      userAlert("OK", "Trace supprimée.");
+      await loadTrails();
+    } catch (error) {
+      userAlert("Erreur", error.message);
+    }
+  };
+
+  const deleteTrailsByIds = async (ids) => {
+    if (!token) return;
+    const unique = [...new Set((ids || []).filter(Boolean))];
+    if (unique.length === 0) return;
+    const n = unique.length;
+    const ok = await confirmDestructive(
+      n === 1 ? "Supprimer cette trace ?" : `Supprimer ${n} traces ?`,
+      "Action définitive."
+    );
+    if (!ok) return;
+    try {
+      await Promise.all(
+        unique.map((id) =>
+          apiFetch(`/trails/${id}`, { method: "DELETE", token })
+        )
+      );
+      userAlert("OK", n === 1 ? "Trace supprimée." : `${n} traces supprimées.`);
+      await loadTrails();
+    } catch (error) {
+      userAlert("Erreur", error.message);
+    }
+  };
+
+  const deleteAllMyTrails = async () => {
+    if (!token) return;
+    const ok = await confirmDestructive(
+      "Supprimer toutes tes traces ?",
+      "Toutes les traces que tu as importées ou créées seront effacées."
+    );
+    if (!ok) return;
+    try {
+      await apiFetch("/trails", { method: "DELETE", token });
+      userAlert("OK", "Toutes tes traces ont été supprimées.");
+      await loadTrails();
+    } catch (error) {
+      userAlert("Erreur", error.message);
+    }
+  };
+
   const setHostLocationFromMap = (lat, lng) => {
     setHostForm((s) => ({
       ...s,
