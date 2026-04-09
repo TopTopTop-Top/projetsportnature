@@ -45,6 +45,45 @@ function absoluteUploadUrl(path) {
   return `${API_STATIC_ORIGIN}${path.startsWith("/") ? "" : "/"}${path}`;
 }
 
+function haversineKm(lat1, lon1, lat2, lon2) {
+  const R = 6371;
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLon = ((lon2 - lon1) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos((lat1 * Math.PI) / 180) *
+      Math.cos((lat2 * Math.PI) / 180) *
+      Math.sin(dLon / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+/** Distance minimale (km) d’une box aux sommets des polylines des traces. */
+function minDistanceKmFromBoxToTrails(box, trailsList) {
+  const lat = Number(box.latitude);
+  const lon = Number(box.longitude);
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return Infinity;
+  let minD = Infinity;
+  for (const trail of trailsList) {
+    let positions = [];
+    try {
+      if (trail.polyline_json) positions = JSON.parse(trail.polyline_json);
+    } catch {
+      positions = [];
+    }
+    if (!Array.isArray(positions)) continue;
+    for (const pt of positions) {
+      const p = Array.isArray(pt) ? pt : null;
+      if (!p || p.length < 2) continue;
+      const plat = Number(p[0]);
+      const plng = Number(p[1]);
+      if (!Number.isFinite(plat) || !Number.isFinite(plng)) continue;
+      const d = haversineKm(lat, lon, plat, plng);
+      if (d < minD) minD = d;
+    }
+  }
+  return minD;
+}
+
 const theme = {
   bg: "#EEF4F0",
   surface: "#FFFFFF",
@@ -286,11 +325,12 @@ function Section({ title, subtitle, icon, children }) {
   );
 }
 
-function PrimaryButton({ label, onPress, icon, disabled, loading }) {
+function PrimaryButton({ label, onPress, icon, disabled, loading, compact }) {
   return (
     <TouchableOpacity
       style={[
         styles.primaryButton,
+        compact && styles.primaryButtonCompact,
         disabled && styles.buttonDisabled,
         Platform.OS === "web" && { cursor: "pointer" },
       ]}
@@ -320,11 +360,12 @@ function PrimaryButton({ label, onPress, icon, disabled, loading }) {
   );
 }
 
-function SecondaryButton({ label, onPress, icon }) {
+function SecondaryButton({ label, onPress, icon, compact }) {
   return (
     <TouchableOpacity
       style={[
         styles.secondaryButton,
+        compact && styles.secondaryButtonCompact,
         Platform.OS === "web" && { cursor: "pointer" },
       ]}
       onPress={onPress}
@@ -340,6 +381,43 @@ function SecondaryButton({ label, onPress, icon }) {
         />
       ) : null}
       <Text style={styles.secondaryButtonText} pointerEvents="none">
+        {label}
+      </Text>
+    </TouchableOpacity>
+  );
+}
+
+/** Bouton discret (bordure) — suppressions / actions secondaires. */
+function OutlineButton({ label, onPress, icon, danger, compact, stretch }) {
+  return (
+    <TouchableOpacity
+      style={[
+        styles.outlineButton,
+        compact && styles.outlineButtonCompact,
+        danger && styles.outlineButtonDanger,
+        stretch && styles.outlineButtonStretch,
+        Platform.OS === "web" && { cursor: "pointer" },
+      ]}
+      onPress={onPress}
+      activeOpacity={0.85}
+    >
+      {icon ? (
+        <Ionicons
+          name={icon}
+          size={compact ? 16 : 17}
+          color={danger ? "#B91C1C" : theme.secondaryInk}
+          style={styles.buttonIconLeft}
+          pointerEvents="none"
+        />
+      ) : null}
+      <Text
+        style={[
+          styles.outlineButtonText,
+          compact && styles.outlineButtonTextCompact,
+          danger && styles.outlineButtonTextDanger,
+        ]}
+        pointerEvents="none"
+      >
         {label}
       </Text>
     </TouchableOpacity>
@@ -373,6 +451,12 @@ function ExplorerScreen() {
     setMapShowBoxes,
     mapBoxCriteriaTags,
     setMapBoxCriteriaTags,
+    mapListSource,
+    setMapListSource,
+    mapBoxesNearTrailsOnly,
+    setMapBoxesNearTrailsOnly,
+    mapTrailProximityKm,
+    setMapTrailProximityKm,
     bookingDate,
     setBookingDate,
     startTime,
@@ -390,7 +474,6 @@ function ExplorerScreen() {
 
   useEffect(() => {
     actionsRef.current.loadTrails();
-    actionsRef.current.loadBoxes();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -407,41 +490,90 @@ function ExplorerScreen() {
         }
         icon="map-outline"
       >
-        <Text style={styles.inputLabel}>Centre carte (lat / lon)</Text>
-        <View style={styles.row}>
-          <TextInput
-            style={styles.inputHalf}
-            placeholder="Latitude"
-            placeholderTextColor={theme.inkMuted}
-            value={mapLat}
-            onChangeText={setMapLat}
-          />
-          <TextInput
-            style={styles.inputHalf}
-            placeholder="Longitude"
-            placeholderTextColor={theme.inkMuted}
-            value={mapLon}
-            onChangeText={setMapLon}
-          />
+        <Text style={styles.fieldLabel}>Charger la liste des box</Text>
+        <Text style={styles.helperText}>
+          Choisis la source : la liste se met à jour automatiquement après ta
+          saisie (pas besoin de bouton « charger »).
+        </Text>
+        <View style={styles.roleRow}>
+          <TouchableOpacity
+            style={[
+              styles.roleChip,
+              mapListSource === "city" && styles.roleChipActive,
+            ]}
+            onPress={() => setMapListSource("city")}
+            activeOpacity={0.85}
+          >
+            <Text
+              style={[
+                styles.roleChipText,
+                mapListSource === "city" && styles.roleChipTextActive,
+              ]}
+            >
+              Par ville
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[
+              styles.roleChip,
+              mapListSource === "nearby" && styles.roleChipActive,
+            ]}
+            onPress={() => setMapListSource("nearby")}
+            activeOpacity={0.85}
+          >
+            <Text
+              style={[
+                styles.roleChipText,
+                mapListSource === "nearby" && styles.roleChipTextActive,
+              ]}
+            >
+              Par position (lat / lon)
+            </Text>
+          </TouchableOpacity>
         </View>
-        <PrimaryButton
-          label="Hôtes les plus proches"
-          icon="navigate-outline"
-          onPress={() => actionsRef.current.loadNearbyBoxes()}
-        />
-        <Text style={styles.inputLabel}>Ou par ville</Text>
-        <TextInput
-          style={styles.input}
-          placeholder="Ville"
-          placeholderTextColor={theme.inkMuted}
-          value={city}
-          onChangeText={setCity}
-        />
-        <SecondaryButton
-          label="Charger les box (ville)"
-          icon="refresh-outline"
-          onPress={() => actionsRef.current.loadBoxes()}
-        />
+        {mapListSource === "nearby" ? (
+          <>
+            <Text style={styles.inputLabel}>
+              Coordonnées GPS du centre carte
+            </Text>
+            <TextInput
+              style={styles.input}
+              placeholder="Latitude (ex. 45.8992)"
+              placeholderTextColor={theme.inkMuted}
+              value={mapLat}
+              onChangeText={(v) => {
+                setMapLat(v);
+                setMapListSource("nearby");
+              }}
+              keyboardType="decimal-pad"
+            />
+            <TextInput
+              style={styles.input}
+              placeholder="Longitude (ex. 6.1294)"
+              placeholderTextColor={theme.inkMuted}
+              value={mapLon}
+              onChangeText={(v) => {
+                setMapLon(v);
+                setMapListSource("nearby");
+              }}
+              keyboardType="decimal-pad"
+            />
+          </>
+        ) : (
+          <>
+            <Text style={styles.inputLabel}>Ville</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="Ex. Annecy"
+              placeholderTextColor={theme.inkMuted}
+              value={city}
+              onChangeText={(v) => {
+                setCity(v);
+                setMapListSource("city");
+              }}
+            />
+          </>
+        )}
         <View style={styles.statBanner}>
           <View style={styles.statBannerIcon}>
             <Ionicons name="cube-outline" size={22} color={theme.primary} />
@@ -449,13 +581,21 @@ function ExplorerScreen() {
           <View style={{ flex: 1 }}>
             <Text style={styles.statBannerTitle}>
               {boxes.length === 0
-                ? "Aucune box chargée"
+                ? "Aucune box dans cette recherche"
                 : `${boxes.length} box affichée${boxes.length > 1 ? "s" : ""}`}
             </Text>
             <Text style={styles.statBannerText}>
-              {webSplit
-                ? "Carte web : OpenStreetMap (Leaflet). Marqueurs = box hôtes ; lignes vertes = traces GPX."
-                : "Charge une ville ou « Hôtes les plus proches ». Carte native : marqueurs et tracés."}
+              {mapListSource === "city"
+                ? `Recherche par ville (automatique). ${
+                    webSplit
+                      ? "Carte : OSM · marqueurs = box ; lignes = traces."
+                      : "Carte native : marqueurs et tracés."
+                  }`
+                : `Box les plus proches du point lat/lon (automatique). ${
+                    webSplit
+                      ? "Carte : OSM · marqueurs = box ; lignes = traces."
+                      : "Carte native : marqueurs et tracés."
+                  }`}
             </Text>
           </View>
         </View>
@@ -526,9 +666,10 @@ function ExplorerScreen() {
               })}
             </View>
             {mapBoxCriteriaTags.length > 0 ? (
-              <SecondaryButton
-                label="Effacer les critères (tous les box sur la carte)"
+              <OutlineButton
+                label="Effacer les critères (carte)"
                 icon="close-circle-outline"
+                compact
                 onPress={() => setMapBoxCriteriaTags([])}
               />
             ) : null}
@@ -640,12 +781,79 @@ function ExplorerScreen() {
               {trailsOnMap.length !== 1 ? "s" : ""} sur la carte (sur{" "}
               {trails.length} au total)
             </Text>
+            {mapShowBoxes ? (
+              <>
+                <Text style={styles.fieldLabel}>Box près du tracé GPX</Text>
+                <Text style={styles.helperText}>
+                  Sur la carte uniquement : garde les box à moins de X km d’au
+                  moins un point des tracés visibles (filtres ci-dessus).
+                </Text>
+                <View style={styles.roleRow}>
+                  <TouchableOpacity
+                    style={[
+                      styles.roleChip,
+                      !mapBoxesNearTrailsOnly && styles.roleChipActive,
+                    ]}
+                    onPress={() => setMapBoxesNearTrailsOnly(false)}
+                    activeOpacity={0.85}
+                  >
+                    <Text
+                      style={[
+                        styles.roleChipText,
+                        !mapBoxesNearTrailsOnly && styles.roleChipTextActive,
+                      ]}
+                    >
+                      Toutes (liste)
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[
+                      styles.roleChip,
+                      mapBoxesNearTrailsOnly && styles.roleChipActive,
+                    ]}
+                    onPress={() => setMapBoxesNearTrailsOnly(true)}
+                    activeOpacity={0.85}
+                  >
+                    <Text
+                      style={[
+                        styles.roleChipText,
+                        mapBoxesNearTrailsOnly && styles.roleChipTextActive,
+                      ]}
+                    >
+                      Près des tracés
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+                {mapBoxesNearTrailsOnly ? (
+                  <>
+                    <Text style={styles.inputLabel}>
+                      Distance max. au tracé (km)
+                    </Text>
+                    <TextInput
+                      style={styles.input}
+                      placeholder="3"
+                      placeholderTextColor={theme.inkMuted}
+                      value={mapTrailProximityKm}
+                      onChangeText={setMapTrailProximityKm}
+                      keyboardType="decimal-pad"
+                    />
+                    {trailsOnMap.length === 0 ? (
+                      <Text style={styles.helperText}>
+                        Aucun tracé sur la carte avec les filtres actuels : le
+                        filtre « près des tracés » est ignoré jusqu’à ce qu’au
+                        moins une trace soit visible.
+                      </Text>
+                    ) : null}
+                  </>
+                ) : null}
+              </>
+            ) : null}
           </>
         ) : null}
         {!webSplit ? (
           <NativeExplorerMap
             center={webMapCenter}
-            boxes={boxes}
+            boxes={boxesOnMap}
             trails={trailsOnMap}
             onSelectBox={setSelectedBoxId}
           />
@@ -662,7 +870,8 @@ function ExplorerScreen() {
               )}
             </Text>
             {canBook ? (
-              <SecondaryButton
+              <PrimaryButton
+                compact
                 label="Réserver ce box"
                 icon="calendar-outline"
                 onPress={() => actionsRef.current.bookBox(selectedBox.id)}
@@ -751,13 +960,15 @@ function ExplorerScreen() {
                   {item.availability_note}
                 </Text>
               ) : null}
-              <PrimaryButton
+              <OutlineButton
                 label="Voir sur la carte"
                 icon="location-outline"
+                stretch
                 onPress={() => setSelectedBoxId(item.id)}
               />
               {canBook ? (
-                <SecondaryButton
+                <PrimaryButton
+                  compact
                   label="Réserver"
                   icon="checkmark-circle-outline"
                   onPress={() => actionsRef.current.bookBox(item.id)}
@@ -1047,7 +1258,9 @@ function TrailsScreen() {
                   </Text>
                 </TouchableOpacity>
                 {selectedTrailIds.length > 0 ? (
-                  <SecondaryButton
+                  <OutlineButton
+                    danger
+                    stretch
                     label={`Supprimer la sélection (${selectedTrailIds.length})`}
                     icon="trash-outline"
                     onPress={() =>
@@ -1057,7 +1270,9 @@ function TrailsScreen() {
                     }
                   />
                 ) : null}
-                <SecondaryButton
+                <OutlineButton
+                  danger
+                  stretch
                   label="Supprimer toutes mes traces"
                   icon="trash-outline"
                   onPress={() => actionsRef.current.deleteAllMyTrails()}
@@ -1174,7 +1389,8 @@ function TrailsScreen() {
                   </Text>
                 </View>
                 {absoluteUploadUrl(trail.gpx_url) ? (
-                  <SecondaryButton
+                  <OutlineButton
+                    stretch
                     label="Ouvrir / télécharger GPX"
                     icon="download-outline"
                     onPress={() =>
@@ -1295,6 +1511,30 @@ function HostScreen() {
                 multiline
               />
               <Text style={styles.fieldLabel}>Localisation</Text>
+              <Text style={styles.helperText}>
+                Place le point sur la carte ou saisis les coordonnées : la ville
+                est proposée automatiquement (tu peux la corriger).
+              </Text>
+              {Platform.OS === "web" ? (
+                <View style={{ marginTop: 8, marginBottom: 12 }}>
+                  <Text style={styles.fieldLabel}>
+                    Carte — clique précisément (zoom max si besoin)
+                  </Text>
+                  <ExplorerWebMap
+                    center={[hostLat, hostLon]}
+                    boxes={[]}
+                    trails={[]}
+                    onSelectBox={() => {}}
+                    onPickLocation={(lat, lng) =>
+                      actionsRef.current.setHostLocationFromMap(lat, lng)
+                    }
+                    draftPoint={[hostLat, hostLon]}
+                    pickerMode
+                    inFixedPane={false}
+                  />
+                </View>
+              ) : null}
+              <Text style={styles.inputLabel}>Coordonnées GPS</Text>
               <TextInput
                 style={styles.input}
                 placeholder="Latitude"
@@ -1315,40 +1555,20 @@ function HostScreen() {
                 }
                 keyboardType="decimal-pad"
               />
-              <SecondaryButton
-                label="Utiliser cette position comme centre carte"
+              <Text style={styles.helperText}>
+                Position enregistrée : {hostLat.toFixed(6)},{" "}
+                {hostLon.toFixed(6)}
+              </Text>
+              <OutlineButton
+                label="Utiliser cette position comme centre de l’onglet Carte"
                 icon="locate-outline"
-                onPress={() =>
-                  actionsRef.current.setHostLocationFromMap(hostLat, hostLon)
-                }
+                stretch
+                onPress={() => actionsRef.current.syncExplorerMapFromHost()}
               />
-              {Platform.OS === "web" ? (
-                <View style={{ marginTop: 8 }}>
-                  <Text style={styles.fieldLabel}>
-                    Clique précisément sur la carte (zoom max disponible)
-                  </Text>
-                  <ExplorerWebMap
-                    center={[hostLat, hostLon]}
-                    boxes={[]}
-                    trails={[]}
-                    onSelectBox={() => {}}
-                    onPickLocation={(lat, lng) =>
-                      actionsRef.current.setHostLocationFromMap(lat, lng)
-                    }
-                    draftPoint={[hostLat, hostLon]}
-                    pickerMode
-                    inFixedPane={false}
-                  />
-                  <Text style={styles.helperText}>
-                    Position actuelle: {hostLat.toFixed(6)},{" "}
-                    {hostLon.toFixed(6)}
-                  </Text>
-                </View>
-              ) : null}
-              <Text style={styles.fieldLabel}>Ville</Text>
+              <Text style={styles.inputLabel}>Ville (base de données)</Text>
               <TextInput
                 style={styles.input}
-                placeholder="Ville"
+                placeholder="Remplie automatiquement depuis le point bleu"
                 placeholderTextColor={theme.inkMuted}
                 value={hostForm.city}
                 onChangeText={(v) => setHostForm((s) => ({ ...s, city: v }))}
@@ -1447,6 +1667,7 @@ function HostScreen() {
                 })}
               </View>
               <PrimaryButton
+                compact
                 label="Publier mon box"
                 icon="rocket-outline"
                 onPress={() => actionsRef.current.createHostBox()}
@@ -1461,7 +1682,9 @@ function HostScreen() {
             icon="layers-outline"
           >
             {hostBoxes.length > 0 ? (
-              <SecondaryButton
+              <OutlineButton
+                danger
+                stretch
                 label="Supprimer tous mes box"
                 icon="trash-outline"
                 onPress={() => actionsRef.current.deleteAllHostBoxes()}
@@ -1495,8 +1718,10 @@ function HostScreen() {
                     {box.availability_note}
                   </Text>
                 ) : null}
-                <SecondaryButton
-                  label="Supprimer uniquement ce box"
+                <OutlineButton
+                  danger
+                  stretch
+                  label="Supprimer ce box"
                   icon="trash-outline"
                   onPress={() =>
                     actionsRef.current.deleteHostBox(box.id, box.title)
@@ -1879,12 +2104,29 @@ function RavitoApp() {
 
   const boxesForMap = useMemo(() => {
     if (!mapShowBoxes) return [];
-    if (!mapBoxCriteriaTags || mapBoxCriteriaTags.length === 0) return boxes;
-    return boxes.filter((box) => {
-      const tags = parseBoxCriteria(box);
-      return mapBoxCriteriaTags.some((c) => tags.includes(c));
-    });
-  }, [boxes, mapShowBoxes, mapBoxCriteriaTags]);
+    let list = boxes;
+    if (mapBoxCriteriaTags?.length > 0) {
+      list = list.filter((box) => {
+        const tags = parseBoxCriteria(box);
+        return mapBoxCriteriaTags.some((c) => tags.includes(c));
+      });
+    }
+    if (mapBoxesNearTrailsOnly && trailsForMap.length > 0) {
+      const km = Math.max(0.1, parseFloat(mapTrailProximityKm) || 3);
+      list = list.filter((box) => {
+        const d = minDistanceKmFromBoxToTrails(box, trailsForMap);
+        return d <= km;
+      });
+    }
+    return list;
+  }, [
+    boxes,
+    mapShowBoxes,
+    mapBoxCriteriaTags,
+    mapBoxesNearTrailsOnly,
+    mapTrailProximityKm,
+    trailsForMap,
+  ]);
 
   const selectedBox = boxes.find((box) => box.id === selectedBoxId) || null;
 
@@ -2013,8 +2255,10 @@ function RavitoApp() {
   };
 
   const loadBoxes = async () => {
+    const q = city.trim();
+    if (q.length < 2) return;
     try {
-      const rows = await apiFetch(`/boxes?city=${encodeURIComponent(city)}`);
+      const rows = await apiFetch(`/boxes?city=${encodeURIComponent(q)}`);
       setBoxes(rows);
       setSelectedBoxId(rows.length > 0 ? rows[0].id : null);
     } catch (error) {
@@ -2078,6 +2322,68 @@ function RavitoApp() {
       userAlert("Erreur", error.message);
     }
   };
+
+  useEffect(() => {
+    if (mapListSource !== "city") return;
+    const t = setTimeout(() => {
+      const q = city.trim();
+      if (q.length < 2) return;
+      (async () => {
+        try {
+          const rows = await apiFetch(`/boxes?city=${encodeURIComponent(q)}`);
+          setBoxes(rows);
+          setSelectedBoxId(rows.length > 0 ? rows[0].id : null);
+        } catch (error) {
+          userAlert("Erreur", error.message);
+        }
+      })();
+    }, 550);
+    return () => clearTimeout(t);
+  }, [city, mapListSource]);
+
+  useEffect(() => {
+    if (mapListSource !== "nearby") return;
+    const t = setTimeout(() => {
+      const lat = parseFloat(mapLat);
+      const lon = parseFloat(mapLon);
+      if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
+      (async () => {
+        try {
+          const rows = await apiFetch(
+            `/boxes/nearby?lat=${lat}&lon=${lon}&limit=35`
+          );
+          setBoxes(rows);
+          setSelectedBoxId(rows.length > 0 ? rows[0].id : null);
+        } catch (error) {
+          userAlert("Erreur", error.message);
+        }
+      })();
+    }, 550);
+    return () => clearTimeout(t);
+  }, [mapLat, mapLon, mapListSource]);
+
+  useEffect(() => {
+    const lat = parseFloat(hostForm.latitude);
+    const lng = parseFloat(hostForm.longitude);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+    const t = setTimeout(() => {
+      (async () => {
+        try {
+          const data = await apiFetch(
+            `/geocode/reverse?lat=${encodeURIComponent(
+              lat
+            )}&lon=${encodeURIComponent(lng)}`
+          );
+          if (data?.city && typeof data.city === "string") {
+            setHostForm((s) => ({ ...s, city: data.city }));
+          }
+        } catch {
+          /* géocodage optionnel */
+        }
+      })();
+    }, 650);
+    return () => clearTimeout(t);
+  }, [hostForm.latitude, hostForm.longitude]);
 
   const bookBox = async (boxId) => {
     if (!canBook) {
@@ -2253,7 +2559,7 @@ function RavitoApp() {
     try {
       await apiFetch(`/host/boxes/${boxId}`, { method: "DELETE", token });
       userAlert("Supprimé", "Le box a été retiré.");
-      await loadBoxes();
+      await refetchExplorerBoxes();
       await loadHostBoxes();
       await loadHostBookings();
     } catch (error) {
@@ -2296,7 +2602,7 @@ function RavitoApp() {
     try {
       await apiFetch("/host/boxes", { method: "DELETE", token });
       userAlert("OK", "Tous tes box ont été supprimés.");
-      await loadBoxes();
+      await refetchExplorerBoxes();
       await loadHostBoxes();
       await loadHostBookings();
     } catch (error) {
@@ -2496,6 +2802,12 @@ function RavitoApp() {
       setMapShowBoxes,
       mapBoxCriteriaTags,
       setMapBoxCriteriaTags,
+      mapListSource,
+      setMapListSource,
+      mapBoxesNearTrailsOnly,
+      setMapBoxesNearTrailsOnly,
+      mapTrailProximityKm,
+      setMapTrailProximityKm,
       bookingDate,
       setBookingDate,
       startTime,
@@ -2533,6 +2845,9 @@ function RavitoApp() {
       boxesForMap,
       mapShowBoxes,
       mapBoxCriteriaTags,
+      mapListSource,
+      mapBoxesNearTrailsOnly,
+      mapTrailProximityKm,
       bookingDate,
       startTime,
       endTime,
@@ -2921,6 +3236,13 @@ const styles = StyleSheet.create({
     marginTop: 8,
     minHeight: 50,
   },
+  primaryButtonCompact: {
+    paddingVertical: 11,
+    paddingHorizontal: 14,
+    minHeight: 44,
+    borderRadius: 12,
+    marginTop: 6,
+  },
   primaryButtonText: {
     color: "#fff",
     fontWeight: "700",
@@ -2936,10 +3258,55 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     marginBottom: 10,
   },
+  secondaryButtonCompact: {
+    paddingVertical: 11,
+    paddingHorizontal: 14,
+    minHeight: 44,
+    borderRadius: 12,
+    marginBottom: 8,
+  },
   secondaryButtonText: {
     color: "#fff",
     fontWeight: "700",
     fontSize: 16,
+  },
+  outlineButton: {
+    borderWidth: 1,
+    borderColor: theme.border,
+    borderRadius: 11,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 8,
+    marginTop: 4,
+    backgroundColor: theme.surface,
+    alignSelf: "flex-start",
+  },
+  outlineButtonStretch: {
+    alignSelf: "stretch",
+  },
+  outlineButtonCompact: {
+    paddingVertical: 7,
+    paddingHorizontal: 11,
+    marginTop: 2,
+    marginBottom: 6,
+  },
+  outlineButtonDanger: {
+    borderColor: "#FECACA",
+    backgroundColor: "#FFFBFB",
+  },
+  outlineButtonText: {
+    color: theme.secondaryInk,
+    fontWeight: "600",
+    fontSize: 14,
+  },
+  outlineButtonTextCompact: {
+    fontSize: 13,
+  },
+  outlineButtonTextDanger: {
+    color: "#B91C1C",
   },
   statBanner: {
     marginTop: 4,

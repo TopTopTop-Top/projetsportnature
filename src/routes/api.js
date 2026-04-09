@@ -215,6 +215,51 @@ router.get("/health", (_req, res) => {
   res.json({ ok: true, service: "ravitobox-api", db: "postgresql" });
 });
 
+/** Géocodage inverse (Nominatim OSM) — ville depuis lat/lon pour publication box. */
+router.get("/geocode/reverse", async (req, res) => {
+  const lat = parseFloat(req.query.lat);
+  const lon = parseFloat(req.query.lon);
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+    return res.status(400).json({ error: "Invalid lat or lon" });
+  }
+  if (lat < -90 || lat > 90 || lon < -180 || lon > 180) {
+    return res.status(400).json({ error: "Coordinates out of range" });
+  }
+  try {
+    const url = new URL("https://nominatim.openstreetmap.org/reverse");
+    url.searchParams.set("lat", String(lat));
+    url.searchParams.set("lon", String(lon));
+    url.searchParams.set("format", "json");
+    url.searchParams.set("addressdetails", "1");
+    url.searchParams.set("accept-language", "fr");
+    const r = await fetch(url.toString(), {
+      headers: {
+        "User-Agent":
+          "RavitoBox/1.0 (https://github.com/TopTopTop-Top/projetsportnature)",
+      },
+    });
+    if (!r.ok) {
+      return res.status(502).json({ error: "Geocoding service error" });
+    }
+    const data = await r.json();
+    const addr = data.address || {};
+    const city =
+      addr.city ||
+      addr.town ||
+      addr.village ||
+      addr.municipality ||
+      addr.hamlet ||
+      null;
+    return res.json({
+      city,
+      displayName: data.display_name || null,
+      postcode: addr.postcode || null,
+    });
+  } catch (_e) {
+    return res.status(502).json({ error: "Geocoding failed" });
+  }
+});
+
 router.post("/auth/register", async (req, res) => {
   const parsed = createUserSchema.safeParse(req.body);
   if (!parsed.success) {

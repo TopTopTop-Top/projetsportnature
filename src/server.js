@@ -19,6 +19,7 @@ app.get("/", (_req, res) => {
     version: "0.3.0",
     endpoints: [
       "/api/health",
+      "/api/geocode/reverse",
       "/api/auth/register",
       "/api/auth/login",
       "/api/auth/refresh",
