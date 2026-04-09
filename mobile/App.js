@@ -449,11 +449,114 @@ function ExplorerScreen() {
             </Text>
           </View>
         </View>
+        <Text style={styles.fieldLabel}>Tracés sur la carte</Text>
+        <View style={styles.roleRow}>
+          <TouchableOpacity
+            style={[styles.roleChip, mapShowTrails && styles.roleChipActive]}
+            onPress={() => setMapShowTrails(true)}
+            activeOpacity={0.85}
+          >
+            <Text
+              style={[
+                styles.roleChipText,
+                mapShowTrails && styles.roleChipTextActive,
+              ]}
+            >
+              Afficher
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.roleChip, !mapShowTrails && styles.roleChipActive]}
+            onPress={() => setMapShowTrails(false)}
+            activeOpacity={0.85}
+          >
+            <Text
+              style={[
+                styles.roleChipText,
+                !mapShowTrails && styles.roleChipTextActive,
+              ]}
+            >
+              Masquer
+            </Text>
+          </TouchableOpacity>
+        </View>
+        {mapShowTrails ? (
+          <>
+            <Text style={styles.fieldLabel}>Portée des traces</Text>
+            <View style={styles.roleRow}>
+              <TouchableOpacity
+                style={[
+                  styles.roleChip,
+                  mapTrailsScope === "all" && styles.roleChipActive,
+                ]}
+                onPress={() => setMapTrailsScope("all")}
+                activeOpacity={0.85}
+              >
+                <Text
+                  style={[
+                    styles.roleChipText,
+                    mapTrailsScope === "all" && styles.roleChipTextActive,
+                  ]}
+                >
+                  Toutes
+                </Text>
+              </TouchableOpacity>
+              {user ? (
+                <TouchableOpacity
+                  style={[
+                    styles.roleChip,
+                    mapTrailsScope === "mine" && styles.roleChipActive,
+                  ]}
+                  onPress={() => setMapTrailsScope("mine")}
+                  activeOpacity={0.85}
+                >
+                  <Text
+                    style={[
+                      styles.roleChipText,
+                      mapTrailsScope === "mine" && styles.roleChipTextActive,
+                    ]}
+                  >
+                    Les miennes
+                  </Text>
+                </TouchableOpacity>
+              ) : null}
+            </View>
+            <Text style={styles.fieldLabel}>Difficulté (carte)</Text>
+            <View style={styles.roleRow}>
+              {["all", "easy", "medium", "hard"].map((d) => (
+                <TouchableOpacity
+                  key={d}
+                  style={[
+                    styles.roleChip,
+                    mapTrailDifficultyFilter === d && styles.roleChipActive,
+                  ]}
+                  onPress={() => setMapTrailDifficultyFilter(d)}
+                  activeOpacity={0.85}
+                >
+                  <Text
+                    style={[
+                      styles.roleChipText,
+                      mapTrailDifficultyFilter === d &&
+                        styles.roleChipTextActive,
+                    ]}
+                  >
+                    {d === "all" ? "Tous" : DIFFICULTY_LABELS[d]}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+            <Text style={styles.helperText}>
+              {trailsOnMap.length} tracé
+              {trailsOnMap.length !== 1 ? "s" : ""} sur la carte (sur{" "}
+              {trails.length} au total)
+            </Text>
+          </>
+        ) : null}
         {!webSplit ? (
           <NativeExplorerMap
             center={webMapCenter}
             boxes={boxes}
-            trails={trails}
+            trails={trailsOnMap}
             onSelectBox={setSelectedBoxId}
           />
         ) : null}
@@ -638,10 +741,55 @@ function TrailsScreen() {
     setTrailDifficulty,
     webDropHover,
     setWebDropHover,
+    trailListFilter,
+    setTrailListFilter,
+    user,
     actionsRef,
   } = useAppMain();
 
   const webGpxInputRef = useRef(null);
+  const [selectedTrailIds, setSelectedTrailIds] = useState([]);
+
+  useEffect(() => {
+    actionsRef.current.loadTrails();
+  }, [actionsRef]);
+
+  const myTrails = useMemo(() => {
+    if (user?.id == null) return [];
+    const uid = Number(user.id);
+    return trails.filter((t) => Number(t.creator_user_id) === uid);
+  }, [trails, user?.id]);
+
+  const communityTrails = useMemo(() => {
+    const uid = user?.id != null ? Number(user.id) : null;
+    return trails
+      .filter((t) => uid == null || Number(t.creator_user_id) !== uid)
+      .filter(
+        (t) =>
+          trailListFilter === "all" || t.difficulty === trailListFilter
+      );
+  }, [trails, user?.id, trailListFilter]);
+
+  useEffect(() => {
+    setSelectedTrailIds((prev) =>
+      prev.filter((id) => myTrails.some((t) => t.id === id))
+    );
+  }, [myTrails]);
+
+  const toggleTrailSelect = (id) => {
+    setSelectedTrailIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    );
+  };
+
+  const selectAllMyTrailsToggle = () => {
+    if (myTrails.length === 0) return;
+    if (selectedTrailIds.length === myTrails.length) {
+      setSelectedTrailIds([]);
+    } else {
+      setSelectedTrailIds(myTrails.map((t) => t.id));
+    }
+  };
 
   const webDropProps =
     Platform.OS === "web"
