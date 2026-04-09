@@ -93,6 +93,12 @@ class RootErrorBoundary extends React.Component {
     return { error };
   }
 
+  componentDidCatch(error, info) {
+    if (Platform.OS === "web" && typeof console !== "undefined") {
+      console.error("[RavitoBox] render error", error?.message, info?.componentStack);
+    }
+  }
+
   render() {
     if (this.state.error) {
       const msg = String(
@@ -2135,6 +2141,7 @@ export default function App() {
     () => ({
       boxes,
       trails,
+      trailsForMap,
       city,
       setCity,
       mapLat,
@@ -2151,6 +2158,14 @@ export default function App() {
       setWebDropHover,
       trailDifficulty,
       setTrailDifficulty,
+      trailListFilter,
+      setTrailListFilter,
+      mapShowTrails,
+      setMapShowTrails,
+      mapTrailDifficultyFilter,
+      setMapTrailDifficultyFilter,
+      mapTrailsScope,
+      setMapTrailsScope,
       bookingDate,
       setBookingDate,
       startTime,
