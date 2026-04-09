@@ -2068,6 +2068,9 @@ function RavitoApp() {
   const [mapTrailsScope, setMapTrailsScope] = useState("all");
   const [mapShowBoxes, setMapShowBoxes] = useState(true);
   const [mapBoxCriteriaTags, setMapBoxCriteriaTags] = useState([]);
+  const [mapListSource, setMapListSource] = useState("city");
+  const [mapBoxesNearTrailsOnly, setMapBoxesNearTrailsOnly] = useState(false);
+  const [mapTrailProximityKm, setMapTrailProximityKm] = useState("3");
 
   useEffect(() => {
     if (!user) setMapTrailsScope("all");
