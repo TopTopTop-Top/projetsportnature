@@ -38,7 +38,7 @@ app.get("/", (_req, res) => {
       "/api/host/bookings",
       "/api/host/bookings/:id",
       "/api/host/bookings/:id/decision",
-      "/api/host/boxes/:id",
+      "/api/host/boxes/:id (DELETE, PATCH)",
     ],
   });
 });

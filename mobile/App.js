@@ -200,6 +200,21 @@ function parseBoxCriteria(box) {
   }
 }
 
+/** Libellé lieu depuis la réponse GET /geocode/reverse. */
+function geocodePayloadToCityLabel(data) {
+  if (!data || typeof data !== "object") return null;
+  const from =
+    (typeof data.placeLabel === "string" && data.placeLabel.trim()) ||
+    (typeof data.city === "string" && data.city.trim()) ||
+    "";
+  if (from) return from;
+  if (typeof data.displayName === "string") {
+    const first = data.displayName.split(",")[0]?.trim();
+    if (first) return first;
+  }
+  return null;
+}
+
 const AuthUiContext = createContext(null);
 
 /** Données / actions des écrans connectés — évite de définir les écrans dans App (sinon React Navigation remonte la carte à chaque render). */
@@ -1464,8 +1479,15 @@ function TrailsScreen() {
 }
 
 function HostScreen() {
-  const { user, hostForm, setHostForm, hostBoxes, hostBookings, actionsRef } =
-    useAppMain();
+  const {
+    user,
+    hostForm,
+    setHostForm,
+    hostEditingBoxId,
+    hostBoxes,
+    hostBookings,
+    actionsRef,
+  } = useAppMain();
   const canHostLocal = user?.role === "host" || user?.role === "both";
   const hostLat = Number(hostForm.latitude) || 45.8992;
   const hostLon = Number(hostForm.longitude) || 6.1294;
@@ -1533,6 +1555,31 @@ function HostScreen() {
             </View>
           ) : (
             <>
+              {hostEditingBoxId != null ? (
+                <View style={[styles.infoBanner, { marginBottom: 10 }]}>
+                  <Ionicons
+                    name="create-outline"
+                    size={22}
+                    color={theme.primary}
+                    style={{ marginRight: 10 }}
+                  />
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.infoBannerTitle}>
+                      Modification du box n°{hostEditingBoxId}
+                    </Text>
+                    <Text style={styles.infoBannerText}>
+                      Ajuste les champs puis enregistre, ou annule pour revenir
+                      à un nouveau box vierge.
+                    </Text>
+                    <OutlineButton
+                      label="Annuler la modification"
+                      icon="close-circle-outline"
+                      compact
+                      onPress={() => actionsRef.current.cancelHostBoxEdit()}
+                    />
+                  </View>
+                </View>
+              ) : null}
               <TextInput
                 style={styles.input}
                 placeholder="Titre du box"
@@ -1719,8 +1766,14 @@ function HostScreen() {
               </View>
               <PrimaryButton
                 compact
-                label="Publier mon box"
-                icon="rocket-outline"
+                label={
+                  hostEditingBoxId != null
+                    ? "Enregistrer les modifications"
+                    : "Publier mon box"
+                }
+                icon={
+                  hostEditingBoxId != null ? "save-outline" : "rocket-outline"
+                }
                 onPress={() => actionsRef.current.createHostBox()}
               />
             </>
@@ -1729,21 +1782,96 @@ function HostScreen() {
         {canHostLocal ? (
           <Section
             title="Mes box actives"
-            subtitle="Toutes tes box publiées actuellement."
+            subtitle="Sélection, suppression groupée ou modification (comme les traces)."
             icon="layers-outline"
           >
             {hostBoxes.length > 0 ? (
-              <OutlineButton
-                danger
-                stretch
-                label="Supprimer tous mes box"
-                icon="trash-outline"
-                onPress={() => actionsRef.current.deleteAllHostBoxes()}
-              />
+              <View style={{ marginBottom: 12, gap: 10 }}>
+                <Text style={styles.fieldLabel}>Sélection</Text>
+                <TouchableOpacity
+                  style={styles.selectAllChip}
+                  onPress={selectAllBoxesToggle}
+                  activeOpacity={0.85}
+                >
+                  <Ionicons
+                    name={
+                      selectedBoxIds.length === hostBoxes.length &&
+                      hostBoxes.length > 0
+                        ? "checkbox"
+                        : "square-outline"
+                    }
+                    size={20}
+                    color={theme.primary}
+                  />
+                  <Text style={styles.selectAllChipText}>
+                    {selectedBoxIds.length === hostBoxes.length &&
+                    hostBoxes.length > 0
+                      ? "Tout désélectionner"
+                      : "Tout sélectionner"}
+                  </Text>
+                </TouchableOpacity>
+                {selectedBoxIds.length > 0 ? (
+                  <>
+                    <OutlineButton
+                      danger
+                      stretch
+                      label={`Supprimer la sélection (${selectedBoxIds.length})`}
+                      icon="trash-outline"
+                      onPress={() =>
+                        actionsRef.current.deleteHostBoxesByIds([
+                          ...selectedBoxIds,
+                        ])
+                      }
+                    />
+                    {selectedBoxIds.length === 1 ? (
+                      <OutlineButton
+                        stretch
+                        label="Modifier ce box (charger le formulaire)"
+                        icon="create-outline"
+                        onPress={() => {
+                          const b = hostBoxes.find(
+                            (x) => x.id === selectedBoxIds[0]
+                          );
+                          if (b) actionsRef.current.startEditingHostBox(b);
+                        }}
+                      />
+                    ) : (
+                      <Text style={styles.helperText}>
+                        Pour modifier un box, ne coche qu’une seule ligne.
+                      </Text>
+                    )}
+                  </>
+                ) : null}
+                <OutlineButton
+                  danger
+                  stretch
+                  label="Supprimer tous mes box"
+                  icon="trash-outline"
+                  onPress={() => actionsRef.current.deleteAllHostBoxes()}
+                />
+              </View>
             ) : null}
             {hostBoxes.map((box) => (
               <View key={`host-box-${box.id}`} style={styles.card}>
                 <View style={styles.cardAccent} />
+                <TouchableOpacity
+                  style={styles.boxSelectRow}
+                  onPress={() => toggleBoxSelect(box.id)}
+                  activeOpacity={0.85}
+                >
+                  <Ionicons
+                    name={
+                      selectedBoxIds.includes(box.id)
+                        ? "checkbox"
+                        : "square-outline"
+                    }
+                    size={22}
+                    color={theme.primary}
+                  />
+                  <Text style={styles.boxSelectLabel}>
+                    Inclure dans la sélection groupée
+                  </Text>
+                </TouchableOpacity>
                 <Text style={styles.cardTitle}>{box.title}</Text>
                 <Text style={styles.cardMeta}>
                   {box.city} · {(box.price_cents / 100).toFixed(2)} €
@@ -2105,6 +2233,7 @@ function RavitoApp() {
     hasWater: true,
     criteriaTags: [],
   });
+  const [hostEditingBoxId, setHostEditingBoxId] = useState(null);
   const [hostBoxes, setHostBoxes] = useState([]);
   const [hostBookings, setHostBookings] = useState([]);
   const [athleteBookings, setAthleteBookings] = useState([]);
@@ -2495,6 +2624,13 @@ function RavitoApp() {
   }, [mapViewportBounds, mapListSource]);
 
   useEffect(() => {
+    if (hostEditingBoxId == null) return;
+    if (!hostBoxes.some((b) => Number(b.id) === hostEditingBoxId)) {
+      setHostEditingBoxId(null);
+    }
+  }, [hostBoxes, hostEditingBoxId]);
+
+  useEffect(() => {
     const lat = parseFloat(hostForm.latitude);
     const lng = parseFloat(hostForm.longitude);
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
@@ -2506,14 +2642,13 @@ function RavitoApp() {
               lat
             )}&lon=${encodeURIComponent(lng)}`
           );
-          if (data?.city && typeof data.city === "string") {
-            setHostForm((s) => ({ ...s, city: data.city }));
-          }
+          const label = geocodePayloadToCityLabel(data);
+          if (label) setHostForm((s) => ({ ...s, city: label }));
         } catch {
           /* géocodage optionnel */
         }
       })();
-    }, 650);
+    }, 450);
     return () => clearTimeout(t);
   }, [hostForm.latitude, hostForm.longitude]);
 
@@ -2640,30 +2775,86 @@ function RavitoApp() {
   };
 
   const createHostBox = async () => {
+    const body = {
+      title: hostForm.title,
+      description: hostForm.description,
+      latitude: Number(hostForm.latitude),
+      longitude: Number(hostForm.longitude),
+      city: hostForm.city,
+      priceCents: Number(hostForm.priceCents),
+      capacityLiters: Number(hostForm.capacityLiters),
+      hasWater: Boolean(hostForm.hasWater),
+      availabilityNote: hostForm.availabilityNote?.trim() || undefined,
+      criteriaTags: hostForm.criteriaTags,
+    };
     try {
-      await apiFetch("/host/boxes", {
-        method: "POST",
-        token,
-        body: {
-          title: hostForm.title,
-          description: hostForm.description,
-          latitude: Number(hostForm.latitude),
-          longitude: Number(hostForm.longitude),
-          city: hostForm.city,
-          priceCents: Number(hostForm.priceCents),
-          capacityLiters: Number(hostForm.capacityLiters),
-          hasWater: Boolean(hostForm.hasWater),
-          availabilityNote: hostForm.availabilityNote?.trim() || undefined,
-          criteriaTags: hostForm.criteriaTags,
-        },
-      });
-      userAlert("Publication", "Ton box est en ligne.");
+      if (hostEditingBoxId != null) {
+        await apiFetch(`/host/boxes/${hostEditingBoxId}`, {
+          method: "PATCH",
+          token,
+          body,
+        });
+        userAlert("OK", "Ton box a été mis à jour.");
+        setHostEditingBoxId(null);
+        setHostForm({
+          title: "",
+          description: "",
+          availabilityNote: "",
+          latitude: "45.8992",
+          longitude: "6.1294",
+          city: "Annecy",
+          priceCents: "700",
+          capacityLiters: "20",
+          hasWater: true,
+          criteriaTags: [],
+        });
+      } else {
+        await apiFetch("/host/boxes", {
+          method: "POST",
+          token,
+          body,
+        });
+        userAlert("Publication", "Ton box est en ligne.");
+      }
       await refetchExplorerBoxes();
       await loadHostBoxes();
     } catch (error) {
       userAlert("Erreur", error.message);
     }
   };
+
+  const startEditingHostBox = useCallback((box) => {
+    if (!box) return;
+    setHostForm({
+      title: box.title || "",
+      description: box.description || "",
+      availabilityNote: box.availability_note || "",
+      latitude: String(Number(box.latitude)),
+      longitude: String(Number(box.longitude)),
+      city: box.city || "",
+      priceCents: String(box.price_cents ?? 700),
+      capacityLiters: String(box.capacity_liters ?? 20),
+      hasWater: box.has_water === 1 || box.has_water === true,
+      criteriaTags: parseBoxCriteria(box),
+    });
+    setHostEditingBoxId(Number(box.id));
+  }, []);
+
+  const cancelHostBoxEdit = useCallback(() => {
+    setHostEditingBoxId(null);
+    setHostForm({
+      title: "",
+      description: "",
+      availabilityNote: "",
+      latitude: "45.8992",
+      longitude: "6.1294",
+      city: "Annecy",
+      priceCents: "700",
+      capacityLiters: "20",
+      hasWater: true,
+      criteriaTags: [],
+    });
+  }, []);
 
   const decideHostBooking = async (bookingId, decision) => {
     if (!token) return;
@@ -2716,7 +2907,7 @@ function RavitoApp() {
         )
       );
       userAlert("OK", n === 1 ? "Box supprimé." : `${n} box supprimés.`);
-      await loadBoxes();
+      await refetchExplorerBoxes();
       await loadHostBoxes();
       await loadHostBookings();
     } catch (error) {
@@ -2863,11 +3054,27 @@ function RavitoApp() {
   };
 
   const setHostLocationFromMap = (lat, lng) => {
+    const plat = Number(lat);
+    const plng = Number(lng);
+    if (!Number.isFinite(plat) || !Number.isFinite(plng)) return;
+    const latStr = plat.toFixed(6);
+    const lngStr = plng.toFixed(6);
     setHostForm((s) => ({
       ...s,
-      latitude: lat.toFixed(6),
-      longitude: lng.toFixed(6),
+      latitude: latStr,
+      longitude: lngStr,
     }));
+    void (async () => {
+      try {
+        const data = await apiFetch(
+          `/geocode/reverse?lat=${encodeURIComponent(plat)}&lon=${encodeURIComponent(plng)}`
+        );
+        const label = geocodePayloadToCityLabel(data);
+        if (label) setHostForm((s) => ({ ...s, city: label }));
+      } catch {
+        /* Nominatim indisponible : la ville reste éditable */
+      }
+    })();
   };
 
   const actionsRef = useRef({});
@@ -2892,6 +3099,8 @@ function RavitoApp() {
     setHostLocationFromMap,
     syncExplorerMapFromHost,
     createHostBox,
+    startEditingHostBox,
+    cancelHostBoxEdit,
     uploadGpx,
     uploadGpxWebFile,
     deleteTrail,
@@ -2915,6 +3124,7 @@ function RavitoApp() {
       setMapLon,
       hostForm,
       setHostForm,
+      hostEditingBoxId,
       hostBoxes,
       hostBookings,
       athleteBookings,
@@ -2969,6 +3179,7 @@ function RavitoApp() {
       mapLat,
       mapLon,
       hostForm,
+      hostEditingBoxId,
       hostBoxes,
       hostBookings,
       athleteBookings,

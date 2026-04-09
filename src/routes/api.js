@@ -257,10 +257,23 @@ router.get("/geocode/reverse", async (req, res) => {
       addr.town ||
       addr.village ||
       addr.municipality ||
+      addr.locality ||
+      addr.suburb ||
+      addr.city_district ||
       addr.hamlet ||
+      addr.neighbourhood ||
+      addr.quarter ||
+      addr.county ||
+      addr.state_district ||
       null;
+    let placeLabel = city;
+    if (!placeLabel && typeof data.display_name === "string") {
+      const first = data.display_name.split(",")[0]?.trim();
+      if (first) placeLabel = first;
+    }
     return res.json({
       city,
+      placeLabel: placeLabel || null,
       displayName: data.display_name || null,
       postcode: addr.postcode || null,
     });
@@ -488,6 +501,53 @@ router.get("/host/boxes", requireAuth, async (req, res) => {
     [req.auth.sub]
   );
   res.json(rows);
+});
+
+router.patch("/host/boxes/:id", requireAuth, async (req, res) => {
+  const boxId = parseInt(req.params.id, 10);
+  if (!Number.isFinite(boxId) || boxId < 1) {
+    return res.status(400).json({ error: "Invalid box id" });
+  }
+  const parsed = createHostBoxSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error.flatten() });
+  }
+  const input = parsed.data;
+  const { rows } = await pool.query(
+    `UPDATE boxes SET
+       title = $1,
+       description = $2,
+       latitude = $3,
+       longitude = $4,
+       city = $5,
+       price_cents = $6,
+       capacity_liters = $7,
+       has_water = $8,
+       availability_note = $9,
+       criteria_json = $10,
+       criteria_note = $11
+     WHERE id = $12 AND host_user_id = $13
+     RETURNING *`,
+    [
+      input.title,
+      input.description ?? null,
+      input.latitude,
+      input.longitude,
+      input.city,
+      input.priceCents,
+      input.capacityLiters ?? 20,
+      input.hasWater ? 1 : 0,
+      input.availabilityNote?.trim() || null,
+      input.criteriaTags?.length ? JSON.stringify(input.criteriaTags) : null,
+      input.criteriaNote?.trim() || null,
+      boxId,
+      req.auth.sub,
+    ]
+  );
+  if (rows.length === 0) {
+    return res.status(404).json({ error: "Box not found" });
+  }
+  return res.json(rows[0]);
 });
 
 router.get("/boxes/bounds", async (req, res) => {
