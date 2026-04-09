@@ -1767,6 +1767,25 @@ function RavitoApp() {
     [user?.role]
   );
 
+  const trailsForMap = useMemo(() => {
+    if (!mapShowTrails) return [];
+    let t = trails;
+    if (mapTrailsScope === "mine" && user?.id != null) {
+      const uid = Number(user.id);
+      t = t.filter((tr) => Number(tr.creator_user_id) === uid);
+    }
+    if (mapTrailDifficultyFilter !== "all") {
+      t = t.filter((tr) => tr.difficulty === mapTrailDifficultyFilter);
+    }
+    return t;
+  }, [
+    trails,
+    mapShowTrails,
+    mapTrailsScope,
+    mapTrailDifficultyFilter,
+    user?.id,
+  ]);
+
   const selectedBox = boxes.find((box) => box.id === selectedBoxId) || null;
 
   const webMapCenter = selectedBox
