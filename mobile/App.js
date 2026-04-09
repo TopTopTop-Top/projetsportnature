@@ -95,7 +95,11 @@ class RootErrorBoundary extends React.Component {
 
   componentDidCatch(error, info) {
     if (Platform.OS === "web" && typeof console !== "undefined") {
-      console.error("[RavitoBox] render error", error?.message, info?.componentStack);
+      console.error(
+        "[RavitoBox] render error",
+        error?.message,
+        info?.componentStack
+      );
     }
   }
 
@@ -364,6 +368,11 @@ function ExplorerScreen() {
     setMapTrailDifficultyFilter,
     mapTrailsScope,
     setMapTrailsScope,
+    boxesForMap,
+    mapShowBoxes,
+    setMapShowBoxes,
+    mapBoxCriteriaTags,
+    setMapBoxCriteriaTags,
     bookingDate,
     setBookingDate,
     startTime,
@@ -377,6 +386,7 @@ function ExplorerScreen() {
   } = useAppMain();
 
   const trailsOnMap = Array.isArray(trailsForMap) ? trailsForMap : [];
+  const boxesOnMap = Array.isArray(boxesForMap) ? boxesForMap : [];
 
   useEffect(() => {
     actionsRef.current.loadTrails();
@@ -449,6 +459,86 @@ function ExplorerScreen() {
             </Text>
           </View>
         </View>
+        <Text style={styles.fieldLabel}>Box sur la carte</Text>
+        <View style={styles.roleRow}>
+          <TouchableOpacity
+            style={[styles.roleChip, mapShowBoxes && styles.roleChipActive]}
+            onPress={() => setMapShowBoxes(true)}
+            activeOpacity={0.85}
+          >
+            <Text
+              style={[
+                styles.roleChipText,
+                mapShowBoxes && styles.roleChipTextActive,
+              ]}
+            >
+              Afficher
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.roleChip, !mapShowBoxes && styles.roleChipActive]}
+            onPress={() => setMapShowBoxes(false)}
+            activeOpacity={0.85}
+          >
+            <Text
+              style={[
+                styles.roleChipText,
+                !mapShowBoxes && styles.roleChipTextActive,
+              ]}
+            >
+              Masquer
+            </Text>
+          </TouchableOpacity>
+        </View>
+        {mapShowBoxes ? (
+          <>
+            <Text style={styles.fieldLabel}>Critères des box (carte)</Text>
+            <Text style={styles.helperText}>
+              Sans sélection : tous les box chargés. Avec une ou plusieurs puces
+              : uniquement les box qui ont au moins un de ces critères.
+            </Text>
+            <View style={[styles.roleRow, { flexWrap: "wrap" }]}>
+              {HOST_CRITERIA_OPTIONS.map((label) => {
+                const active = mapBoxCriteriaTags.includes(label);
+                return (
+                  <TouchableOpacity
+                    key={`map-crit-${label}`}
+                    style={[styles.roleChip, active && styles.roleChipActive]}
+                    onPress={() =>
+                      setMapBoxCriteriaTags((prev) =>
+                        active
+                          ? prev.filter((x) => x !== label)
+                          : [...prev, label]
+                      )
+                    }
+                    activeOpacity={0.85}
+                  >
+                    <Text
+                      style={[
+                        styles.roleChipText,
+                        active && styles.roleChipTextActive,
+                      ]}
+                    >
+                      {label}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+            {mapBoxCriteriaTags.length > 0 ? (
+              <SecondaryButton
+                label="Effacer les critères (tous les box sur la carte)"
+                icon="close-circle-outline"
+                onPress={() => setMapBoxCriteriaTags([])}
+              />
+            ) : null}
+            <Text style={styles.helperText}>
+              Sur la carte : {boxesOnMap.length} marqueur
+              {boxesOnMap.length !== 1 ? "s" : ""} · Liste : {boxes.length} box
+              chargé{boxes.length !== 1 ? "s" : ""}
+            </Text>
+          </>
+        ) : null}
         <Text style={styles.fieldLabel}>Tracés sur la carte</Text>
         <View style={styles.roleRow}>
           <TouchableOpacity
@@ -703,7 +793,7 @@ function ExplorerScreen() {
             <View style={styles.explorerWebMapInner}>
               <ExplorerWebMap
                 center={webMapCenter}
-                boxes={boxes}
+                boxes={boxesOnMap}
                 trails={trailsOnMap}
                 onSelectBox={setSelectedBoxId}
                 staticOrigin={API_STATIC_ORIGIN}
@@ -765,8 +855,7 @@ function TrailsScreen() {
     return trails
       .filter((t) => uid == null || Number(t.creator_user_id) !== uid)
       .filter(
-        (t) =>
-          trailListFilter === "all" || t.difficulty === trailListFilter
+        (t) => trailListFilter === "all" || t.difficulty === trailListFilter
       );
   }, [trails, user?.id, trailListFilter]);
 
@@ -1752,6 +1841,8 @@ function RavitoApp() {
   const [mapTrailDifficultyFilter, setMapTrailDifficultyFilter] =
     useState("all");
   const [mapTrailsScope, setMapTrailsScope] = useState("all");
+  const [mapShowBoxes, setMapShowBoxes] = useState(true);
+  const [mapBoxCriteriaTags, setMapBoxCriteriaTags] = useState([]);
 
   useEffect(() => {
     if (!user) setMapTrailsScope("all");
@@ -1785,6 +1876,15 @@ function RavitoApp() {
     mapTrailDifficultyFilter,
     user?.id,
   ]);
+
+  const boxesForMap = useMemo(() => {
+    if (!mapShowBoxes) return [];
+    if (!mapBoxCriteriaTags || mapBoxCriteriaTags.length === 0) return boxes;
+    return boxes.filter((box) => {
+      const tags = parseBoxCriteria(box);
+      return mapBoxCriteriaTags.some((c) => tags.includes(c));
+    });
+  }, [boxes, mapShowBoxes, mapBoxCriteriaTags]);
 
   const selectedBox = boxes.find((box) => box.id === selectedBoxId) || null;
 
@@ -2391,6 +2491,11 @@ function RavitoApp() {
       setMapTrailDifficultyFilter,
       mapTrailsScope,
       setMapTrailsScope,
+      boxesForMap,
+      mapShowBoxes,
+      setMapShowBoxes,
+      mapBoxCriteriaTags,
+      setMapBoxCriteriaTags,
       bookingDate,
       setBookingDate,
       startTime,
@@ -2425,6 +2530,9 @@ function RavitoApp() {
       mapShowTrails,
       mapTrailDifficultyFilter,
       mapTrailsScope,
+      boxesForMap,
+      mapShowBoxes,
+      mapBoxCriteriaTags,
       bookingDate,
       startTime,
       endTime,
@@ -2461,9 +2569,7 @@ function RavitoApp() {
       <SafeAreaProvider>
         <AuthUiContext.Provider value={authUiValue}>
           <NavigationContainer>
-            <AppMainContext.Provider
-              value={isAuthed ? mainContextValue : null}
-            >
+            <AppMainContext.Provider value={isAuthed ? mainContextValue : null}>
               <Stack.Navigator screenOptions={{ headerShown: false }}>
                 {!isAuthed ? (
                   <Stack.Screen name="Auth" component={AuthScreen} />
