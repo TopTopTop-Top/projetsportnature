@@ -25,7 +25,10 @@ import NativeExplorerMap from "./NativeExplorerMap";
 import ExplorerWebMap from "./ExplorerWebMap";
 import { StatusBar } from "expo-status-bar";
 import * as DocumentPicker from "expo-document-picker";
-import { GestureHandlerRootView } from "react-native-gesture-handler";
+import {
+  GestureHandlerRootView,
+  Swipeable,
+} from "react-native-gesture-handler";
 import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
 import { NavigationContainer } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
@@ -436,6 +439,55 @@ function OutlineButton({ label, onPress, icon, danger, compact, stretch }) {
         {label}
       </Text>
     </TouchableOpacity>
+  );
+}
+
+function SwipeActionRow({
+  children,
+  onDelete,
+  onEdit,
+  deleteLabel = "Supprimer",
+  editLabel = "Modifier",
+}) {
+  const swipeRef = useRef(null);
+  const closeRow = () => swipeRef.current?.close?.();
+  const renderRightActions = () => (
+    <View style={styles.swipeActionsWrap}>
+      {onEdit ? (
+        <TouchableOpacity
+          style={[styles.swipeActionBtn, styles.swipeEditAction]}
+          onPress={() => {
+            closeRow();
+            onEdit();
+          }}
+          activeOpacity={0.85}
+        >
+          <Ionicons name="create-outline" size={16} color="#fff" />
+          <Text style={styles.swipeActionText}>{editLabel}</Text>
+        </TouchableOpacity>
+      ) : null}
+      <TouchableOpacity
+        style={[styles.swipeActionBtn, styles.swipeDeleteAction]}
+        onPress={() => {
+          closeRow();
+          onDelete?.();
+        }}
+        activeOpacity={0.85}
+      >
+        <Ionicons name="trash-outline" size={16} color="#fff" />
+        <Text style={styles.swipeActionText}>{deleteLabel}</Text>
+      </TouchableOpacity>
+    </View>
+  );
+  return (
+    <Swipeable
+      ref={swipeRef}
+      renderRightActions={renderRightActions}
+      overshootRight={false}
+      rightThreshold={36}
+    >
+      {children}
+    </Swipeable>
   );
 }
 
@@ -1115,7 +1167,6 @@ function TrailsScreen() {
   } = useAppMain();
 
   const webGpxInputRef = useRef(null);
-  const [selectedTrailIds, setSelectedTrailIds] = useState([]);
 
   useEffect(() => {
     actionsRef.current.loadTrails();
@@ -1135,27 +1186,6 @@ function TrailsScreen() {
         (t) => trailListFilter === "all" || t.difficulty === trailListFilter
       );
   }, [trails, user?.id, trailListFilter]);
-
-  useEffect(() => {
-    setSelectedTrailIds((prev) =>
-      prev.filter((id) => myTrails.some((t) => t.id === id))
-    );
-  }, [myTrails]);
-
-  const toggleTrailSelect = (id) => {
-    setSelectedTrailIds((prev) =>
-      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
-    );
-  };
-
-  const selectAllMyTrailsToggle = () => {
-    if (myTrails.length === 0) return;
-    if (selectedTrailIds.length === myTrails.length) {
-      setSelectedTrailIds([]);
-    } else {
-      setSelectedTrailIds(myTrails.map((t) => t.id));
-    }
-  };
 
   const webDropProps =
     Platform.OS === "web"
@@ -1301,41 +1331,10 @@ function TrailsScreen() {
             <>
               <View style={{ marginBottom: 12, gap: 10 }}>
                 <Text style={styles.fieldLabel}>Suppression</Text>
-                <TouchableOpacity
-                  style={styles.selectAllChip}
-                  onPress={selectAllMyTrailsToggle}
-                  activeOpacity={0.85}
-                >
-                  <Ionicons
-                    name={
-                      selectedTrailIds.length === myTrails.length &&
-                      myTrails.length > 0
-                        ? "checkbox"
-                        : "square-outline"
-                    }
-                    size={20}
-                    color={theme.primary}
-                  />
-                  <Text style={styles.selectAllChipText}>
-                    {selectedTrailIds.length === myTrails.length &&
-                    myTrails.length > 0
-                      ? "Tout désélectionner"
-                      : "Tout sélectionner"}
-                  </Text>
-                </TouchableOpacity>
-                {selectedTrailIds.length > 0 ? (
-                  <OutlineButton
-                    danger
-                    stretch
-                    label={`Supprimer la sélection (${selectedTrailIds.length})`}
-                    icon="trash-outline"
-                    onPress={() =>
-                      actionsRef.current.deleteTrailsByIds([
-                        ...selectedTrailIds,
-                      ])
-                    }
-                  />
-                ) : null}
+                <Text style={styles.helperText}>
+                  Glisse une trace vers la gauche pour afficher l’action
+                  supprimer.
+                </Text>
                 <OutlineButton
                   danger
                   stretch
@@ -1347,59 +1346,43 @@ function TrailsScreen() {
               {myTrails.map((trail) => {
                 const b = difficultyBadgeStyle(trail.difficulty);
                 return (
-                  <View key={`my-trail-${trail.id}`} style={styles.card}>
-                    <View style={styles.cardAccent} />
-                    <TouchableOpacity
-                      style={styles.boxSelectRow}
-                      onPress={() => toggleTrailSelect(trail.id)}
-                      activeOpacity={0.85}
-                    >
-                      <Ionicons
-                        name={
-                          selectedTrailIds.includes(trail.id)
-                            ? "checkbox"
-                            : "square-outline"
-                        }
-                        size={22}
-                        color={theme.primary}
-                      />
-                      <Text style={styles.boxSelectLabel}>
-                        Inclure dans la suppression groupée
+                  <SwipeActionRow
+                    key={`my-trail-${trail.id}`}
+                    onDelete={() =>
+                      actionsRef.current.deleteTrail(trail.id, trail.name)
+                    }
+                    deleteLabel="Supprimer"
+                  >
+                    <View style={styles.card}>
+                      <View style={styles.cardAccent} />
+                      <Text style={styles.cardTitle}>{trail.name}</Text>
+                      <Text style={styles.cardMeta}>
+                        {trail.territory} · {trail.distance_km} km · D+{" "}
+                        {trail.elevation_m} m
                       </Text>
-                    </TouchableOpacity>
-                    <Text style={styles.cardTitle}>{trail.name}</Text>
-                    <Text style={styles.cardMeta}>
-                      {trail.territory} · {trail.distance_km} km · D+{" "}
-                      {trail.elevation_m} m
-                    </Text>
-                    <View
-                      style={[
-                        styles.badge,
-                        { backgroundColor: b.bg, borderColor: b.border },
-                      ]}
-                    >
-                      <Text style={[styles.badgeText, { color: b.fg }]}>
-                        {DIFFICULTY_LABELS[trail.difficulty] ||
-                          trail.difficulty}
-                      </Text>
+                      <View
+                        style={[
+                          styles.badge,
+                          { backgroundColor: b.bg, borderColor: b.border },
+                        ]}
+                      >
+                        <Text style={[styles.badgeText, { color: b.fg }]}>
+                          {DIFFICULTY_LABELS[trail.difficulty] ||
+                            trail.difficulty}
+                        </Text>
+                      </View>
+                      {absoluteUploadUrl(trail.gpx_url) ? (
+                        <OutlineButton
+                          stretch
+                          label="Ouvrir / télécharger GPX"
+                          icon="download-outline"
+                          onPress={() =>
+                            Linking.openURL(absoluteUploadUrl(trail.gpx_url))
+                          }
+                        />
+                      ) : null}
                     </View>
-                    {absoluteUploadUrl(trail.gpx_url) ? (
-                      <SecondaryButton
-                        label="Ouvrir / télécharger GPX"
-                        icon="download-outline"
-                        onPress={() =>
-                          Linking.openURL(absoluteUploadUrl(trail.gpx_url))
-                        }
-                      />
-                    ) : null}
-                    <SecondaryButton
-                      label="Supprimer uniquement cette trace"
-                      icon="trash-outline"
-                      onPress={() =>
-                        actionsRef.current.deleteTrail(trail.id, trail.name)
-                      }
-                    />
-                  </View>
+                  </SwipeActionRow>
                 );
               })}
             </>
@@ -1493,34 +1476,12 @@ function HostScreen() {
   const canHostLocal = user?.role === "host" || user?.role === "both";
   const hostLat = Number(hostForm.latitude) || 45.8992;
   const hostLon = Number(hostForm.longitude) || 6.1294;
-  const [selectedBoxIds, setSelectedBoxIds] = useState([]);
 
   useEffect(() => {
     if (!canHostLocal) return;
     actionsRef.current.loadHostBoxes();
     actionsRef.current.loadHostBookings();
   }, [canHostLocal, actionsRef]);
-
-  useEffect(() => {
-    setSelectedBoxIds((prev) =>
-      prev.filter((id) => hostBoxes.some((b) => b.id === id))
-    );
-  }, [hostBoxes]);
-
-  const toggleBoxSelect = (id) => {
-    setSelectedBoxIds((prev) =>
-      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
-    );
-  };
-
-  const selectAllBoxesToggle = () => {
-    if (hostBoxes.length === 0) return;
-    if (selectedBoxIds.length === hostBoxes.length) {
-      setSelectedBoxIds([]);
-    } else {
-      setSelectedBoxIds(hostBoxes.map((b) => b.id));
-    }
-  };
 
   return (
     <SafeAreaView style={styles.screen} edges={["left", "right"]}>
@@ -1812,66 +1773,14 @@ function HostScreen() {
         {canHostLocal ? (
           <Section
             title="Mes box actives"
-            subtitle="Sélection, suppression groupée ou modification (comme les traces)."
+            subtitle="Glisse une ligne vers la gauche pour modifier ou supprimer."
             icon="layers-outline"
           >
             {hostBoxes.length > 0 ? (
               <View style={{ marginBottom: 12, gap: 10 }}>
-                <Text style={styles.fieldLabel}>Sélection</Text>
-                <TouchableOpacity
-                  style={styles.selectAllChip}
-                  onPress={selectAllBoxesToggle}
-                  activeOpacity={0.85}
-                >
-                  <Ionicons
-                    name={
-                      selectedBoxIds.length === hostBoxes.length &&
-                      hostBoxes.length > 0
-                        ? "checkbox"
-                        : "square-outline"
-                    }
-                    size={20}
-                    color={theme.primary}
-                  />
-                  <Text style={styles.selectAllChipText}>
-                    {selectedBoxIds.length === hostBoxes.length &&
-                    hostBoxes.length > 0
-                      ? "Tout désélectionner"
-                      : "Tout sélectionner"}
-                  </Text>
-                </TouchableOpacity>
-                {selectedBoxIds.length > 0 ? (
-                  <>
-                    <OutlineButton
-                      danger
-                      stretch
-                      label={`Supprimer la sélection (${selectedBoxIds.length})`}
-                      icon="trash-outline"
-                      onPress={() =>
-                        actionsRef.current.deleteHostBoxesByIds([
-                          ...selectedBoxIds,
-                        ])
-                      }
-                    />
-                    {selectedBoxIds.length === 1 ? (
-                      <OutlineButton
-                        stretch
-                        label="Modifier ce box (charger le formulaire)"
-                        icon="create-outline"
-                        onPress={() => {
-                          const b = hostBoxes.find(
-                            (x) => x.id === selectedBoxIds[0]
-                          );
-                          if (b) actionsRef.current.startEditingHostBox(b);
-                        }}
-                      />
-                    ) : (
-                      <Text style={styles.helperText}>
-                        Pour modifier un box, ne coche qu’une seule ligne.
-                      </Text>
-                    )}
-                  </>
-                ) : null}
+                <Text style={styles.helperText}>
+                  Swipe vers la gauche pour afficher les actions de chaque box.
+                </Text>
                 <OutlineButton
                   danger
                   stretch
@@ -1882,61 +1791,42 @@ function HostScreen() {
               </View>
             ) : null}
             {hostBoxes.map((box) => (
-              <View key={`host-box-${box.id}`} style={styles.card}>
-                <View style={styles.cardAccent} />
-                <TouchableOpacity
-                  style={styles.boxSelectRow}
-                  onPress={() => toggleBoxSelect(box.id)}
-                  activeOpacity={0.85}
-                >
-                  <Ionicons
-                    name={
-                      selectedBoxIds.includes(box.id)
-                        ? "checkbox"
-                        : "square-outline"
-                    }
-                    size={22}
-                    color={theme.primary}
-                  />
-                  <Text style={styles.boxSelectLabel}>
-                    Inclure dans la sélection groupée
+              <SwipeActionRow
+                key={`host-box-${box.id}`}
+                onEdit={() => actionsRef.current.startEditingHostBox(box)}
+                onDelete={() => actionsRef.current.deleteHostBox(box.id, box.title)}
+                editLabel="Modifier"
+                deleteLabel="Supprimer"
+              >
+                <View style={styles.card}>
+                  <View style={styles.cardAccent} />
+                  <Text style={styles.cardTitle}>{box.title}</Text>
+                  <Text style={styles.cardMeta}>
+                    {box.city} · {(box.price_cents / 100).toFixed(2)} €
                   </Text>
-                </TouchableOpacity>
-                <Text style={styles.cardTitle}>{box.title}</Text>
-                <Text style={styles.cardMeta}>
-                  {box.city} · {(box.price_cents / 100).toFixed(2)} €
-                </Text>
-                <Text style={styles.cardDetailLine}>
-                  {box.capacity_liters ?? "?"} L · Eau : {boxWaterLabel(box)}
-                </Text>
-                {parseBoxCriteria(box).length > 0 ? (
-                  <Text style={styles.cardAvailability}>
-                    Critères: {parseBoxCriteria(box).join(" · ")}
+                  <Text style={styles.cardDetailLine}>
+                    {box.capacity_liters ?? "?"} L · Eau : {boxWaterLabel(box)}
                   </Text>
-                ) : null}
-                {box.criteria_note ? (
-                  <Text style={styles.cardAvailability}>
-                    {box.criteria_note}
-                  </Text>
-                ) : null}
-                {box.description ? (
-                  <Text style={styles.cardAvailability}>{box.description}</Text>
-                ) : null}
-                {box.availability_note ? (
-                  <Text style={styles.cardAvailability}>
-                    {box.availability_note}
-                  </Text>
-                ) : null}
-                <OutlineButton
-                  danger
-                  stretch
-                  label="Supprimer ce box"
-                  icon="trash-outline"
-                  onPress={() =>
-                    actionsRef.current.deleteHostBox(box.id, box.title)
-                  }
-                />
-              </View>
+                  {parseBoxCriteria(box).length > 0 ? (
+                    <Text style={styles.cardAvailability}>
+                      Critères: {parseBoxCriteria(box).join(" · ")}
+                    </Text>
+                  ) : null}
+                  {box.criteria_note ? (
+                    <Text style={styles.cardAvailability}>
+                      {box.criteria_note}
+                    </Text>
+                  ) : null}
+                  {box.description ? (
+                    <Text style={styles.cardAvailability}>{box.description}</Text>
+                  ) : null}
+                  {box.availability_note ? (
+                    <Text style={styles.cardAvailability}>
+                      {box.availability_note}
+                    </Text>
+                  ) : null}
+                </View>
+              </SwipeActionRow>
             ))}
             {hostBoxes.length === 0 ? (
               <Text style={styles.emptyText}>
@@ -3804,6 +3694,32 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     flexWrap: "wrap",
     alignItems: "center",
+  },
+  swipeActionsWrap: {
+    flexDirection: "row",
+    alignItems: "stretch",
+    marginBottom: 12,
+    marginLeft: 8,
+  },
+  swipeActionBtn: {
+    minWidth: 84,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    justifyContent: "center",
+    alignItems: "center",
+    marginLeft: 8,
+    gap: 4,
+  },
+  swipeEditAction: {
+    backgroundColor: "#0F766E",
+  },
+  swipeDeleteAction: {
+    backgroundColor: "#B91C1C",
+  },
+  swipeActionText: {
+    color: "#fff",
+    fontSize: 12,
+    fontWeight: "700",
   },
   selectAllChip: {
     flexDirection: "row",
