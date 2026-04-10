@@ -1484,6 +1484,8 @@ function HostScreen() {
     hostForm,
     setHostForm,
     hostEditingBoxId,
+    hostReverseGeocode,
+    setHostReverseGeocode,
     hostBoxes,
     hostBookings,
     actionsRef,
@@ -1664,12 +1666,40 @@ function HostScreen() {
                 onPress={() => actionsRef.current.syncExplorerMapFromHost()}
               />
               <Text style={styles.inputLabel}>Ville (base de données)</Text>
+              {hostReverseGeocode.status === "loading" ? (
+                <View
+                  style={{
+                    flexDirection: "row",
+                    alignItems: "center",
+                    marginBottom: 8,
+                  }}
+                >
+                  <ActivityIndicator size="small" color={theme.primary} />
+                  <Text style={[styles.helperText, { marginLeft: 10 }]}>
+                    Recherche du lieu à partir des coordonnées…
+                  </Text>
+                </View>
+              ) : null}
+              {hostReverseGeocode.status === "error" &&
+              hostReverseGeocode.message ? (
+                <Text
+                  style={[
+                    styles.helperText,
+                    { color: "#B91C1C", marginBottom: 8 },
+                  ]}
+                >
+                  {hostReverseGeocode.message}
+                </Text>
+              ) : null}
               <TextInput
                 style={styles.input}
                 placeholder="Remplie automatiquement depuis le point bleu"
                 placeholderTextColor={theme.inkMuted}
                 value={hostForm.city}
-                onChangeText={(v) => setHostForm((s) => ({ ...s, city: v }))}
+                onChangeText={(v) => {
+                  setHostReverseGeocode({ status: "idle", message: "" });
+                  setHostForm((s) => ({ ...s, city: v }));
+                }}
               />
               <Text style={styles.fieldLabel}>
                 Prix par réservation (centimes)
@@ -2234,6 +2264,12 @@ function RavitoApp() {
     criteriaTags: [],
   });
   const [hostEditingBoxId, setHostEditingBoxId] = useState(null);
+  const [hostReverseGeocode, setHostReverseGeocode] = useState({
+    status: "idle",
+    message: "",
+  });
+  const hostGeocodeSeqRef = useRef(0);
+  const skipInitialHostGeocodeRef = useRef(true);
   const [hostBoxes, setHostBoxes] = useState([]);
   const [hostBookings, setHostBookings] = useState([]);
   const [athleteBookings, setAthleteBookings] = useState([]);
@@ -2633,22 +2669,52 @@ function RavitoApp() {
   useEffect(() => {
     const lat = parseFloat(hostForm.latitude);
     const lng = parseFloat(hostForm.longitude);
-    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+      setHostReverseGeocode({ status: "idle", message: "" });
+      return;
+    }
+    if (skipInitialHostGeocodeRef.current) {
+      skipInitialHostGeocodeRef.current = false;
+      return;
+    }
+    const seq = ++hostGeocodeSeqRef.current;
+    setHostReverseGeocode({ status: "loading", message: "" });
     const t = setTimeout(() => {
-      (async () => {
+      void (async () => {
         try {
           const data = await apiFetch(
             `/geocode/reverse?lat=${encodeURIComponent(
               lat
             )}&lon=${encodeURIComponent(lng)}`
           );
+          if (seq !== hostGeocodeSeqRef.current) return;
           const label = geocodePayloadToCityLabel(data);
-          if (label) setHostForm((s) => ({ ...s, city: label }));
-        } catch {
-          /* géocodage optionnel */
+          if (label) {
+            setHostForm((s) => ({ ...s, city: label }));
+            setHostReverseGeocode({
+              status: "ok",
+              message: "",
+            });
+          } else {
+            setHostReverseGeocode({
+              status: "error",
+              message:
+                "Le service n’a pas renvoyé de nom de lieu pour ce point. Saisis la ville à la main.",
+            });
+          }
+        } catch (error) {
+          if (seq !== hostGeocodeSeqRef.current) return;
+          const msg =
+            typeof error?.message === "string"
+              ? error.message.slice(0, 200)
+              : "Erreur réseau ou serveur";
+          setHostReverseGeocode({
+            status: "error",
+            message: `${msg}. Vérifie que l’API déploie bien GET /api/geocode/reverse.`,
+          });
         }
       })();
-    }, 450);
+    }, 380);
     return () => clearTimeout(t);
   }, [hostForm.latitude, hostForm.longitude]);
 
@@ -2796,6 +2862,7 @@ function RavitoApp() {
         });
         userAlert("OK", "Ton box a été mis à jour.");
         setHostEditingBoxId(null);
+        setHostReverseGeocode({ status: "idle", message: "" });
         setHostForm({
           title: "",
           description: "",
@@ -2825,6 +2892,7 @@ function RavitoApp() {
 
   const startEditingHostBox = useCallback((box) => {
     if (!box) return;
+    setHostReverseGeocode({ status: "idle", message: "" });
     setHostForm({
       title: box.title || "",
       description: box.description || "",
@@ -2842,6 +2910,7 @@ function RavitoApp() {
 
   const cancelHostBoxEdit = useCallback(() => {
     setHostEditingBoxId(null);
+    setHostReverseGeocode({ status: "idle", message: "" });
     setHostForm({
       title: "",
       description: "",
@@ -3064,17 +3133,6 @@ function RavitoApp() {
       latitude: latStr,
       longitude: lngStr,
     }));
-    void (async () => {
-      try {
-        const data = await apiFetch(
-          `/geocode/reverse?lat=${encodeURIComponent(plat)}&lon=${encodeURIComponent(plng)}`
-        );
-        const label = geocodePayloadToCityLabel(data);
-        if (label) setHostForm((s) => ({ ...s, city: label }));
-      } catch {
-        /* Nominatim indisponible : la ville reste éditable */
-      }
-    })();
   };
 
   const actionsRef = useRef({});
@@ -3125,6 +3183,8 @@ function RavitoApp() {
       hostForm,
       setHostForm,
       hostEditingBoxId,
+      hostReverseGeocode,
+      setHostReverseGeocode,
       hostBoxes,
       hostBookings,
       athleteBookings,
@@ -3180,6 +3240,7 @@ function RavitoApp() {
       mapLon,
       hostForm,
       hostEditingBoxId,
+      hostReverseGeocode,
       hostBoxes,
       hostBookings,
       athleteBookings,
