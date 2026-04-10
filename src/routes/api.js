@@ -90,6 +90,13 @@ const createBookingSchema = z.object({
   specialRequest: z.string().max(2000).optional(),
 });
 
+const updateBookingSchema = z.object({
+  bookingDate: z.string().min(10),
+  startTime: z.string().min(4),
+  endTime: z.string().min(4),
+  specialRequest: z.string().max(2000).optional(),
+});
+
 const loginSchema = z.object({
   email: z.email(),
   password: z.string().min(6),
@@ -885,6 +892,75 @@ router.get("/bookings", requireAuth, async (req, res) => {
     [req.auth.sub]
   );
   res.json(rows);
+});
+
+router.patch("/host/bookings/:id", requireAuth, async (req, res) => {
+  const bookingId = Number(req.params.id);
+  if (!Number.isInteger(bookingId) || bookingId <= 0) {
+    return res.status(400).json({ error: "Invalid booking id" });
+  }
+  const parsed = updateBookingSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error.flatten() });
+  }
+  const input = parsed.data;
+  const { rows } = await pool.query(
+    `UPDATE bookings b
+     SET booking_date = $1,
+         start_time = $2,
+         end_time = $3,
+         special_request = $4
+     FROM boxes bx
+     WHERE b.id = $5
+       AND b.box_id = bx.id
+       AND bx.host_user_id = $6
+     RETURNING b.*`,
+    [
+      input.bookingDate,
+      input.startTime,
+      input.endTime,
+      input.specialRequest?.trim() || null,
+      bookingId,
+      req.auth.sub,
+    ]
+  );
+  if (!rows[0]) {
+    return res.status(404).json({ error: "Booking not found for this host" });
+  }
+  return res.json(rows[0]);
+});
+
+router.patch("/bookings/:id", requireAuth, async (req, res) => {
+  const bookingId = Number(req.params.id);
+  if (!Number.isInteger(bookingId) || bookingId <= 0) {
+    return res.status(400).json({ error: "Invalid booking id" });
+  }
+  const parsed = updateBookingSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error.flatten() });
+  }
+  const input = parsed.data;
+  const { rows } = await pool.query(
+    `UPDATE bookings
+     SET booking_date = $1,
+         start_time = $2,
+         end_time = $3,
+         special_request = $4
+     WHERE id = $5 AND athlete_user_id = $6
+     RETURNING *`,
+    [
+      input.bookingDate,
+      input.startTime,
+      input.endTime,
+      input.specialRequest?.trim() || null,
+      bookingId,
+      req.auth.sub,
+    ]
+  );
+  if (!rows[0]) {
+    return res.status(404).json({ error: "Booking not found" });
+  }
+  return res.json(rows[0]);
 });
 
 router.delete("/host/boxes/:id", requireAuth, async (req, res) => {

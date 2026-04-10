@@ -30,7 +30,7 @@ import {
   Swipeable,
 } from "react-native-gesture-handler";
 import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
-import { NavigationContainer } from "@react-navigation/native";
+import { NavigationContainer, useIsFocused } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { Ionicons } from "@expo/vector-icons";
@@ -978,12 +978,18 @@ function ExplorerScreen() {
               )}
             </Text>
             {canBook ? (
-              <PrimaryButton
-                compact
-                label="Réserver ce box"
-                icon="calendar-outline"
-                onPress={() => actionsRef.current.bookBox(selectedBox.id)}
-              />
+              <>
+                <Text style={styles.helperText}>
+                  Avant de réserver, vérifie le bloc « Créneau & demande »
+                  (date, début/fin, message optionnel).
+                </Text>
+                <PrimaryButton
+                  compact
+                  label="Réserver ce box (avec le créneau ci-dessous)"
+                  icon="calendar-outline"
+                  onPress={() => actionsRef.current.bookBox(selectedBox.id)}
+                />
+              </>
             ) : (
               <Text style={styles.roleHintOnlyHost}>
                 Compte hôte : la réservation est faite par les athlètes.
@@ -1075,12 +1081,17 @@ function ExplorerScreen() {
                 onPress={() => setSelectedBoxId(item.id)}
               />
               {canBook ? (
-                <PrimaryButton
-                  compact
-                  label="Réserver"
-                  icon="checkmark-circle-outline"
-                  onPress={() => actionsRef.current.bookBox(item.id)}
-                />
+                <>
+                  <Text style={styles.helperText}>
+                    Date/heure à définir dans « Créneau & demande ».
+                  </Text>
+                  <PrimaryButton
+                    compact
+                    label="Réserver"
+                    icon="checkmark-circle-outline"
+                    onPress={() => actionsRef.current.bookBox(item.id)}
+                  />
+                </>
               ) : null}
             </View>
           )}
@@ -1474,14 +1485,26 @@ function HostScreen() {
     actionsRef,
   } = useAppMain();
   const canHostLocal = user?.role === "host" || user?.role === "both";
+  const isFocused = useIsFocused();
   const hostLat = Number(hostForm.latitude) || 45.8992;
   const hostLon = Number(hostForm.longitude) || 6.1294;
+  const [editingHostBookingId, setEditingHostBookingId] = useState(null);
+  const [hostBookingDraft, setHostBookingDraft] = useState({
+    bookingDate: "",
+    startTime: "",
+    endTime: "",
+    specialRequest: "",
+  });
 
   useEffect(() => {
-    if (!canHostLocal) return;
+    if (!canHostLocal || !isFocused) return;
     actionsRef.current.loadHostBoxes();
     actionsRef.current.loadHostBookings();
-  }, [canHostLocal, actionsRef]);
+    const id = setInterval(() => {
+      actionsRef.current.loadHostBookings();
+    }, 12000);
+    return () => clearInterval(id);
+  }, [canHostLocal, isFocused, actionsRef]);
 
   return (
     <SafeAreaView style={styles.screen} edges={["left", "right"]}>
@@ -1841,56 +1864,141 @@ function HostScreen() {
             subtitle="Accepte ou refuse les demandes des athlètes."
             icon="calendar-outline"
           >
+            {editingHostBookingId != null ? (
+              <View style={[styles.infoBanner, { marginBottom: 10 }]}>
+                <Ionicons
+                  name="create-outline"
+                  size={22}
+                  color={theme.primary}
+                  style={{ marginRight: 10 }}
+                />
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.infoBannerTitle}>
+                    Modifier la réservation n°{editingHostBookingId}
+                  </Text>
+                  <TextInput
+                    style={styles.input}
+                    placeholder="AAAA-MM-JJ"
+                    placeholderTextColor={theme.inkMuted}
+                    value={hostBookingDraft.bookingDate}
+                    onChangeText={(v) =>
+                      setHostBookingDraft((s) => ({ ...s, bookingDate: v }))
+                    }
+                  />
+                  <View style={styles.row}>
+                    <TextInput
+                      style={styles.inputHalf}
+                      placeholder="Début"
+                      placeholderTextColor={theme.inkMuted}
+                      value={hostBookingDraft.startTime}
+                      onChangeText={(v) =>
+                        setHostBookingDraft((s) => ({ ...s, startTime: v }))
+                      }
+                    />
+                    <TextInput
+                      style={styles.inputHalf}
+                      placeholder="Fin"
+                      placeholderTextColor={theme.inkMuted}
+                      value={hostBookingDraft.endTime}
+                      onChangeText={(v) =>
+                        setHostBookingDraft((s) => ({ ...s, endTime: v }))
+                      }
+                    />
+                  </View>
+                  <TextInput
+                    style={[styles.input, styles.textArea]}
+                    placeholder="Demande spéciale (optionnel)"
+                    placeholderTextColor={theme.inkMuted}
+                    value={hostBookingDraft.specialRequest}
+                    onChangeText={(v) =>
+                      setHostBookingDraft((s) => ({ ...s, specialRequest: v }))
+                    }
+                    multiline
+                  />
+                  <OutlineButton
+                    stretch
+                    label="Enregistrer la réservation"
+                    icon="save-outline"
+                    onPress={async () => {
+                      await actionsRef.current.updateHostBooking(
+                        editingHostBookingId,
+                        hostBookingDraft
+                      );
+                      setEditingHostBookingId(null);
+                    }}
+                  />
+                  <OutlineButton
+                    compact
+                    label="Annuler"
+                    icon="close-circle-outline"
+                    onPress={() => setEditingHostBookingId(null)}
+                  />
+                </View>
+              </View>
+            ) : null}
             {hostBookings.map((b) => {
               const approval = b.approval_status || "pending";
               return (
-                <View key={`host-booking-${b.id}`} style={styles.card}>
-                  <View style={styles.cardAccent} />
-                  <Text style={styles.cardTitle}>
-                    {b.box_title || `Box #${b.box_id}`}
-                  </Text>
-                  <Text style={styles.cardMeta}>
-                    {b.athlete_full_name || "Athlète"} · {b.booking_date}{" "}
-                    {b.start_time}-{b.end_time}
-                  </Text>
-                  <Text style={styles.cardDetailLine}>
-                    Statut: {approval} · gain hôte{" "}
-                    {(Number(b.host_earnings_cents || 0) / 100).toFixed(2)} €
-                  </Text>
-                  {b.special_request ? (
-                    <Text style={styles.cardAvailability}>
-                      Demande: {b.special_request}
+                <SwipeActionRow
+                  key={`host-booking-${b.id}`}
+                  onEdit={() => {
+                    setEditingHostBookingId(b.id);
+                    setHostBookingDraft({
+                      bookingDate: b.booking_date || "",
+                      startTime: b.start_time || "",
+                      endTime: b.end_time || "",
+                      specialRequest: b.special_request || "",
+                    });
+                  }}
+                  onDelete={() =>
+                    actionsRef.current.deleteHostBooking(
+                      b.id,
+                      b.box_title || `Box #${b.box_id}`
+                    )
+                  }
+                  editLabel="Modifier"
+                  deleteLabel="Supprimer"
+                >
+                  <View style={styles.card}>
+                    <View style={styles.cardAccent} />
+                    <Text style={styles.cardTitle}>
+                      {b.box_title || `Box #${b.box_id}`}
                     </Text>
-                  ) : null}
-                  {approval === "pending" ? (
-                    <>
-                      <PrimaryButton
-                        label="Accepter"
-                        icon="checkmark-outline"
-                        onPress={() =>
-                          actionsRef.current.decideHostBooking(b.id, "accept")
-                        }
-                      />
-                      <SecondaryButton
-                        label="Refuser"
-                        icon="close-outline"
-                        onPress={() =>
-                          actionsRef.current.decideHostBooking(b.id, "reject")
-                        }
-                      />
-                    </>
-                  ) : null}
-                  <SecondaryButton
-                    label="Supprimer cette entrée"
-                    icon="trash-outline"
-                    onPress={() =>
-                      actionsRef.current.deleteHostBooking(
-                        b.id,
-                        b.box_title || `Box #${b.box_id}`
-                      )
-                    }
-                  />
-                </View>
+                    <Text style={styles.cardMeta}>
+                      {b.athlete_full_name || "Athlète"} · {b.booking_date}{" "}
+                      {b.start_time}-{b.end_time}
+                    </Text>
+                    <Text style={styles.cardDetailLine}>
+                      Statut: {approval} · gain hôte{" "}
+                      {(Number(b.host_earnings_cents || 0) / 100).toFixed(2)} €
+                    </Text>
+                    {b.special_request ? (
+                      <Text style={styles.cardAvailability}>
+                        Demande: {b.special_request}
+                      </Text>
+                    ) : null}
+                    {approval === "pending" ? (
+                      <>
+                        <PrimaryButton
+                          compact
+                          label="Accepter"
+                          icon="checkmark-outline"
+                          onPress={() =>
+                            actionsRef.current.decideHostBooking(b.id, "accept")
+                          }
+                        />
+                        <SecondaryButton
+                          compact
+                          label="Refuser"
+                          icon="close-outline"
+                          onPress={() =>
+                            actionsRef.current.decideHostBooking(b.id, "reject")
+                          }
+                        />
+                      </>
+                    ) : null}
+                  </View>
+                </SwipeActionRow>
               );
             })}
             {hostBookings.length === 0 ? (
@@ -1905,13 +2013,25 @@ function HostScreen() {
 
 function ProfileScreen() {
   const { user, canBook, athleteBookings, actionsRef } = useAppMain();
+  const isFocused = useIsFocused();
   const roleLabel = ROLE_LABELS[user?.role] || user?.role;
   const canEnableBoth = user?.role !== "both";
+  const [editingAthleteBookingId, setEditingAthleteBookingId] = useState(null);
+  const [athleteBookingDraft, setAthleteBookingDraft] = useState({
+    bookingDate: "",
+    startTime: "",
+    endTime: "",
+    specialRequest: "",
+  });
 
   useEffect(() => {
-    if (!canBook) return;
+    if (!canBook || !isFocused) return;
     actionsRef.current.loadAthleteBookings();
-  }, [canBook, actionsRef]);
+    const id = setInterval(() => {
+      actionsRef.current.loadAthleteBookings();
+    }, 12000);
+    return () => clearInterval(id);
+  }, [canBook, isFocused, actionsRef]);
 
   return (
     <SafeAreaView style={styles.screen} edges={["left", "right"]}>
@@ -1949,6 +2069,81 @@ function ProfileScreen() {
             subtitle="Tes demandes de box : tu peux retirer une entrée ou tout effacer."
             icon="calendar-outline"
           >
+            {editingAthleteBookingId != null ? (
+              <View style={[styles.infoBanner, { marginBottom: 10 }]}>
+                <Ionicons
+                  name="create-outline"
+                  size={22}
+                  color={theme.primary}
+                  style={{ marginRight: 10 }}
+                />
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.infoBannerTitle}>
+                    Modifier ma réservation n°{editingAthleteBookingId}
+                  </Text>
+                  <TextInput
+                    style={styles.input}
+                    placeholder="AAAA-MM-JJ"
+                    placeholderTextColor={theme.inkMuted}
+                    value={athleteBookingDraft.bookingDate}
+                    onChangeText={(v) =>
+                      setAthleteBookingDraft((s) => ({ ...s, bookingDate: v }))
+                    }
+                  />
+                  <View style={styles.row}>
+                    <TextInput
+                      style={styles.inputHalf}
+                      placeholder="Début"
+                      placeholderTextColor={theme.inkMuted}
+                      value={athleteBookingDraft.startTime}
+                      onChangeText={(v) =>
+                        setAthleteBookingDraft((s) => ({ ...s, startTime: v }))
+                      }
+                    />
+                    <TextInput
+                      style={styles.inputHalf}
+                      placeholder="Fin"
+                      placeholderTextColor={theme.inkMuted}
+                      value={athleteBookingDraft.endTime}
+                      onChangeText={(v) =>
+                        setAthleteBookingDraft((s) => ({ ...s, endTime: v }))
+                      }
+                    />
+                  </View>
+                  <TextInput
+                    style={[styles.input, styles.textArea]}
+                    placeholder="Demande spéciale (optionnel)"
+                    placeholderTextColor={theme.inkMuted}
+                    value={athleteBookingDraft.specialRequest}
+                    onChangeText={(v) =>
+                      setAthleteBookingDraft((s) => ({
+                        ...s,
+                        specialRequest: v,
+                      }))
+                    }
+                    multiline
+                  />
+                  <OutlineButton
+                    stretch
+                    label="Enregistrer ma réservation"
+                    icon="save-outline"
+                    onPress={async () => {
+                      await actionsRef.current.updateAthleteBooking(
+                        editingAthleteBookingId,
+                        athleteBookingDraft
+                      );
+                      setEditingAthleteBookingId(null);
+                    }}
+                  />
+                  <OutlineButton
+                    compact
+                    label="Annuler"
+                    icon="close-circle-outline"
+                    onPress={() => setEditingAthleteBookingId(null)}
+                  />
+                </View>
+              </View>
+            ) : null}
             {athleteBookings.length > 0 ? (
               <SecondaryButton
                 label="Effacer tout mon historique de réservations"
@@ -1959,36 +2154,45 @@ function ProfileScreen() {
             {athleteBookings.map((b) => {
               const approval = b.approval_status || "pending";
               return (
-                <View key={`ath-booking-${b.id}`} style={styles.card}>
-                  <View style={styles.cardAccent} />
-                  <Text style={styles.cardTitle}>
-                    {b.box_title || `Box #${b.box_id}`}
-                  </Text>
-                  <Text style={styles.cardMeta}>
-                    {[
-                      b.box_city,
-                      `${b.booking_date} ${b.start_time}–${b.end_time}`,
-                    ]
-                      .filter(Boolean)
-                      .join(" · ")}
-                  </Text>
-                  <Text style={styles.cardDetailLine}>
-                    Statut : {approval}
-                    {b.access_code ? ` · code ${b.access_code}` : ""}
-                  </Text>
-                  {b.special_request ? (
-                    <Text style={styles.cardAvailability}>
-                      Demande : {b.special_request}
+                <SwipeActionRow
+                  key={`ath-booking-${b.id}`}
+                  onEdit={() => {
+                    setEditingAthleteBookingId(b.id);
+                    setAthleteBookingDraft({
+                      bookingDate: b.booking_date || "",
+                      startTime: b.start_time || "",
+                      endTime: b.end_time || "",
+                      specialRequest: b.special_request || "",
+                    });
+                  }}
+                  onDelete={() => actionsRef.current.deleteAthleteBooking(b.id)}
+                  editLabel="Modifier"
+                  deleteLabel="Supprimer"
+                >
+                  <View style={styles.card}>
+                    <View style={styles.cardAccent} />
+                    <Text style={styles.cardTitle}>
+                      {b.box_title || `Box #${b.box_id}`}
                     </Text>
-                  ) : null}
-                  <SecondaryButton
-                    label="Supprimer cette entrée"
-                    icon="trash-outline"
-                    onPress={() =>
-                      actionsRef.current.deleteAthleteBooking(b.id)
-                    }
-                  />
-                </View>
+                    <Text style={styles.cardMeta}>
+                      {[
+                        b.box_city,
+                        `${b.booking_date} ${b.start_time}–${b.end_time}`,
+                      ]
+                        .filter(Boolean)
+                        .join(" · ")}
+                    </Text>
+                    <Text style={styles.cardDetailLine}>
+                      Statut : {approval}
+                      {b.access_code ? ` · code ${b.access_code}` : ""}
+                    </Text>
+                    {b.special_request ? (
+                      <Text style={styles.cardAvailability}>
+                        Demande : {b.special_request}
+                      </Text>
+                    ) : null}
+                  </View>
+                </SwipeActionRow>
               );
             })}
             {athleteBookings.length === 0 ? (
@@ -2829,6 +3033,26 @@ function RavitoApp() {
     }
   };
 
+  const updateHostBooking = async (bookingId, draft) => {
+    if (!token) return;
+    try {
+      await apiFetch(`/host/bookings/${bookingId}`, {
+        method: "PATCH",
+        token,
+        body: {
+          bookingDate: draft.bookingDate,
+          startTime: draft.startTime,
+          endTime: draft.endTime,
+          specialRequest: draft.specialRequest?.trim() || undefined,
+        },
+      });
+      userAlert("OK", "Réservation hôte mise à jour.");
+      await loadHostBookings();
+    } catch (error) {
+      userAlert("Erreur", error.message);
+    }
+  };
+
   const deleteHostBox = async (boxId, title) => {
     if (!token) return;
     const ok = await confirmDestructive(
@@ -2921,6 +3145,26 @@ function RavitoApp() {
       await apiFetch("/host/bookings", { method: "DELETE", token });
       await loadHostBookings();
       userAlert("OK", "Historique des réservations effacé.");
+    } catch (error) {
+      userAlert("Erreur", error.message);
+    }
+  };
+
+  const updateAthleteBooking = async (bookingId, draft) => {
+    if (!token) return;
+    try {
+      await apiFetch(`/bookings/${bookingId}`, {
+        method: "PATCH",
+        token,
+        body: {
+          bookingDate: draft.bookingDate,
+          startTime: draft.startTime,
+          endTime: draft.endTime,
+          specialRequest: draft.specialRequest?.trim() || undefined,
+        },
+      });
+      userAlert("OK", "Réservation athlète mise à jour.");
+      await loadAthleteBookings();
     } catch (error) {
       userAlert("Erreur", error.message);
     }
@@ -3042,8 +3286,10 @@ function RavitoApp() {
     deleteAllHostBoxes,
     deleteHostBooking,
     deleteAllHostBookings,
+    updateHostBooking,
     deleteAthleteBooking,
     deleteAllAthleteBookings,
+    updateAthleteBooking,
     setHostLocationFromMap,
     syncExplorerMapFromHost,
     createHostBox,

@@ -36,9 +36,11 @@ app.get("/", (_req, res) => {
       "/api/bookings",
       "/api/bookings/:id",
       "/api/host/bookings",
+      "/api/host/bookings/:id (PATCH, DELETE)",
       "/api/host/bookings/:id",
       "/api/host/bookings/:id/decision",
       "/api/host/boxes/:id (DELETE, PATCH)",
+      "/api/bookings/:id (PATCH, DELETE)",
     ],
   });
 });
