@@ -97,6 +97,17 @@ async function migrate() {
         revoked_at TIMESTAMPTZ,
         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
       );
+
+      CREATE TABLE IF NOT EXISTS notifications (
+        id SERIAL PRIMARY KEY,
+        recipient_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        type TEXT NOT NULL,
+        title TEXT NOT NULL,
+        body TEXT,
+        data_json TEXT,
+        is_read SMALLINT NOT NULL DEFAULT 0,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
     `);
 
     await client.query(
@@ -119,6 +130,21 @@ async function migrate() {
     );
     await client.query(
       `ALTER TABLE boxes ADD COLUMN IF NOT EXISTS criteria_note TEXT`
+    );
+    await client.query(
+      `ALTER TABLE boxes ADD COLUMN IF NOT EXISTS archived_at TIMESTAMPTZ`
+    );
+    await client.query(
+      `ALTER TABLE bookings ADD COLUMN IF NOT EXISTS change_request_json TEXT`
+    );
+    await client.query(
+      `ALTER TABLE bookings ADD COLUMN IF NOT EXISTS change_requested_by INTEGER REFERENCES users(id) ON DELETE SET NULL`
+    );
+    await client.query(
+      `ALTER TABLE bookings ADD COLUMN IF NOT EXISTS change_requested_at TIMESTAMPTZ`
+    );
+    await client.query(
+      `CREATE INDEX IF NOT EXISTS idx_notifications_recipient_created ON notifications(recipient_user_id, created_at DESC)`
     );
 
     await client.query("COMMIT");

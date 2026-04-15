@@ -110,6 +110,14 @@ const hostBookingDecisionSchema = z.object({
   decision: z.enum(["accept", "reject"]),
 });
 
+const bookingChangeDecisionSchema = z.object({
+  decision: z.enum(["accept", "reject"]),
+});
+
+const deleteHostBoxSchema = z.object({
+  confirmImpact: z.boolean().optional(),
+});
+
 const updateMyRoleSchema = z.object({
   role: z.enum(["athlete", "host", "both"]),
 });
@@ -225,6 +233,41 @@ async function createSessionForUser(user) {
     [user.id, refreshToken, expiresAt]
   );
   return { token, refreshToken };
+}
+
+function sanitizeBookingDraft(input) {
+  return {
+    bookingDate: input.bookingDate,
+    startTime: input.startTime,
+    endTime: input.endTime,
+    specialRequest: input.specialRequest?.trim() || null,
+  };
+}
+
+function parseChangeRequest(value) {
+  if (!value || typeof value !== "string") return null;
+  try {
+    const parsed = JSON.parse(value);
+    if (!parsed || typeof parsed !== "object") return null;
+    return parsed;
+  } catch (_e) {
+    return null;
+  }
+}
+
+async function createNotification({
+  recipientUserId,
+  type,
+  title,
+  body = null,
+  data = null,
+}) {
+  if (!recipientUserId) return;
+  await pool.query(
+    `INSERT INTO notifications (recipient_user_id, type, title, body, data_json)
+     VALUES ($1, $2, $3, $4, $5)`,
+    [recipientUserId, type, title, body, data ? JSON.stringify(data) : null]
+  );
 }
 
 router.get("/health", (_req, res) => {
@@ -400,6 +443,44 @@ router.get("/users", requireAuth, async (_req, res) => {
   res.json(rows);
 });
 
+router.get("/notifications", requireAuth, async (req, res) => {
+  const { rows } = await pool.query(
+    `SELECT id, type, title, body, data_json, is_read, created_at
+     FROM notifications
+     WHERE recipient_user_id = $1
+     ORDER BY created_at DESC
+     LIMIT 120`,
+    [req.auth.sub]
+  );
+  res.json(rows);
+});
+
+router.patch("/notifications/:id/read", requireAuth, async (req, res) => {
+  const notificationId = Number(req.params.id);
+  if (!Number.isInteger(notificationId) || notificationId <= 0) {
+    return res.status(400).json({ error: "Invalid notification id" });
+  }
+  const { rows } = await pool.query(
+    `UPDATE notifications
+     SET is_read = 1
+     WHERE id = $1 AND recipient_user_id = $2
+     RETURNING id`,
+    [notificationId, req.auth.sub]
+  );
+  if (!rows[0]) {
+    return res.status(404).json({ error: "Notification not found" });
+  }
+  return res.json({ ok: true });
+});
+
+router.patch("/notifications/read-all", requireAuth, async (req, res) => {
+  await pool.query(
+    `UPDATE notifications SET is_read = 1 WHERE recipient_user_id = $1`,
+    [req.auth.sub]
+  );
+  return res.json({ ok: true });
+});
+
 router.patch("/users/me/role", requireAuth, async (req, res) => {
   const parsed = updateMyRoleSchema.safeParse(req.body);
   if (!parsed.success) {
@@ -504,7 +585,7 @@ router.post("/host/boxes", requireAuth, async (req, res) => {
 
 router.get("/host/boxes", requireAuth, async (req, res) => {
   const { rows } = await pool.query(
-    `SELECT * FROM boxes WHERE host_user_id = $1 ORDER BY created_at DESC`,
+    `SELECT * FROM boxes WHERE host_user_id = $1 AND is_active = 1 ORDER BY created_at DESC`,
     [req.auth.sub]
   );
   res.json(rows);
@@ -533,7 +614,7 @@ router.patch("/host/boxes/:id", requireAuth, async (req, res) => {
        availability_note = $9,
        criteria_json = $10,
        criteria_note = $11
-     WHERE id = $12 AND host_user_id = $13
+     WHERE id = $12 AND host_user_id = $13 AND is_active = 1
      RETURNING *`,
     [
       input.title,
@@ -860,26 +941,132 @@ router.patch("/host/bookings/:id/decision", requireAuth, async (req, res) => {
   if (!parsed.success) {
     return res.status(400).json({ error: parsed.error.flatten() });
   }
-  const nextApproval =
-    parsed.data.decision === "accept" ? "accepted" : "rejected";
-  const nextStatus =
-    parsed.data.decision === "accept" ? "confirmed" : "cancelled";
-
-  const { rows } = await pool.query(
-    `UPDATE bookings b
-     SET approval_status = $1, status = $2
-     FROM boxes bx
-     WHERE b.id = $3
-       AND bx.id = b.box_id
-       AND bx.host_user_id = $4
-     RETURNING b.*`,
-    [nextApproval, nextStatus, bookingId, req.auth.sub]
+  const { rows: ownerRows } = await pool.query(
+    `SELECT
+      b.*,
+      bx.host_user_id,
+      bx.title AS box_title
+     FROM bookings b
+     JOIN boxes bx ON bx.id = b.box_id
+     WHERE b.id = $1 AND bx.host_user_id = $2`,
+    [bookingId, req.auth.sub]
   );
-  const booking = rows[0];
+  const booking = ownerRows[0];
   if (!booking) {
     return res.status(404).json({ error: "Booking not found for this host" });
   }
-  return res.json(booking);
+
+  if (booking.approval_status === "pending_athlete_confirmation") {
+    return res.status(409).json({
+      error: "This change must be validated by the athlete",
+    });
+  }
+
+  if (parsed.data.decision === "accept") {
+    if (booking.approval_status === "pending_host_confirmation") {
+      const draft = parseChangeRequest(booking.change_request_json);
+      if (!draft) {
+        return res
+          .status(409)
+          .json({ error: "Missing change request payload" });
+      }
+      const { rows } = await pool.query(
+        `UPDATE bookings
+         SET booking_date = $1,
+             start_time = $2,
+             end_time = $3,
+             special_request = $4,
+             approval_status = 'accepted',
+             change_request_json = NULL,
+             change_requested_by = NULL,
+             change_requested_at = NULL
+         WHERE id = $5
+         RETURNING *`,
+        [
+          draft.bookingDate,
+          draft.startTime,
+          draft.endTime,
+          draft.specialRequest ?? null,
+          bookingId,
+        ]
+      );
+      if (booking.change_requested_by) {
+        await createNotification({
+          recipientUserId: booking.change_requested_by,
+          type: "booking_change_accepted",
+          title: "Modification de réservation acceptée",
+          body: `Ta demande de modification pour « ${
+            booking.box_title || "ta box"
+          } » a été acceptée.`,
+          data: { bookingId },
+        });
+      }
+      return res.json(rows[0]);
+    }
+
+    const { rows } = await pool.query(
+      `UPDATE bookings
+       SET approval_status = 'accepted', status = 'confirmed'
+       WHERE id = $1
+       RETURNING *`,
+      [bookingId]
+    );
+    await createNotification({
+      recipientUserId: booking.athlete_user_id,
+      type: "booking_approved",
+      title: "Réservation acceptée",
+      body: `L'hôte a accepté ta réservation pour « ${
+        booking.box_title || "ce box"
+      } ».`,
+      data: { bookingId },
+    });
+    return res.json(rows[0]);
+  }
+
+  if (booking.approval_status === "pending_host_confirmation") {
+    await pool.query(
+      `UPDATE bookings
+       SET approval_status = 'accepted',
+           change_request_json = NULL,
+           change_requested_by = NULL,
+           change_requested_at = NULL
+       WHERE id = $1`,
+      [bookingId]
+    );
+    if (booking.change_requested_by) {
+      await createNotification({
+        recipientUserId: booking.change_requested_by,
+        type: "booking_change_rejected",
+        title: "Modification refusée",
+        body: `Ta demande de modification pour « ${
+          booking.box_title || "ta box"
+        } » a été refusée.`,
+        data: { bookingId },
+      });
+    }
+    const { rows } = await pool.query(`SELECT * FROM bookings WHERE id = $1`, [
+      bookingId,
+    ]);
+    return res.json(rows[0]);
+  }
+
+  const { rows } = await pool.query(
+    `UPDATE bookings
+     SET approval_status = 'rejected', status = 'cancelled'
+     WHERE id = $1
+     RETURNING *`,
+    [bookingId]
+  );
+  await createNotification({
+    recipientUserId: booking.athlete_user_id,
+    type: "booking_rejected",
+    title: "Réservation refusée",
+    body: `L'hôte a refusé ta réservation pour « ${
+      booking.box_title || "ce box"
+    } ».`,
+    data: { bookingId },
+  });
+  return res.json(rows[0]);
 });
 
 router.get("/bookings", requireAuth, async (req, res) => {
@@ -903,30 +1090,45 @@ router.patch("/host/bookings/:id", requireAuth, async (req, res) => {
   if (!parsed.success) {
     return res.status(400).json({ error: parsed.error.flatten() });
   }
-  const input = parsed.data;
-  const { rows } = await pool.query(
-    `UPDATE bookings b
-     SET booking_date = $1,
-         start_time = $2,
-         end_time = $3,
-         special_request = $4
-     FROM boxes bx
-     WHERE b.id = $5
-       AND b.box_id = bx.id
-       AND bx.host_user_id = $6
-     RETURNING b.*`,
-    [
-      input.bookingDate,
-      input.startTime,
-      input.endTime,
-      input.specialRequest?.trim() || null,
-      bookingId,
-      req.auth.sub,
-    ]
+  const { rows: ownership } = await pool.query(
+    `SELECT b.id, b.athlete_user_id, b.status, b.approval_status, bx.title AS box_title
+     FROM bookings b
+     JOIN boxes bx ON bx.id = b.box_id
+     WHERE b.id = $1 AND bx.host_user_id = $2`,
+    [bookingId, req.auth.sub]
   );
-  if (!rows[0]) {
+  const booking = ownership[0];
+  if (!booking) {
     return res.status(404).json({ error: "Booking not found for this host" });
   }
+  if (
+    booking.status === "cancelled" ||
+    booking.approval_status === "rejected"
+  ) {
+    return res
+      .status(409)
+      .json({ error: "Cannot request changes on a cancelled booking" });
+  }
+  const draft = sanitizeBookingDraft(parsed.data);
+  const { rows } = await pool.query(
+    `UPDATE bookings
+     SET approval_status = 'pending_athlete_confirmation',
+         change_request_json = $1,
+         change_requested_by = $2,
+         change_requested_at = NOW()
+     WHERE id = $3
+     RETURNING *`,
+    [JSON.stringify(draft), req.auth.sub, bookingId]
+  );
+  await createNotification({
+    recipientUserId: booking.athlete_user_id,
+    type: "booking_change_requested_by_host",
+    title: "Validation requise",
+    body: `L'hôte propose une modification pour « ${
+      booking.box_title || "ta réservation"
+    } ».`,
+    data: { bookingId, draft },
+  });
   return res.json(rows[0]);
 });
 
@@ -939,28 +1141,161 @@ router.patch("/bookings/:id", requireAuth, async (req, res) => {
   if (!parsed.success) {
     return res.status(400).json({ error: parsed.error.flatten() });
   }
-  const input = parsed.data;
-  const { rows } = await pool.query(
-    `UPDATE bookings
-     SET booking_date = $1,
-         start_time = $2,
-         end_time = $3,
-         special_request = $4
-     WHERE id = $5 AND athlete_user_id = $6
-     RETURNING *`,
-    [
-      input.bookingDate,
-      input.startTime,
-      input.endTime,
-      input.specialRequest?.trim() || null,
-      bookingId,
-      req.auth.sub,
-    ]
+  const { rows: ownership } = await pool.query(
+    `SELECT b.id, b.status, b.approval_status, b.athlete_user_id, bx.host_user_id, bx.title AS box_title
+     FROM bookings b
+     JOIN boxes bx ON bx.id = b.box_id
+     WHERE b.id = $1 AND b.athlete_user_id = $2`,
+    [bookingId, req.auth.sub]
   );
-  if (!rows[0]) {
+  const booking = ownership[0];
+  if (!booking) {
     return res.status(404).json({ error: "Booking not found" });
   }
+  if (
+    booking.status === "cancelled" ||
+    booking.approval_status === "rejected"
+  ) {
+    return res
+      .status(409)
+      .json({ error: "Cannot request changes on a cancelled booking" });
+  }
+  const draft = sanitizeBookingDraft(parsed.data);
+  const { rows } = await pool.query(
+    `UPDATE bookings
+     SET approval_status = 'pending_host_confirmation',
+         change_request_json = $1,
+         change_requested_by = $2,
+         change_requested_at = NOW()
+     WHERE id = $3
+     RETURNING *`,
+    [JSON.stringify(draft), req.auth.sub, bookingId]
+  );
+  await createNotification({
+    recipientUserId: booking.host_user_id,
+    type: "booking_change_requested_by_athlete",
+    title: "Validation requise",
+    body: `L'athlète propose une modification pour « ${
+      booking.box_title || "ta réservation"
+    } ».`,
+    data: { bookingId, draft },
+  });
   return res.json(rows[0]);
+});
+
+router.patch("/bookings/:id/decision", requireAuth, async (req, res) => {
+  const bookingId = Number(req.params.id);
+  if (!Number.isInteger(bookingId) || bookingId <= 0) {
+    return res.status(400).json({ error: "Invalid booking id" });
+  }
+  const parsed = bookingChangeDecisionSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error.flatten() });
+  }
+  const { rows: ownership } = await pool.query(
+    `SELECT b.*, bx.host_user_id, bx.title AS box_title
+     FROM bookings b
+     JOIN boxes bx ON bx.id = b.box_id
+     WHERE b.id = $1 AND b.athlete_user_id = $2`,
+    [bookingId, req.auth.sub]
+  );
+  const booking = ownership[0];
+  if (!booking) {
+    return res.status(404).json({ error: "Booking not found" });
+  }
+  if (booking.approval_status !== "pending_athlete_confirmation") {
+    return res.status(409).json({
+      error: "No pending host change to validate for this booking",
+    });
+  }
+  if (parsed.data.decision === "accept") {
+    const draft = parseChangeRequest(booking.change_request_json);
+    if (!draft) {
+      return res.status(409).json({ error: "Missing change request payload" });
+    }
+    const { rows } = await pool.query(
+      `UPDATE bookings
+       SET booking_date = $1,
+           start_time = $2,
+           end_time = $3,
+           special_request = $4,
+           approval_status = 'accepted',
+           change_request_json = NULL,
+           change_requested_by = NULL,
+           change_requested_at = NULL
+       WHERE id = $5
+       RETURNING *`,
+      [
+        draft.bookingDate,
+        draft.startTime,
+        draft.endTime,
+        draft.specialRequest ?? null,
+        bookingId,
+      ]
+    );
+    await createNotification({
+      recipientUserId: booking.host_user_id,
+      type: "booking_change_accepted",
+      title: "Modification acceptée",
+      body: `L'athlète a accepté la modification pour « ${
+        booking.box_title || "la réservation"
+      } ».`,
+      data: { bookingId },
+    });
+    return res.json(rows[0]);
+  }
+  await pool.query(
+    `UPDATE bookings
+     SET approval_status = 'accepted',
+         change_request_json = NULL,
+         change_requested_by = NULL,
+         change_requested_at = NULL
+     WHERE id = $1`,
+    [bookingId]
+  );
+  await createNotification({
+    recipientUserId: booking.host_user_id,
+    type: "booking_change_rejected",
+    title: "Modification refusée",
+    body: `L'athlète a refusé la modification pour « ${
+      booking.box_title || "la réservation"
+    } ».`,
+    data: { bookingId },
+  });
+  const { rows } = await pool.query(`SELECT * FROM bookings WHERE id = $1`, [
+    bookingId,
+  ]);
+  return res.json(rows[0]);
+});
+
+router.get("/host/boxes/:id/deletion-impact", requireAuth, async (req, res) => {
+  const boxId = Number(req.params.id);
+  if (!Number.isInteger(boxId) || boxId <= 0) {
+    return res.status(400).json({ error: "Invalid box id" });
+  }
+  const { rows: boxRows } = await pool.query(
+    `SELECT id, title FROM boxes WHERE id = $1 AND host_user_id = $2 AND is_active = 1`,
+    [boxId, req.auth.sub]
+  );
+  const box = boxRows[0];
+  if (!box) {
+    return res.status(404).json({ error: "Box not found for this host" });
+  }
+  const { rows: impactRows } = await pool.query(
+    `SELECT b.id, b.athlete_user_id, b.booking_date, b.start_time, b.end_time
+     FROM bookings b
+     WHERE b.box_id = $1
+       AND b.status <> 'cancelled'
+       AND b.status <> 'completed'
+     ORDER BY b.booking_date ASC, b.start_time ASC`,
+    [boxId]
+  );
+  return res.json({
+    boxId,
+    boxTitle: box.title,
+    impactedBookingsCount: impactRows.length,
+    impactedBookingsPreview: impactRows.slice(0, 20),
+  });
 });
 
 router.delete("/host/boxes/:id", requireAuth, async (req, res) => {
@@ -968,19 +1303,157 @@ router.delete("/host/boxes/:id", requireAuth, async (req, res) => {
   if (!Number.isInteger(boxId) || boxId <= 0) {
     return res.status(400).json({ error: "Invalid box id" });
   }
+  const parsed = deleteHostBoxSchema.safeParse(req.body ?? {});
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error.flatten() });
+  }
+  const { rows: boxRows } = await pool.query(
+    `SELECT id, title FROM boxes WHERE id = $1 AND host_user_id = $2 AND is_active = 1`,
+    [boxId, req.auth.sub]
+  );
+  const box = boxRows[0];
+  if (!box) {
+    return res.status(404).json({ error: "Box not found for this host" });
+  }
+  const { rows: impactRows } = await pool.query(
+    `SELECT id FROM bookings
+     WHERE box_id = $1
+       AND status <> 'cancelled'
+       AND status <> 'completed'`,
+    [boxId]
+  );
+  const impactedCount = impactRows.length;
+  if (impactedCount > 0 && !parsed.data.confirmImpact) {
+    return res.status(409).json({
+      error: "This box has active bookings. Confirm impact before deleting.",
+      requiresConfirmImpact: true,
+      impactedBookingsCount: impactedCount,
+    });
+  }
+  await pool.query(
+    `UPDATE boxes
+     SET is_active = 0, archived_at = NOW()
+     WHERE id = $1 AND host_user_id = $2`,
+    [boxId, req.auth.sub]
+  );
+  const { rows: cancelledRows } = await pool.query(
+    `UPDATE bookings
+     SET status = 'cancelled',
+         approval_status = 'cancelled_box_deleted',
+         change_request_json = NULL,
+         change_requested_by = NULL,
+         change_requested_at = NULL
+     WHERE box_id = $1
+       AND status <> 'cancelled'
+       AND status <> 'completed'
+     RETURNING id, athlete_user_id`,
+    [boxId]
+  );
+  for (const row of cancelledRows) {
+    await createNotification({
+      recipientUserId: row.athlete_user_id,
+      type: "booking_cancelled_box_deleted",
+      title: "Réservation annulée",
+      body: `Le box « ${
+        box.title || "sans titre"
+      } » a été supprimé par l'hôte.`,
+      data: { bookingId: row.id, boxId },
+    });
+  }
+  return res.json({
+    ok: true,
+    archivedBoxId: boxId,
+    cancelledBookingsCount: cancelledRows.length,
+  });
+});
+
+router.delete("/host/boxes", requireAuth, async (req, res) => {
+  const parsed = deleteHostBoxSchema.safeParse(req.body ?? {});
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error.flatten() });
+  }
+  const { rows: activeBoxes } = await pool.query(
+    `SELECT id, title FROM boxes WHERE host_user_id = $1 AND is_active = 1`,
+    [req.auth.sub]
+  );
+  const boxIds = activeBoxes.map((b) => b.id);
+  if (boxIds.length === 0) {
+    return res.json({
+      ok: true,
+      archivedBoxesCount: 0,
+      cancelledBookingsCount: 0,
+    });
+  }
+  const { rows: impactRows } = await pool.query(
+    `SELECT id FROM bookings
+     WHERE box_id = ANY($1::int[])
+       AND status <> 'cancelled'
+       AND status <> 'completed'`,
+    [boxIds]
+  );
+  if (impactRows.length > 0 && !parsed.data.confirmImpact) {
+    return res.status(409).json({
+      error:
+        "Some boxes have active bookings. Confirm impact before deleting all boxes.",
+      requiresConfirmImpact: true,
+      impactedBookingsCount: impactRows.length,
+    });
+  }
+  await pool.query(
+    `UPDATE boxes
+     SET is_active = 0, archived_at = NOW()
+     WHERE host_user_id = $1 AND is_active = 1`,
+    [req.auth.sub]
+  );
+  const { rows: cancelledRows } = await pool.query(
+    `UPDATE bookings b
+     SET status = 'cancelled',
+         approval_status = 'cancelled_box_deleted',
+         change_request_json = NULL,
+         change_requested_by = NULL,
+         change_requested_at = NULL
+     FROM boxes bx
+     WHERE b.box_id = bx.id
+       AND bx.host_user_id = $1
+       AND b.status <> 'cancelled'
+       AND b.status <> 'completed'
+     RETURNING b.id, b.athlete_user_id, bx.id AS box_id, bx.title AS box_title`,
+    [req.auth.sub]
+  );
+  for (const row of cancelledRows) {
+    await createNotification({
+      recipientUserId: row.athlete_user_id,
+      type: "booking_cancelled_box_deleted",
+      title: "Réservation annulée",
+      body: `Le box « ${
+        row.box_title || "sans titre"
+      } » a été supprimé par l'hôte.`,
+      data: { bookingId: row.id, boxId: row.box_id },
+    });
+  }
+  return res.json({
+    ok: true,
+    archivedBoxesCount: boxIds.length,
+    cancelledBookingsCount: cancelledRows.length,
+  });
+});
+
+router.patch("/host/boxes/:id/restore", requireAuth, async (req, res) => {
+  const boxId = Number(req.params.id);
+  if (!Number.isInteger(boxId) || boxId <= 0) {
+    return res.status(400).json({ error: "Invalid box id" });
+  }
   const { rows } = await pool.query(
-    `DELETE FROM boxes WHERE id = $1 AND host_user_id = $2 RETURNING id`,
+    `UPDATE boxes
+     SET is_active = 1, archived_at = NULL
+     WHERE id = $1 AND host_user_id = $2
+     RETURNING *`,
     [boxId, req.auth.sub]
   );
   if (!rows[0]) {
     return res.status(404).json({ error: "Box not found for this host" });
   }
-  return res.json({ ok: true });
-});
-
-router.delete("/host/boxes", requireAuth, async (req, res) => {
-  await pool.query(`DELETE FROM boxes WHERE host_user_id = $1`, [req.auth.sub]);
-  return res.json({ ok: true });
+  return res.json(rows[0]);
 });
 
 router.delete("/host/bookings/:id", requireAuth, async (req, res) => {

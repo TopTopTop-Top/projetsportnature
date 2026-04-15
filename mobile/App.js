@@ -204,6 +204,35 @@ function parseBoxCriteria(box) {
   }
 }
 
+function parseBookingChangeRequest(booking) {
+  try {
+    const raw = booking?.change_request_json;
+    if (!raw) return null;
+    const parsed = typeof raw === "string" ? JSON.parse(raw) : raw;
+    if (!parsed || typeof parsed !== "object") return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function bookingApprovalLabel(status) {
+  switch (status) {
+    case "accepted":
+      return "Acceptée";
+    case "rejected":
+      return "Refusée";
+    case "pending_host_confirmation":
+      return "En attente validation hôte";
+    case "pending_athlete_confirmation":
+      return "En attente validation athlète";
+    case "cancelled_box_deleted":
+      return "Annulée (box supprimée)";
+    default:
+      return "En attente";
+  }
+}
+
 /** Libellé lieu depuis la réponse GET /geocode/reverse. */
 function geocodePayloadToCityLabel(data) {
   if (!data || typeof data !== "object") return null;
@@ -1542,6 +1571,7 @@ function HostScreen() {
   } = useAppMain();
   const canHostLocal = user?.role === "host" || user?.role === "both";
   const isFocused = useIsFocused();
+  const scrollRef = useRef(null);
   const hostLat = Number(hostForm.latitude) || 45.8992;
   const hostLon = Number(hostForm.longitude) || 6.1294;
 
@@ -1551,9 +1581,15 @@ function HostScreen() {
     return undefined;
   }, [canHostLocal, isFocused, actionsRef]);
 
+  useEffect(() => {
+    if (hostEditingBoxId == null) return;
+    scrollRef.current?.scrollTo?.({ y: 0, animated: true });
+  }, [hostEditingBoxId]);
+
   return (
     <SafeAreaView style={styles.screen} edges={["left", "right"]}>
       <ScrollView
+        ref={scrollRef}
         style={styles.scrollFlex}
         contentContainerStyle={[
           styles.content,
@@ -1970,8 +2006,14 @@ function ProfileScreen() {
 }
 
 function ReservationsScreen() {
-  const { canHost, canBook, hostBookings, athleteBookings, actionsRef } =
-    useAppMain();
+  const {
+    canHost,
+    canBook,
+    hostBookings,
+    athleteBookings,
+    notifications,
+    actionsRef,
+  } = useAppMain();
   const isFocused = useIsFocused();
   const [editingHostBookingId, setEditingHostBookingId] = useState(null);
   const [hostBookingDraft, setHostBookingDraft] = useState({
@@ -1992,9 +2034,12 @@ function ReservationsScreen() {
     if (!isFocused) return;
     if (canHost) actionsRef.current.loadHostBookings();
     if (canBook) actionsRef.current.loadAthleteBookings();
+    actionsRef.current.loadNotifications();
+    actionsRef.current.markAllNotificationsRead?.();
     const id = setInterval(() => {
       if (canHost) actionsRef.current.loadHostBookings();
       if (canBook) actionsRef.current.loadAthleteBookings();
+      actionsRef.current.loadNotifications();
     }, 12000);
     return () => clearInterval(id);
   }, [canHost, canBook, isFocused, actionsRef]);
@@ -2011,6 +2056,29 @@ function ReservationsScreen() {
         showsVerticalScrollIndicator={Platform.OS === "web"}
         keyboardShouldPersistTaps="handled"
       >
+        {notifications?.length > 0 ? (
+          <Section
+            title="Notifications"
+            subtitle="Mises à jour automatiques liées à tes réservations et box."
+            icon="notifications-outline"
+          >
+            {notifications.slice(0, 6).map((n) => (
+              <View key={`notif-${n.id}`} style={styles.card}>
+                <View style={styles.cardAccent} />
+                <Text style={styles.cardTitle}>
+                  {n.title || "Notification"}
+                </Text>
+                {n.body ? (
+                  <Text style={styles.cardAvailability}>{n.body}</Text>
+                ) : null}
+                <Text style={styles.cardMeta}>
+                  {new Date(n.created_at).toLocaleString("fr-FR")}
+                </Text>
+              </View>
+            ))}
+          </Section>
+        ) : null}
+
         {canHost ? (
           <Section
             title="Réservations reçues (hôte)"
@@ -2091,6 +2159,7 @@ function ReservationsScreen() {
             ) : null}
             {hostBookings.map((b) => {
               const approval = b.approval_status || "pending";
+              const changeDraft = parseBookingChangeRequest(b);
               return (
                 <SwipeActionRow
                   key={`host-booking-${b.id}`}
@@ -2122,7 +2191,7 @@ function ReservationsScreen() {
                       {b.start_time}-{b.end_time}
                     </Text>
                     <Text style={styles.cardDetailLine}>
-                      Statut: {approval} · gain hôte{" "}
+                      Statut: {bookingApprovalLabel(approval)} · gain hôte{" "}
                       {(Number(b.host_earnings_cents || 0) / 100).toFixed(2)} €
                     </Text>
                     {b.special_request ? (
@@ -2130,11 +2199,22 @@ function ReservationsScreen() {
                         Demande: {b.special_request}
                       </Text>
                     ) : null}
-                    {approval === "pending" ? (
+                    {changeDraft ? (
+                      <Text style={styles.cardAvailability}>
+                        Modif proposée: {changeDraft.bookingDate}{" "}
+                        {changeDraft.startTime}-{changeDraft.endTime}
+                      </Text>
+                    ) : null}
+                    {approval === "pending" ||
+                    approval === "pending_host_confirmation" ? (
                       <>
                         <PrimaryButton
                           compact
-                          label="Accepter"
+                          label={
+                            approval === "pending"
+                              ? "Accepter"
+                              : "Valider la modif"
+                          }
                           icon="checkmark-outline"
                           onPress={() =>
                             actionsRef.current.decideHostBooking(b.id, "accept")
@@ -2142,7 +2222,11 @@ function ReservationsScreen() {
                         />
                         <SecondaryButton
                           compact
-                          label="Refuser"
+                          label={
+                            approval === "pending"
+                              ? "Refuser"
+                              : "Refuser la modif"
+                          }
                           icon="close-outline"
                           onPress={() =>
                             actionsRef.current.decideHostBooking(b.id, "reject")
@@ -2250,6 +2334,7 @@ function ReservationsScreen() {
             ) : null}
             {athleteBookings.map((b) => {
               const approval = b.approval_status || "pending";
+              const changeDraft = parseBookingChangeRequest(b);
               return (
                 <SwipeActionRow
                   key={`ath-booking-${b.id}`}
@@ -2280,13 +2365,45 @@ function ReservationsScreen() {
                         .join(" · ")}
                     </Text>
                     <Text style={styles.cardDetailLine}>
-                      Statut : {approval}
+                      Statut : {bookingApprovalLabel(approval)}
                       {b.access_code ? ` · code ${b.access_code}` : ""}
                     </Text>
                     {b.special_request ? (
                       <Text style={styles.cardAvailability}>
                         Demande : {b.special_request}
                       </Text>
+                    ) : null}
+                    {changeDraft ? (
+                      <Text style={styles.cardAvailability}>
+                        Modif proposée : {changeDraft.bookingDate}{" "}
+                        {changeDraft.startTime}-{changeDraft.endTime}
+                      </Text>
+                    ) : null}
+                    {approval === "pending_athlete_confirmation" ? (
+                      <>
+                        <PrimaryButton
+                          compact
+                          label="Valider la modif"
+                          icon="checkmark-outline"
+                          onPress={() =>
+                            actionsRef.current.decideAthleteBookingChange(
+                              b.id,
+                              "accept"
+                            )
+                          }
+                        />
+                        <SecondaryButton
+                          compact
+                          label="Refuser la modif"
+                          icon="close-outline"
+                          onPress={() =>
+                            actionsRef.current.decideAthleteBookingChange(
+                              b.id,
+                              "reject"
+                            )
+                          }
+                        />
+                      </>
                     ) : null}
                   </View>
                 </SwipeActionRow>
@@ -2459,6 +2576,7 @@ function RavitoApp() {
   const [hostBoxes, setHostBoxes] = useState([]);
   const [hostBookings, setHostBookings] = useState([]);
   const [athleteBookings, setAthleteBookings] = useState([]);
+  const [notifications, setNotifications] = useState([]);
   const [mapLat, setMapLat] = useState("45.8992");
   const [mapLon, setMapLon] = useState("6.1294");
   const [specialRequest, setSpecialRequest] = useState("");
@@ -2701,6 +2819,28 @@ function RavitoApp() {
       setAthleteBookings(Array.isArray(rows) ? rows : []);
     } catch (error) {
       userAlert("Erreur", error.message);
+    }
+  };
+
+  const loadNotifications = async () => {
+    if (!token) return;
+    try {
+      const rows = await apiFetch("/notifications", { token });
+      setNotifications(Array.isArray(rows) ? rows : []);
+    } catch (error) {
+      userAlert("Erreur", error.message);
+    }
+  };
+
+  const markAllNotificationsRead = async () => {
+    if (!token) return;
+    try {
+      await apiFetch("/notifications/read-all", {
+        method: "PATCH",
+        token,
+      });
+    } catch (_error) {
+      // Silent fail: reading notifications should not block core flows.
     }
   };
 
@@ -3128,6 +3268,24 @@ function RavitoApp() {
         body: { decision },
       });
       await loadHostBookings();
+      await loadAthleteBookings();
+      await loadNotifications();
+    } catch (error) {
+      userAlert("Erreur", error.message);
+    }
+  };
+
+  const decideAthleteBookingChange = async (bookingId, decision) => {
+    if (!token) return;
+    try {
+      await apiFetch(`/bookings/${bookingId}/decision`, {
+        method: "PATCH",
+        token,
+        body: { decision },
+      });
+      await loadAthleteBookings();
+      await loadHostBookings();
+      await loadNotifications();
     } catch (error) {
       userAlert("Erreur", error.message);
     }
@@ -3146,8 +3304,13 @@ function RavitoApp() {
           specialRequest: draft.specialRequest?.trim() || undefined,
         },
       });
-      userAlert("OK", "Réservation hôte mise à jour.");
+      userAlert(
+        "Demande envoyée",
+        "La modification doit être validée par l'athlète."
+      );
       await loadHostBookings();
+      await loadAthleteBookings();
+      await loadNotifications();
     } catch (error) {
       userAlert("Erreur", error.message);
     }
@@ -3155,19 +3318,42 @@ function RavitoApp() {
 
   const deleteHostBox = async (boxId, title) => {
     if (!token) return;
+    let impactedCount = 0;
+    try {
+      const impact = await apiFetch(`/host/boxes/${boxId}/deletion-impact`, {
+        token,
+      });
+      impactedCount = Number(impact?.impactedBookingsCount || 0);
+    } catch (error) {
+      userAlert("Erreur", error.message);
+      return;
+    }
     const ok = await confirmDestructive(
       "Supprimer ce box ?",
-      `« ${
-        title || "Box"
-      } » sera retiré définitivement (réservations liées incluses).`
+      impactedCount > 0
+        ? `« ${
+            title || "Box"
+          } » a ${impactedCount} réservation(s) active(s). Elles seront annulées et les athlètes notifiés dans l'app.`
+        : `« ${title || "Box"} » sera archivé (invisible sur la carte).`
     );
     if (!ok) return;
     try {
-      await apiFetch(`/host/boxes/${boxId}`, { method: "DELETE", token });
-      userAlert("Supprimé", "Le box a été retiré.");
+      await apiFetch(`/host/boxes/${boxId}`, {
+        method: "DELETE",
+        token,
+        body: { confirmImpact: impactedCount > 0 },
+      });
+      userAlert(
+        "Supprimé",
+        impactedCount > 0
+          ? `${impactedCount} réservation(s) annulée(s) et notifiée(s).`
+          : "Le box a été archivé."
+      );
       await refetchExplorerBoxes();
       await loadHostBoxes();
       await loadHostBookings();
+      await loadAthleteBookings();
+      await loadNotifications();
     } catch (error) {
       userAlert("Erreur", error.message);
     }
@@ -3186,13 +3372,19 @@ function RavitoApp() {
     try {
       await Promise.all(
         unique.map((id) =>
-          apiFetch(`/host/boxes/${id}`, { method: "DELETE", token })
+          apiFetch(`/host/boxes/${id}`, {
+            method: "DELETE",
+            token,
+            body: { confirmImpact: true },
+          })
         )
       );
-      userAlert("OK", n === 1 ? "Box supprimé." : `${n} box supprimés.`);
+      userAlert("OK", n === 1 ? "Box archivé." : `${n} box archivés.`);
       await refetchExplorerBoxes();
       await loadHostBoxes();
       await loadHostBookings();
+      await loadAthleteBookings();
+      await loadNotifications();
     } catch (error) {
       userAlert("Erreur", error.message);
     }
@@ -3202,15 +3394,21 @@ function RavitoApp() {
     if (!token) return;
     const ok = await confirmDestructive(
       "Supprimer tous tes box ?",
-      "Action irréversible : chaque box et ses réservations seront supprimés."
+      "Les box seront archivés. Les réservations actives seront annulées avec notification in-app."
     );
     if (!ok) return;
     try {
-      await apiFetch("/host/boxes", { method: "DELETE", token });
-      userAlert("OK", "Tous tes box ont été supprimés.");
+      await apiFetch("/host/boxes", {
+        method: "DELETE",
+        token,
+        body: { confirmImpact: true },
+      });
+      userAlert("OK", "Tous tes box ont été archivés.");
       await refetchExplorerBoxes();
       await loadHostBoxes();
       await loadHostBookings();
+      await loadAthleteBookings();
+      await loadNotifications();
     } catch (error) {
       userAlert("Erreur", error.message);
     }
@@ -3263,8 +3461,13 @@ function RavitoApp() {
           specialRequest: draft.specialRequest?.trim() || undefined,
         },
       });
-      userAlert("OK", "Réservation athlète mise à jour.");
+      userAlert(
+        "Demande envoyée",
+        "La modification doit être validée par l'hôte."
+      );
       await loadAthleteBookings();
+      await loadHostBookings();
+      await loadNotifications();
     } catch (error) {
       userAlert("Erreur", error.message);
     }
@@ -3376,11 +3579,14 @@ function RavitoApp() {
     loadHostBoxes,
     loadHostBookings,
     loadAthleteBookings,
+    loadNotifications,
+    markAllNotificationsRead,
     loadNearbyBoxes,
     refetchExplorerBoxes,
     loadTrails,
     bookBox,
     decideHostBooking,
+    decideAthleteBookingChange,
     deleteHostBox,
     deleteHostBoxesByIds,
     deleteAllHostBoxes,
@@ -3424,6 +3630,7 @@ function RavitoApp() {
       hostBoxes,
       hostBookings,
       athleteBookings,
+      notifications,
       user,
       webDropHover,
       setWebDropHover,
@@ -3480,6 +3687,7 @@ function RavitoApp() {
       hostBoxes,
       hostBookings,
       athleteBookings,
+      notifications,
       user,
       webDropHover,
       trailDifficulty,

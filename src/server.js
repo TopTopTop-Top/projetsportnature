@@ -26,6 +26,9 @@ app.get("/", (_req, res) => {
       "/api/auth/logout",
       "/api/users",
       "/api/users/me/role",
+      "/api/notifications",
+      "/api/notifications/:id/read",
+      "/api/notifications/read-all",
       "/api/boxes",
       "/api/boxes/bounds",
       "/api/boxes/nearby",
@@ -39,8 +42,11 @@ app.get("/", (_req, res) => {
       "/api/host/bookings/:id (PATCH, DELETE)",
       "/api/host/bookings/:id",
       "/api/host/bookings/:id/decision",
+      "/api/host/boxes/:id/deletion-impact",
       "/api/host/boxes/:id (DELETE, PATCH)",
+      "/api/host/boxes/:id/restore",
       "/api/bookings/:id (PATCH, DELETE)",
+      "/api/bookings/:id/decision",
     ],
   });
 });
