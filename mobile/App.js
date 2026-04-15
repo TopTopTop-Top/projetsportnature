@@ -36,9 +36,15 @@ import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { Ionicons } from "@expo/vector-icons";
 
+const PROD_API_BASE_URL = "https://projetsportnature.onrender.com/api";
+const DEV_API_BASE_URL = "http://localhost:3000/api";
+/**
+ * En dev: fallback local pour éviter d'appeler Render par erreur.
+ * Tu peux toujours forcer une autre URL via EXPO_PUBLIC_API_URL.
+ */
 const API_BASE_URL =
   process.env.EXPO_PUBLIC_API_URL ||
-  "https://projetsportnature.onrender.com/api";
+  (__DEV__ ? DEV_API_BASE_URL : PROD_API_BASE_URL);
 
 /** Origine du serveur (fichiers statiques /uploads, sans /api). */
 const API_STATIC_ORIGIN = API_BASE_URL.replace(/\/api\/?$/i, "");
@@ -214,6 +220,29 @@ function parseBookingChangeRequest(booking) {
   } catch {
     return null;
   }
+}
+
+function bookingSpecialRequestLabel(value) {
+  const text = typeof value === "string" ? value.trim() : "";
+  return text || "Aucune";
+}
+
+function bookingChangePreviewText(booking, draft) {
+  if (!draft) return null;
+  const currentSlot = `${booking?.booking_date || "?"} ${
+    booking?.start_time || "?"
+  }-${booking?.end_time || "?"}`;
+  const proposedSlot = `${draft?.bookingDate || "?"} ${
+    draft?.startTime || "?"
+  }-${draft?.endTime || "?"}`;
+  return (
+    `Actuel: ${currentSlot}\n` +
+    `Proposé: ${proposedSlot}\n` +
+    `Demande actuelle: ${bookingSpecialRequestLabel(
+      booking?.special_request
+    )}\n` +
+    `Demande proposée: ${bookingSpecialRequestLabel(draft?.specialRequest)}`
+  );
 }
 
 function parseNotificationData(notification) {
@@ -2230,10 +2259,7 @@ function ReservationsScreen() {
                     ) : null}
                     {changeDraft ? (
                       <Text style={styles.cardAvailability}>
-                        Actuel: {b.booking_date} {b.start_time}-{b.end_time}
-                        {"\n"}
-                        Modif proposée: {changeDraft.bookingDate}{" "}
-                        {changeDraft.startTime}-{changeDraft.endTime}
+                        {bookingChangePreviewText(b, changeDraft)}
                       </Text>
                     ) : null}
                     {approval === "pending" ||
@@ -2406,10 +2432,7 @@ function ReservationsScreen() {
                     ) : null}
                     {changeDraft ? (
                       <Text style={styles.cardAvailability}>
-                        Actuel: {b.booking_date} {b.start_time}-{b.end_time}
-                        {"\n"}
-                        Modif proposée : {changeDraft.bookingDate}{" "}
-                        {changeDraft.startTime}-{changeDraft.endTime}
+                        {bookingChangePreviewText(b, changeDraft)}
                       </Text>
                     ) : null}
                     {approval === "pending_athlete_confirmation" ? (
