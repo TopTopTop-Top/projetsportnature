@@ -1538,29 +1538,17 @@ function HostScreen() {
     hostReverseGeocode,
     setHostReverseGeocode,
     hostBoxes,
-    hostBookings,
     actionsRef,
   } = useAppMain();
   const canHostLocal = user?.role === "host" || user?.role === "both";
   const isFocused = useIsFocused();
   const hostLat = Number(hostForm.latitude) || 45.8992;
   const hostLon = Number(hostForm.longitude) || 6.1294;
-  const [editingHostBookingId, setEditingHostBookingId] = useState(null);
-  const [hostBookingDraft, setHostBookingDraft] = useState({
-    bookingDate: "",
-    startTime: "",
-    endTime: "",
-    specialRequest: "",
-  });
 
   useEffect(() => {
     if (!canHostLocal || !isFocused) return;
     actionsRef.current.loadHostBoxes();
-    actionsRef.current.loadHostBookings();
-    const id = setInterval(() => {
-      actionsRef.current.loadHostBookings();
-    }, 12000);
-    return () => clearInterval(id);
+    return undefined;
   }, [canHostLocal, isFocused, actionsRef]);
 
   return (
@@ -1919,9 +1907,113 @@ function HostScreen() {
             ) : null}
           </Section>
         ) : null}
-        {canHostLocal ? (
+      </ScrollView>
+    </SafeAreaView>
+  );
+}
+
+function ProfileScreen() {
+  const { user, actionsRef } = useAppMain();
+  const roleLabel = ROLE_LABELS[user?.role] || user?.role;
+  const canEnableBoth = user?.role !== "both";
+
+  return (
+    <SafeAreaView style={styles.screen} edges={["left", "right"]}>
+      <ScrollView
+        style={styles.scrollFlex}
+        contentContainerStyle={[
+          styles.content,
+          WEB_READABLE,
+          { paddingBottom: TABBAR_SCROLL_PADDING },
+        ]}
+        showsVerticalScrollIndicator={Platform.OS === "web"}
+        keyboardShouldPersistTaps="handled"
+      >
+        <Section
+          title="Mon profil"
+          subtitle="Compte connecté."
+          icon="person-outline"
+        >
+          <View style={styles.profileCard}>
+            <View style={styles.profileAvatar}>
+              <Text style={styles.profileAvatarText}>
+                {(user?.full_name || "?").trim().charAt(0).toUpperCase()}
+              </Text>
+            </View>
+            <Text style={styles.profileName}>{user?.full_name}</Text>
+            <Text style={styles.profileEmail}>{user?.email}</Text>
+            <View style={styles.profileRolePill}>
+              <Text style={styles.profileRoleText}>{roleLabel}</Text>
+            </View>
+          </View>
+        </Section>
+        <PrimaryButton
+          label="Rafraîchir la session"
+          icon="refresh-outline"
+          onPress={() => actionsRef.current.refreshSession()}
+        />
+        {canEnableBoth ? (
+          <PrimaryButton
+            label="Activer mode Athlète + Hôte"
+            icon="swap-horizontal-outline"
+            onPress={() => actionsRef.current.updateMyRole("both")}
+          />
+        ) : null}
+        <SecondaryButton
+          label="Se déconnecter"
+          icon="log-out-outline"
+          onPress={() => actionsRef.current.logout()}
+        />
+      </ScrollView>
+    </SafeAreaView>
+  );
+}
+
+function ReservationsScreen() {
+  const { canHost, canBook, hostBookings, athleteBookings, actionsRef } =
+    useAppMain();
+  const isFocused = useIsFocused();
+  const [editingHostBookingId, setEditingHostBookingId] = useState(null);
+  const [hostBookingDraft, setHostBookingDraft] = useState({
+    bookingDate: "",
+    startTime: "",
+    endTime: "",
+    specialRequest: "",
+  });
+  const [editingAthleteBookingId, setEditingAthleteBookingId] = useState(null);
+  const [athleteBookingDraft, setAthleteBookingDraft] = useState({
+    bookingDate: "",
+    startTime: "",
+    endTime: "",
+    specialRequest: "",
+  });
+
+  useEffect(() => {
+    if (!isFocused) return;
+    if (canHost) actionsRef.current.loadHostBookings();
+    if (canBook) actionsRef.current.loadAthleteBookings();
+    const id = setInterval(() => {
+      if (canHost) actionsRef.current.loadHostBookings();
+      if (canBook) actionsRef.current.loadAthleteBookings();
+    }, 12000);
+    return () => clearInterval(id);
+  }, [canHost, canBook, isFocused, actionsRef]);
+
+  return (
+    <SafeAreaView style={styles.screen} edges={["left", "right"]}>
+      <ScrollView
+        style={styles.scrollFlex}
+        contentContainerStyle={[
+          styles.content,
+          WEB_READABLE,
+          { paddingBottom: TABBAR_SCROLL_PADDING },
+        ]}
+        showsVerticalScrollIndicator={Platform.OS === "web"}
+        keyboardShouldPersistTaps="handled"
+      >
+        {canHost ? (
           <Section
-            title="Réservations reçues"
+            title="Réservations reçues (hôte)"
             subtitle="Accepte ou refuse les demandes des athlètes."
             icon="calendar-outline"
           >
@@ -2067,68 +2159,12 @@ function HostScreen() {
             ) : null}
           </Section>
         ) : null}
-      </ScrollView>
-    </SafeAreaView>
-  );
-}
 
-function ProfileScreen() {
-  const { user, canBook, athleteBookings, actionsRef } = useAppMain();
-  const isFocused = useIsFocused();
-  const roleLabel = ROLE_LABELS[user?.role] || user?.role;
-  const canEnableBoth = user?.role !== "both";
-  const [editingAthleteBookingId, setEditingAthleteBookingId] = useState(null);
-  const [athleteBookingDraft, setAthleteBookingDraft] = useState({
-    bookingDate: "",
-    startTime: "",
-    endTime: "",
-    specialRequest: "",
-  });
-
-  useEffect(() => {
-    if (!canBook || !isFocused) return;
-    actionsRef.current.loadAthleteBookings();
-    const id = setInterval(() => {
-      actionsRef.current.loadAthleteBookings();
-    }, 12000);
-    return () => clearInterval(id);
-  }, [canBook, isFocused, actionsRef]);
-
-  return (
-    <SafeAreaView style={styles.screen} edges={["left", "right"]}>
-      <ScrollView
-        style={styles.scrollFlex}
-        contentContainerStyle={[
-          styles.content,
-          WEB_READABLE,
-          { paddingBottom: TABBAR_SCROLL_PADDING },
-        ]}
-        showsVerticalScrollIndicator={Platform.OS === "web"}
-        keyboardShouldPersistTaps="handled"
-      >
-        <Section
-          title="Mon profil"
-          subtitle="Compte connecté."
-          icon="person-outline"
-        >
-          <View style={styles.profileCard}>
-            <View style={styles.profileAvatar}>
-              <Text style={styles.profileAvatarText}>
-                {(user?.full_name || "?").trim().charAt(0).toUpperCase()}
-              </Text>
-            </View>
-            <Text style={styles.profileName}>{user?.full_name}</Text>
-            <Text style={styles.profileEmail}>{user?.email}</Text>
-            <View style={styles.profileRolePill}>
-              <Text style={styles.profileRoleText}>{roleLabel}</Text>
-            </View>
-          </View>
-        </Section>
         {canBook ? (
           <Section
             title="Mes réservations (athlète)"
-            subtitle="Tes demandes de box : tu peux retirer une entrée ou tout effacer."
-            icon="calendar-outline"
+            subtitle="Tes demandes de box : modifier, supprimer ou tout effacer."
+            icon="time-outline"
           >
             {editingAthleteBookingId != null ? (
               <View style={[styles.infoBanner, { marginBottom: 10 }]}>
@@ -2263,23 +2299,12 @@ function ProfileScreen() {
             ) : null}
           </Section>
         ) : null}
-        <PrimaryButton
-          label="Rafraîchir la session"
-          icon="refresh-outline"
-          onPress={() => actionsRef.current.refreshSession()}
-        />
-        {canEnableBoth ? (
-          <PrimaryButton
-            label="Activer mode Athlète + Hôte"
-            icon="swap-horizontal-outline"
-            onPress={() => actionsRef.current.updateMyRole("both")}
-          />
+
+        {!canHost && !canBook ? (
+          <Text style={styles.emptyText}>
+            Active un rôle Athlète ou Hôte pour voir tes réservations.
+          </Text>
         ) : null}
-        <SecondaryButton
-          label="Se déconnecter"
-          icon="log-out-outline"
-          onPress={() => actionsRef.current.logout()}
-        />
       </ScrollView>
     </SafeAreaView>
   );
@@ -2312,6 +2337,7 @@ function MainTabs() {
             Carte: "map-outline",
             Trails: "navigate-outline",
             Host: "home-outline",
+            Reservations: "calendar-outline",
             Profil: "person-circle-outline",
           };
           return (
@@ -2341,6 +2367,11 @@ function MainTabs() {
           options={{ title: "Mes box" }}
         />
       ) : null}
+      <Tab.Screen
+        name="Reservations"
+        component={ReservationsScreen}
+        options={{ title: "Réservations" }}
+      />
       <Tab.Screen
         name="Profil"
         component={ProfileScreen}
