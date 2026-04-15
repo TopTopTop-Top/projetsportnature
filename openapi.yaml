@@ -183,7 +183,7 @@ paths:
           description: Review saved
   /users/{id}/reviews:
     get:
-      summary: List reviews and average score for a user
+      summary: List reviews, average score, and public profile fields for a user
       parameters:
         - in: path
           name: id

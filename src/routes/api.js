@@ -1134,7 +1134,9 @@ router.get("/host/bookings", requireAuth, async (req, res) => {
       bx.title AS box_title,
       bx.city AS box_city,
       u.full_name AS athlete_full_name,
-      u.email AS athlete_email
+      u.email AS athlete_email,
+      (SELECT COUNT(*)::int FROM reviews r WHERE r.reviewee_user_id = b.athlete_user_id) AS athlete_review_count,
+      (SELECT COALESCE(AVG(score), 0)::float FROM reviews r WHERE r.reviewee_user_id = b.athlete_user_id) AS athlete_avg_score
      FROM bookings b
      JOIN boxes bx ON bx.id = b.box_id
      JOIN users u ON u.id = b.athlete_user_id
@@ -1331,9 +1333,14 @@ router.patch("/host/bookings/:id/decision", requireAuth, async (req, res) => {
 
 router.get("/bookings", requireAuth, async (req, res) => {
   const { rows } = await pool.query(
-    `SELECT b.*, bx.title AS box_title, bx.city AS box_city
+    `SELECT b.*, bx.title AS box_title, bx.city AS box_city,
+            bx.host_user_id,
+            uh.full_name AS host_full_name,
+            (SELECT COUNT(*)::int FROM reviews r WHERE r.reviewee_user_id = bx.host_user_id) AS host_review_count,
+            (SELECT COALESCE(AVG(score), 0)::float FROM reviews r WHERE r.reviewee_user_id = bx.host_user_id) AS host_avg_score
      FROM bookings b
      JOIN boxes bx ON bx.id = b.box_id
+     LEFT JOIN users uh ON uh.id = bx.host_user_id
      WHERE b.athlete_user_id = $1
      ORDER BY b.created_at DESC`,
     [req.auth.sub]
@@ -1426,6 +1433,11 @@ router.get("/users/:id/reviews", async (req, res) => {
   if (!Number.isInteger(userId) || userId <= 0) {
     return res.status(400).json({ error: "Invalid user id" });
   }
+  const { rows: userRows } = await pool.query(
+    `SELECT id, full_name, city FROM users WHERE id = $1`,
+    [userId]
+  );
+  const publicUser = userRows[0] || null;
   const { rows } = await pool.query(
     `SELECT r.id, r.booking_id, r.score, r.comment, r.created_at,
             u.full_name AS reviewer_name
@@ -1442,6 +1454,7 @@ router.get("/users/:id/reviews", async (req, res) => {
     [userId]
   );
   return res.json({
+    user: publicUser,
     stats: aggRows[0] || { count: 0, avg_score: 0 },
     reviews: rows,
   });

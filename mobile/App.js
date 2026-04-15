@@ -21,6 +21,7 @@ import {
   ActivityIndicator,
   Linking,
   useWindowDimensions,
+  Modal,
 } from "react-native";
 import NativeExplorerMap from "./NativeExplorerMap";
 import ExplorerWebMap from "./ExplorerWebMap";
@@ -324,13 +325,6 @@ const HOST_CRITERIA_OPTIONS = [
   "Eau fraîche",
 ];
 
-const BOOKING_TIME_OPTIONS = Array.from({ length: 36 }, (_v, i) => {
-  const minutes = 6 * 60 + i * 30;
-  const hh = String(Math.floor(minutes / 60)).padStart(2, "0");
-  const mm = String(minutes % 60).padStart(2, "0");
-  return `${hh}:${mm}`;
-});
-
 function formatDateHuman(dateText) {
   if (!dateText) return "?";
   const d = new Date(`${dateText}T00:00:00`);
@@ -342,25 +336,77 @@ function formatDateHuman(dateText) {
   });
 }
 
-function buildDateOptions(days = 21) {
-  const out = [];
-  const now = new Date();
-  for (let i = 0; i < days; i += 1) {
-    const d = new Date(now);
-    d.setDate(now.getDate() + i);
-    const iso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(
-      2,
-      "0"
-    )}-${String(d.getDate()).padStart(2, "0")}`;
-    out.push(iso);
-  }
-  return out;
+function formatDateLongFr(dateText) {
+  if (!dateText) return "?";
+  const d = new Date(`${dateText}T00:00:00`);
+  if (Number.isNaN(d.getTime())) return dateText;
+  return d.toLocaleDateString("fr-FR", {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  });
 }
 
-function nextTimeOption(value) {
-  const idx = BOOKING_TIME_OPTIONS.indexOf(value);
-  if (idx < 0) return BOOKING_TIME_OPTIONS[1];
-  return BOOKING_TIME_OPTIONS[Math.min(idx + 1, BOOKING_TIME_OPTIONS.length - 1)];
+function formatPublicRatingLine(stats) {
+  const n = Number(stats?.count || 0);
+  const avg = Number(stats?.avg_score || 0);
+  if (!n) return "Pas encore d'avis";
+  return `Note moyenne ${avg.toFixed(1)}/5 · ${n} avis`;
+}
+
+function parseTimeToParts(t) {
+  if (!t || typeof t !== "string") return { h: 8, m: 0 };
+  const [a, b] = t.split(":");
+  const h = Math.min(23, Math.max(0, Number.parseInt(a, 10) || 0));
+  const m = Math.min(59, Math.max(0, Number.parseInt(b, 10) || 0));
+  return { h, m };
+}
+
+function partsToTime(h, m) {
+  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+}
+
+function timeToMinutes(hhmm) {
+  const { h, m } = parseTimeToParts(hhmm);
+  return h * 60 + m;
+}
+
+function todayIsoDate() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(
+    2,
+    "0"
+  )}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+function parseIsoToLocalParts(iso) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso || "");
+  if (!m) return null;
+  const y = Number(m[1]);
+  const mo = Number(m[2]) - 1;
+  const day = Number(m[3]);
+  if (!Number.isFinite(y) || !Number.isFinite(mo) || !Number.isFinite(day))
+    return null;
+  return { y, m: mo, day };
+}
+
+function isoFromYmd(y, monthIndex, day) {
+  return `${y}-${String(monthIndex + 1).padStart(2, "0")}-${String(
+    day
+  ).padStart(2, "0")}`;
+}
+
+function calendarCellsForMonth(year, monthIndex) {
+  const first = new Date(year, monthIndex, 1);
+  const startPad = (first.getDay() + 6) % 7;
+  const dim = new Date(year, monthIndex + 1, 0).getDate();
+  const cells = [];
+  for (let i = 0; i < startPad; i += 1) cells.push(null);
+  for (let d = 1; d <= dim; d += 1) cells.push(d);
+  while (cells.length % 7 !== 0) cells.push(null);
+  while (cells.length < 42) cells.push(null);
+  return cells;
 }
 
 function difficultyBadgeStyle(level) {
@@ -551,6 +597,86 @@ function OutlineButton({ label, onPress, icon, danger, compact, stretch }) {
   );
 }
 
+const HOUR_OPTIONS = Array.from({ length: 24 }, (_, i) => i);
+const MINUTE_OPTIONS = Array.from({ length: 60 }, (_, i) => i);
+const CAL_WEEKDAY_LABELS = ["L", "M", "M", "J", "V", "S", "D"];
+
+function maxBookableIso() {
+  const t = new Date();
+  t.setHours(12, 0, 0, 0);
+  t.setDate(t.getDate() + 365);
+  return isoFromYmd(t.getFullYear(), t.getMonth(), t.getDate());
+}
+
+function TimePairPicker({ label, value, onChange }) {
+  const { h, m } = parseTimeToParts(value);
+  return (
+    <View style={{ marginTop: 4 }}>
+      <Text style={styles.fieldLabel}>{label}</Text>
+      <View style={styles.timePairRow}>
+        <View style={styles.timePairCol}>
+          <Text style={styles.helperText}>Heures</Text>
+          <ScrollView
+            style={styles.timeDropdownScroll}
+            nestedScrollEnabled
+            keyboardShouldPersistTaps="handled"
+          >
+            {HOUR_OPTIONS.map((hh) => (
+              <TouchableOpacity
+                key={`${label}-h-${hh}`}
+                style={[
+                  styles.timeDropdownItem,
+                  h === hh && styles.timeDropdownItemActive,
+                ]}
+                onPress={() => onChange(partsToTime(hh, m))}
+                activeOpacity={0.85}
+              >
+                <Text
+                  style={[
+                    styles.timeDropdownItemText,
+                    h === hh && styles.timeDropdownItemTextActive,
+                  ]}
+                >
+                  {String(hh).padStart(2, "0")}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+        </View>
+        <View style={styles.timePairCol}>
+          <Text style={styles.helperText}>Minutes</Text>
+          <ScrollView
+            style={styles.timeDropdownScroll}
+            nestedScrollEnabled
+            keyboardShouldPersistTaps="handled"
+          >
+            {MINUTE_OPTIONS.map((mm) => (
+              <TouchableOpacity
+                key={`${label}-m-${mm}`}
+                style={[
+                  styles.timeDropdownItem,
+                  m === mm && styles.timeDropdownItemActive,
+                ]}
+                onPress={() => onChange(partsToTime(h, mm))}
+                activeOpacity={0.85}
+              >
+                <Text
+                  style={[
+                    styles.timeDropdownItemText,
+                    m === mm && styles.timeDropdownItemTextActive,
+                  ]}
+                >
+                  {String(mm).padStart(2, "0")}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+        </View>
+      </View>
+    </View>
+  );
+}
+
 function DateTimeSelector({
   dateValue,
   onDateChange,
@@ -559,82 +685,315 @@ function DateTimeSelector({
   endValue,
   onEndChange,
 }) {
-  const dateOptions = useMemo(() => buildDateOptions(21), []);
-  const startIndex = Math.max(0, BOOKING_TIME_OPTIONS.indexOf(startValue));
-  const endCandidates = BOOKING_TIME_OPTIONS.slice(startIndex + 1);
-  const endOptions = endCandidates.length > 0 ? endCandidates : [nextTimeOption(startValue)];
+  const [open, setOpen] = useState(false);
+  const [draftDate, setDraftDate] = useState(dateValue);
+  const [draftStart, setDraftStart] = useState(startValue);
+  const [draftEnd, setDraftEnd] = useState(endValue);
+  const [viewMonth, setViewMonth] = useState(() => {
+    const p = parseIsoToLocalParts(dateValue || todayIsoDate());
+    return p
+      ? { y: p.y, m: p.m }
+      : { y: new Date().getFullYear(), m: new Date().getMonth() };
+  });
+
+  useEffect(() => {
+    if (!open) return;
+    setDraftDate(dateValue);
+    setDraftStart(startValue);
+    setDraftEnd(endValue);
+    const p = parseIsoToLocalParts(dateValue || todayIsoDate());
+    if (p) setViewMonth({ y: p.y, m: p.m });
+  }, [open, dateValue, startValue, endValue]);
+
+  const openModal = () => {
+    setDraftDate(dateValue || todayIsoDate());
+    setDraftStart(startValue);
+    setDraftEnd(endValue);
+    const p = parseIsoToLocalParts(dateValue || todayIsoDate());
+    if (p) setViewMonth({ y: p.y, m: p.m });
+    setOpen(true);
+  };
+
+  const setDraftStartSafe = (t) => {
+    setDraftStart(t);
+    setDraftEnd((prev) => {
+      if (timeToMinutes(prev) <= timeToMinutes(t)) {
+        const mins = timeToMinutes(t) + 60;
+        if (mins >= 24 * 60) return "23:59";
+        return partsToTime(Math.floor(mins / 60), mins % 60);
+      }
+      return prev;
+    });
+  };
+
+  const apply = () => {
+    const ds = draftDate || todayIsoDate();
+    const st = draftStart || "08:00";
+    const en = draftEnd || "09:00";
+    if (timeToMinutes(en) <= timeToMinutes(st)) {
+      userAlert("Horaires", "L'heure de fin doit être après l'heure de début.");
+      return;
+    }
+    onDateChange(ds);
+    onStartChange(st);
+    onEndChange(en);
+    setOpen(false);
+  };
+
+  const today = todayIsoDate();
+  const maxIso = maxBookableIso();
+  const isSelectableIso = (iso) => {
+    if (!iso) return false;
+    if (iso < today) return false;
+    if (iso > maxIso) return false;
+    return true;
+  };
+
+  const shiftMonth = (delta) => {
+    setViewMonth((vm) => {
+      const d = new Date(vm.y, vm.m + delta, 1);
+      return { y: d.getFullYear(), m: d.getMonth() };
+    });
+  };
+
+  const cells = calendarCellsForMonth(viewMonth.y, viewMonth.m);
+  const monthTitle = new Date(viewMonth.y, viewMonth.m, 1).toLocaleDateString(
+    "fr-FR",
+    { month: "long", year: "numeric" }
+  );
+
   return (
     <View>
-      <Text style={styles.fieldLabel}>Date</Text>
-      <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-        <View style={[styles.roleRow, { flexWrap: "nowrap", paddingRight: 8 }]}>
-          {dateOptions.map((opt) => (
-            <TouchableOpacity
-              key={`date-opt-${opt}`}
-              style={[styles.roleChip, dateValue === opt && styles.roleChipActive]}
-              onPress={() => onDateChange(opt)}
-              activeOpacity={0.85}
-            >
-              <Text
-                style={[
-                  styles.roleChipText,
-                  dateValue === opt && styles.roleChipTextActive,
-                ]}
-              >
-                {formatDateHuman(opt)}
-              </Text>
-            </TouchableOpacity>
-          ))}
+      <Text style={styles.fieldLabel}>Créneau</Text>
+      <TouchableOpacity
+        style={styles.dateTimeSummary}
+        onPress={openModal}
+        activeOpacity={0.85}
+      >
+        <Ionicons name="calendar-outline" size={22} color={theme.primary} />
+        <View style={{ flex: 1, marginLeft: 10 }}>
+          <Text style={styles.dateTimeSummaryTitle}>
+            {formatDateLongFr(dateValue || todayIsoDate())}
+          </Text>
+          <Text style={styles.dateTimeSummarySub}>
+            {startValue} – {endValue}
+          </Text>
         </View>
-      </ScrollView>
-      <Text style={styles.fieldLabel}>Début</Text>
-      <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-        <View style={[styles.roleRow, { flexWrap: "nowrap", paddingRight: 8 }]}>
-          {BOOKING_TIME_OPTIONS.map((opt) => (
-            <TouchableOpacity
-              key={`start-opt-${opt}`}
-              style={[styles.roleChip, startValue === opt && styles.roleChipActive]}
-              onPress={() => {
-                onStartChange(opt);
-                if (endValue <= opt) onEndChange(nextTimeOption(opt));
-              }}
-              activeOpacity={0.85}
+        <Ionicons name="chevron-forward" size={20} color={theme.inkMuted} />
+      </TouchableOpacity>
+      <Modal
+        visible={open}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setOpen(false)}
+      >
+        <View style={styles.modalBackdrop}>
+          <View style={styles.modalSheet}>
+            <View style={styles.modalSheetHeader}>
+              <Text style={styles.modalSheetTitle}>Date et horaires</Text>
+              <TouchableOpacity onPress={() => setOpen(false)} hitSlop={12}>
+                <Ionicons name="close" size={26} color={theme.ink} />
+              </TouchableOpacity>
+            </View>
+            <ScrollView
+              keyboardShouldPersistTaps="handled"
+              style={styles.modalSheetBody}
             >
-              <Text
-                style={[
-                  styles.roleChipText,
-                  startValue === opt && styles.roleChipTextActive,
-                ]}
-              >
-                {opt}
-              </Text>
-            </TouchableOpacity>
-          ))}
+              <View style={styles.calendarNav}>
+                <TouchableOpacity
+                  onPress={() => shiftMonth(-1)}
+                  style={styles.calendarNavBtn}
+                  activeOpacity={0.85}
+                >
+                  <Ionicons
+                    name="chevron-back"
+                    size={22}
+                    color={theme.primary}
+                  />
+                </TouchableOpacity>
+                <Text style={styles.calendarMonthTitle}>{monthTitle}</Text>
+                <TouchableOpacity
+                  onPress={() => shiftMonth(1)}
+                  style={styles.calendarNavBtn}
+                  activeOpacity={0.85}
+                >
+                  <Ionicons
+                    name="chevron-forward"
+                    size={22}
+                    color={theme.primary}
+                  />
+                </TouchableOpacity>
+              </View>
+              <View style={styles.calendarWeekRow}>
+                {CAL_WEEKDAY_LABELS.map((w, i) => (
+                  <Text key={`wd-${i}`} style={styles.calendarWeekCell}>
+                    {w}
+                  </Text>
+                ))}
+              </View>
+              <View style={styles.calendarGrid}>
+                {cells.map((day, idx) => {
+                  if (day == null) {
+                    return (
+                      <View key={`e-${idx}`} style={styles.calendarDayCell} />
+                    );
+                  }
+                  const iso = isoFromYmd(viewMonth.y, viewMonth.m, day);
+                  const sel = draftDate === iso;
+                  const dis = !isSelectableIso(iso);
+                  return (
+                    <TouchableOpacity
+                      key={iso}
+                      style={[
+                        styles.calendarDayCell,
+                        sel && styles.calendarDayCellSelected,
+                        dis && styles.calendarDayCellDisabled,
+                      ]}
+                      disabled={dis}
+                      onPress={() => setDraftDate(iso)}
+                      activeOpacity={0.85}
+                    >
+                      <Text
+                        style={[
+                          styles.calendarDayText,
+                          sel && styles.calendarDayTextSelected,
+                          dis && styles.calendarDayTextDisabled,
+                        ]}
+                      >
+                        {day}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+              <TimePairPicker
+                label="Heure de début"
+                value={draftStart}
+                onChange={setDraftStartSafe}
+              />
+              <TimePairPicker
+                label="Heure de fin"
+                value={draftEnd}
+                onChange={setDraftEnd}
+              />
+            </ScrollView>
+            <View style={styles.modalSheetFooter}>
+              <OutlineButton
+                compact
+                label="Annuler"
+                icon="close-circle-outline"
+                onPress={() => setOpen(false)}
+              />
+              <PrimaryButton
+                compact
+                label="Valider"
+                icon="checkmark-outline"
+                onPress={apply}
+              />
+            </View>
+          </View>
         </View>
-      </ScrollView>
-      <Text style={styles.fieldLabel}>Fin</Text>
-      <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-        <View style={[styles.roleRow, { flexWrap: "nowrap", paddingRight: 8 }]}>
-          {endOptions.map((opt) => (
-            <TouchableOpacity
-              key={`end-opt-${opt}`}
-              style={[styles.roleChip, endValue === opt && styles.roleChipActive]}
-              onPress={() => onEndChange(opt)}
-              activeOpacity={0.85}
-            >
-              <Text
-                style={[
-                  styles.roleChipText,
-                  endValue === opt && styles.roleChipTextActive,
-                ]}
-              >
-                {opt}
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </View>
-      </ScrollView>
+      </Modal>
     </View>
+  );
+}
+
+function UserReviewsModal({ visible, userId, title, onClose }) {
+  const [loading, setLoading] = useState(false);
+  const [payload, setPayload] = useState(null);
+
+  useEffect(() => {
+    if (!visible || !userId) {
+      setPayload(null);
+      return;
+    }
+    let cancelled = false;
+    setLoading(true);
+    apiFetch(`/users/${userId}/reviews`)
+      .then((data) => {
+        if (!cancelled) setPayload(data);
+      })
+      .catch((err) => {
+        if (!cancelled) setPayload({ error: err.message });
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [visible, userId]);
+
+  const displayName =
+    payload?.user?.full_name || title || `Utilisateur #${userId}`;
+
+  return (
+    <Modal
+      visible={visible}
+      transparent
+      animationType="fade"
+      onRequestClose={onClose}
+    >
+      <View style={styles.modalBackdrop}>
+        <View style={[styles.modalSheet, styles.userReviewsSheet]}>
+          <View style={styles.modalSheetHeader}>
+            <Text style={styles.modalSheetTitle} numberOfLines={2}>
+              {title || "Profil & avis"}
+            </Text>
+            <TouchableOpacity onPress={onClose} hitSlop={12}>
+              <Ionicons name="close" size={26} color={theme.ink} />
+            </TouchableOpacity>
+          </View>
+          {loading ? (
+            <View style={styles.userReviewsLoading}>
+              <ActivityIndicator size="large" color={theme.primary} />
+            </View>
+          ) : payload?.error ? (
+            <Text style={styles.emptyText}>{payload.error}</Text>
+          ) : (
+            <ScrollView
+              style={styles.modalSheetBody}
+              keyboardShouldPersistTaps="handled"
+            >
+              <View style={styles.profileCard}>
+                <View style={styles.profileAvatar}>
+                  <Text style={styles.profileAvatarText}>
+                    {String(displayName).trim().charAt(0).toUpperCase()}
+                  </Text>
+                </View>
+                <Text style={styles.profileName}>{displayName}</Text>
+                {payload?.user?.city ? (
+                  <Text style={styles.cardMeta}>{payload.user.city}</Text>
+                ) : null}
+              </View>
+              <Text style={styles.cardMeta}>
+                {formatPublicRatingLine(payload?.stats)}
+              </Text>
+              {(payload?.reviews || []).map((r) => (
+                <View key={`pub-rev-${r.id}`} style={styles.card}>
+                  <View style={styles.cardAccent} />
+                  <Text style={styles.cardTitle}>{r.score}/5</Text>
+                  <Text style={styles.cardMeta}>
+                    {r.reviewer_name || "Utilisateur"} ·{" "}
+                    {new Date(r.created_at).toLocaleString("fr-FR")}
+                  </Text>
+                  {r.comment ? (
+                    <Text style={styles.cardAvailability}>{r.comment}</Text>
+                  ) : null}
+                </View>
+              ))}
+              {Array.isArray(payload?.reviews) &&
+              payload.reviews.length === 0 ? (
+                <Text style={styles.emptyText}>Aucun avis pour le moment.</Text>
+              ) : null}
+            </ScrollView>
+          )}
+          <View style={styles.modalSheetFooter}>
+            <PrimaryButton compact label="Fermer" onPress={onClose} />
+          </View>
+        </View>
+      </View>
+    </Modal>
   );
 }
 
@@ -732,12 +1091,44 @@ function ExplorerScreen() {
     specialRequest,
     setSpecialRequest,
     webMapCenter,
+    openUserReviews,
     actionsRef,
   } = useAppMain();
 
   const trailsOnMap = Array.isArray(trailsForMap) ? trailsForMap : [];
   const boxesOnMap = Array.isArray(boxesForMap) ? boxesForMap : [];
   const { width: viewportWidth } = useWindowDimensions();
+  const [hostPreview, setHostPreview] = useState(null);
+  const [hostPreviewLoading, setHostPreviewLoading] = useState(false);
+
+  useEffect(() => {
+    const hid = selectedBox?.host_user_id;
+    if (hid == null) {
+      setHostPreview(null);
+      return;
+    }
+    let cancelled = false;
+    setHostPreviewLoading(true);
+    apiFetch(`/users/${hid}/reviews`)
+      .then((data) => {
+        if (!cancelled) {
+          setHostPreview({
+            stats: data?.stats || { count: 0, avg_score: 0 },
+            user: data?.user,
+            userId: hid,
+          });
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setHostPreview(null);
+      })
+      .finally(() => {
+        if (!cancelled) setHostPreviewLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedBox?.host_user_id]);
 
   useEffect(() => {
     actionsRef.current.loadTrails();
@@ -1173,6 +1564,33 @@ function ExplorerScreen() {
                 <> · ≈ {Number(selectedBox.distance_km).toFixed(1)} km</>
               )}
             </Text>
+            {selectedBox.host_user_id != null ? (
+              <>
+                <Text style={styles.cardDetailLine}>
+                  Hôte :{" "}
+                  {hostPreviewLoading
+                    ? "…"
+                    : hostPreview?.user?.full_name || "Hôte"}
+                </Text>
+                {!hostPreviewLoading && hostPreview?.stats ? (
+                  <Text style={styles.cardAvailability}>
+                    {formatPublicRatingLine(hostPreview.stats)}
+                  </Text>
+                ) : null}
+                <OutlineButton
+                  compact
+                  stretch
+                  label="Profil, notes et commentaires de l'hôte"
+                  icon="person-circle-outline"
+                  onPress={() =>
+                    openUserReviews(
+                      selectedBox.host_user_id,
+                      "Hôte — profil & avis"
+                    )
+                  }
+                />
+              </>
+            ) : null}
             {canBook ? (
               <>
                 <Text style={styles.helperText}>
@@ -2146,8 +2564,8 @@ function ProfileScreen() {
           icon="star-outline"
         >
           <Text style={styles.cardMeta}>
-            Note moyenne: {Number(myReviewsSummary?.avg_score || 0).toFixed(2)} / 5
-            {" · "}
+            Note moyenne: {Number(myReviewsSummary?.avg_score || 0).toFixed(2)}{" "}
+            / 5{" · "}
             {Number(myReviewsSummary?.count || 0)} avis
           </Text>
           {myReviews.slice(0, 6).map((r) => (
@@ -2165,6 +2583,17 @@ function ProfileScreen() {
           ))}
           {myReviews.length === 0 ? (
             <Text style={styles.emptyText}>Pas encore d'avis reçus.</Text>
+          ) : null}
+          {user?.id ? (
+            <OutlineButton
+              compact
+              stretch
+              label="Voir tous les avis (fenêtre dédiée)"
+              icon="open-outline"
+              onPress={() =>
+                openUserReviews(user.id, "Ma réputation — tous les avis")
+              }
+            />
           ) : null}
         </Section>
         <PrimaryButton
@@ -2196,6 +2625,7 @@ function ReservationsScreen() {
     hostBookings,
     athleteBookings,
     notifications,
+    openUserReviews,
     actionsRef,
   } = useAppMain();
   const isFocused = useIsFocused();
@@ -2657,6 +3087,29 @@ function ReservationsScreen() {
                         .filter(Boolean)
                         .join(" · ")}
                     </Text>
+                    {b.host_user_id ? (
+                      <>
+                        <Text style={styles.cardAvailability}>
+                          Hôte : {b.host_full_name || "Hôte"} —{" "}
+                          {formatPublicRatingLine({
+                            count: b.host_review_count,
+                            avg_score: b.host_avg_score,
+                          })}
+                        </Text>
+                        <OutlineButton
+                          compact
+                          stretch
+                          label="Profil, notes et commentaires de l'hôte"
+                          icon="person-circle-outline"
+                          onPress={() =>
+                            openUserReviews(
+                              b.host_user_id,
+                              `Hôte — ${b.host_full_name || "profil & avis"}`
+                            )
+                          }
+                        />
+                      </>
+                    ) : null}
                     <Text style={styles.cardDetailLine}>
                       Statut : {bookingApprovalLabel(approval)}
                       {b.access_code ? ` · code ${b.access_code}` : ""}
@@ -2862,7 +3315,7 @@ function RavitoApp() {
 
   const [boxes, setBoxes] = useState([]);
   const [trails, setTrails] = useState([]);
-  const [bookingDate, setBookingDate] = useState("2026-04-01");
+  const [bookingDate, setBookingDate] = useState(() => todayIsoDate());
   const [startTime, setStartTime] = useState("08:00");
   const [endTime, setEndTime] = useState("09:00");
   const [city, setCity] = useState("Annecy");
@@ -2896,6 +3349,11 @@ function RavitoApp() {
     avg_score: 0,
   });
   const [myReviews, setMyReviews] = useState([]);
+  const [userReviewsModal, setUserReviewsModal] = useState({
+    visible: false,
+    userId: null,
+    title: "",
+  });
   const [mapLat, setMapLat] = useState("45.8992");
   const [mapLon, setMapLon] = useState("6.1294");
   const [specialRequest, setSpecialRequest] = useState("");
@@ -3164,6 +3622,16 @@ function RavitoApp() {
       userAlert("Erreur", error.message);
     }
   };
+
+  const openUserReviews = useCallback((userId, title = "Profil & avis") => {
+    const id = Number(userId);
+    if (!Number.isFinite(id) || id <= 0) return;
+    setUserReviewsModal({ visible: true, userId: id, title });
+  }, []);
+
+  const closeUserReviews = useCallback(() => {
+    setUserReviewsModal({ visible: false, userId: null, title: "" });
+  }, []);
 
   const markAllNotificationsRead = async () => {
     if (!token) return;
@@ -3964,6 +4432,7 @@ function RavitoApp() {
     loadAthleteBookings,
     loadNotifications,
     loadMyReviews,
+    openUserReviews,
     markAllNotificationsRead,
     showBookingTimeline,
     submitReview,
@@ -4060,6 +4529,8 @@ function RavitoApp() {
       canBook,
       selectedBox,
       webMapCenter,
+      openUserReviews,
+      closeUserReviews,
       actionsRef,
     }),
     [
@@ -4102,6 +4573,8 @@ function RavitoApp() {
       canBook,
       selectedBox,
       webMapCenter,
+      openUserReviews,
+      closeUserReviews,
     ]
   );
 
@@ -4130,13 +4603,23 @@ function RavitoApp() {
         <AuthUiContext.Provider value={authUiValue}>
           <NavigationContainer>
             <AppMainContext.Provider value={isAuthed ? mainContextValue : null}>
-              <Stack.Navigator screenOptions={{ headerShown: false }}>
-                {!isAuthed ? (
-                  <Stack.Screen name="Auth" component={AuthScreen} />
-                ) : (
-                  <Stack.Screen name="Main" component={AuthenticatedRoot} />
-                )}
-              </Stack.Navigator>
+              <>
+                <Stack.Navigator screenOptions={{ headerShown: false }}>
+                  {!isAuthed ? (
+                    <Stack.Screen name="Auth" component={AuthScreen} />
+                  ) : (
+                    <Stack.Screen name="Main" component={AuthenticatedRoot} />
+                  )}
+                </Stack.Navigator>
+                {isAuthed ? (
+                  <UserReviewsModal
+                    visible={userReviewsModal.visible}
+                    userId={userReviewsModal.userId}
+                    title={userReviewsModal.title}
+                    onClose={closeUserReviews}
+                  />
+                ) : null}
+              </>
             </AppMainContext.Provider>
           </NavigationContainer>
         </AuthUiContext.Provider>
@@ -4415,6 +4898,170 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: theme.inkMuted,
     marginTop: 8,
+  },
+  dateTimeSummary: {
+    flexDirection: "row",
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: theme.border,
+    borderRadius: 16,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    backgroundColor: theme.surfaceMuted,
+  },
+  dateTimeSummaryTitle: {
+    fontSize: 15,
+    fontWeight: "700",
+    color: theme.ink,
+  },
+  dateTimeSummarySub: {
+    fontSize: 14,
+    color: theme.inkMuted,
+    marginTop: 2,
+  },
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: "rgba(6, 27, 22, 0.45)",
+    justifyContent: "center",
+    padding: 18,
+  },
+  modalSheet: {
+    backgroundColor: theme.surface,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: theme.borderSoft,
+    maxHeight: "88%",
+    overflow: "hidden",
+  },
+  userReviewsSheet: {
+    maxHeight: "92%",
+  },
+  modalSheetHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 16,
+    paddingTop: 14,
+    paddingBottom: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: theme.borderSoft,
+  },
+  modalSheetTitle: {
+    flex: 1,
+    fontSize: 17,
+    fontWeight: "700",
+    color: theme.ink,
+    paddingRight: 12,
+  },
+  modalSheetBody: {
+    maxHeight: 440,
+    paddingHorizontal: 16,
+    paddingBottom: 12,
+  },
+  modalSheetFooter: {
+    flexDirection: "row",
+    justifyContent: "flex-end",
+    alignItems: "center",
+    gap: 10,
+    padding: 14,
+    borderTopWidth: 1,
+    borderTopColor: theme.borderSoft,
+  },
+  calendarNav: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginTop: 12,
+    marginBottom: 8,
+  },
+  calendarNavBtn: {
+    padding: 8,
+    borderRadius: 10,
+    backgroundColor: theme.surfaceMuted,
+  },
+  calendarMonthTitle: {
+    fontSize: 16,
+    fontWeight: "700",
+    color: theme.ink,
+    textTransform: "capitalize",
+  },
+  calendarWeekRow: {
+    flexDirection: "row",
+    marginBottom: 4,
+  },
+  calendarWeekCell: {
+    flex: 1,
+    textAlign: "center",
+    fontSize: 11,
+    fontWeight: "700",
+    color: theme.inkMuted,
+  },
+  calendarGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    marginBottom: 8,
+  },
+  calendarDayCell: {
+    width: "14.285%",
+    paddingVertical: 8,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  calendarDayCellSelected: {
+    backgroundColor: theme.primary,
+    borderRadius: 999,
+  },
+  calendarDayCellDisabled: {
+    opacity: 0.28,
+  },
+  calendarDayText: {
+    fontSize: 15,
+    fontWeight: "600",
+    color: theme.ink,
+  },
+  calendarDayTextSelected: {
+    color: "#fff",
+  },
+  calendarDayTextDisabled: {
+    color: theme.inkMuted,
+  },
+  timePairRow: {
+    flexDirection: "row",
+    gap: 12,
+    marginBottom: 8,
+  },
+  timePairCol: {
+    flex: 1,
+    minWidth: 0,
+  },
+  timeDropdownScroll: {
+    maxHeight: 168,
+    borderWidth: 1,
+    borderColor: theme.border,
+    borderRadius: 12,
+    backgroundColor: theme.surfaceMuted,
+  },
+  timeDropdownItem: {
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    alignItems: "center",
+  },
+  timeDropdownItemActive: {
+    backgroundColor: theme.chipBg,
+  },
+  timeDropdownItemText: {
+    fontSize: 15,
+    color: theme.ink,
+    fontWeight: "500",
+  },
+  timeDropdownItemTextActive: {
+    color: theme.primary,
+    fontWeight: "700",
+  },
+  userReviewsLoading: {
+    paddingVertical: 40,
+    alignItems: "center",
+    justifyContent: "center",
   },
   section: {
     backgroundColor: theme.surface,
