@@ -216,6 +216,17 @@ function parseBookingChangeRequest(booking) {
   }
 }
 
+function parseNotificationData(notification) {
+  try {
+    const raw = notification?.data_json;
+    if (!raw) return null;
+    const parsed = typeof raw === "string" ? JSON.parse(raw) : raw;
+    return parsed && typeof parsed === "object" ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
 function bookingApprovalLabel(status) {
   switch (status) {
     case "accepted":
@@ -2071,6 +2082,24 @@ function ReservationsScreen() {
                 {n.body ? (
                   <Text style={styles.cardAvailability}>{n.body}</Text>
                 ) : null}
+                {(() => {
+                  const data = parseNotificationData(n);
+                  if (!data?.before || !data?.after) return null;
+                  return (
+                    <Text style={styles.cardAvailability}>
+                      Avant: {data.before.city || "?"} ·{" "}
+                      {(
+                        (Number(data.before.priceCents || 0) || 0) / 100
+                      ).toFixed(2)}{" "}
+                      €{"\n"}
+                      Après: {data.after.city || "?"} ·{" "}
+                      {(
+                        (Number(data.after.priceCents || 0) || 0) / 100
+                      ).toFixed(2)}{" "}
+                      €
+                    </Text>
+                  );
+                })()}
                 <Text style={styles.cardMeta}>
                   {new Date(n.created_at).toLocaleString("fr-FR")}
                 </Text>
@@ -2201,6 +2230,8 @@ function ReservationsScreen() {
                     ) : null}
                     {changeDraft ? (
                       <Text style={styles.cardAvailability}>
+                        Actuel: {b.booking_date} {b.start_time}-{b.end_time}
+                        {"\n"}
                         Modif proposée: {changeDraft.bookingDate}{" "}
                         {changeDraft.startTime}-{changeDraft.endTime}
                       </Text>
@@ -2375,6 +2406,8 @@ function ReservationsScreen() {
                     ) : null}
                     {changeDraft ? (
                       <Text style={styles.cardAvailability}>
+                        Actuel: {b.booking_date} {b.start_time}-{b.end_time}
+                        {"\n"}
                         Modif proposée : {changeDraft.bookingDate}{" "}
                         {changeDraft.startTime}-{changeDraft.endTime}
                       </Text>
@@ -3189,12 +3222,18 @@ function RavitoApp() {
     };
     try {
       if (hostEditingBoxId != null) {
-        await apiFetch(`/host/boxes/${hostEditingBoxId}`, {
+        const updated = await apiFetch(`/host/boxes/${hostEditingBoxId}`, {
           method: "PATCH",
           token,
           body,
         });
-        userAlert("OK", "Ton box a été mis à jour.");
+        const impacted = Number(updated?.impactedBookingsCount || 0);
+        userAlert(
+          "OK",
+          impacted > 0
+            ? `Ton box a été mis à jour. ${impacted} réservataire(s) ont été notifié(s).`
+            : "Ton box a été mis à jour."
+        );
         setHostEditingBoxId(null);
         setHostReverseGeocode({ status: "idle", message: "" });
         setHostForm({

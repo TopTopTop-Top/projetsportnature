@@ -600,6 +600,14 @@ router.patch("/host/boxes/:id", requireAuth, async (req, res) => {
   if (!parsed.success) {
     return res.status(400).json({ error: parsed.error.flatten() });
   }
+  const { rows: beforeRows } = await pool.query(
+    `SELECT * FROM boxes WHERE id = $1 AND host_user_id = $2 AND is_active = 1`,
+    [boxId, req.auth.sub]
+  );
+  const beforeBox = beforeRows[0];
+  if (!beforeBox) {
+    return res.status(404).json({ error: "Box not found" });
+  }
   const input = parsed.data;
   const { rows } = await pool.query(
     `UPDATE boxes SET
@@ -632,10 +640,51 @@ router.patch("/host/boxes/:id", requireAuth, async (req, res) => {
       req.auth.sub,
     ]
   );
-  if (rows.length === 0) {
-    return res.status(404).json({ error: "Box not found" });
+  const updated = rows[0];
+  const { rows: impactedBookings } = await pool.query(
+    `SELECT id, athlete_user_id, booking_date, start_time, end_time
+     FROM bookings
+     WHERE box_id = $1
+       AND status <> 'cancelled'
+       AND status <> 'completed'`,
+    [boxId]
+  );
+  for (const booking of impactedBookings) {
+    await createNotification({
+      recipientUserId: booking.athlete_user_id,
+      type: "box_updated_by_host",
+      title: "Mise à jour d'un box réservé",
+      body: `Le box « ${
+        updated.title || "sans titre"
+      } » a été modifié par l'hôte.`,
+      data: {
+        boxId,
+        bookingId: booking.id,
+        before: {
+          title: beforeBox.title,
+          city: beforeBox.city,
+          priceCents: beforeBox.price_cents,
+          capacityLiters: beforeBox.capacity_liters,
+          hasWater: beforeBox.has_water,
+          availabilityNote: beforeBox.availability_note,
+          criteriaNote: beforeBox.criteria_note,
+        },
+        after: {
+          title: updated.title,
+          city: updated.city,
+          priceCents: updated.price_cents,
+          capacityLiters: updated.capacity_liters,
+          hasWater: updated.has_water,
+          availabilityNote: updated.availability_note,
+          criteriaNote: updated.criteria_note,
+        },
+      },
+    });
   }
-  return res.json(rows[0]);
+  return res.json({
+    ...updated,
+    impactedBookingsCount: impactedBookings.length,
+  });
 });
 
 router.get("/boxes/bounds", async (req, res) => {
