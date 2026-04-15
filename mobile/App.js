@@ -324,6 +324,45 @@ const HOST_CRITERIA_OPTIONS = [
   "Eau fraîche",
 ];
 
+const BOOKING_TIME_OPTIONS = Array.from({ length: 36 }, (_v, i) => {
+  const minutes = 6 * 60 + i * 30;
+  const hh = String(Math.floor(minutes / 60)).padStart(2, "0");
+  const mm = String(minutes % 60).padStart(2, "0");
+  return `${hh}:${mm}`;
+});
+
+function formatDateHuman(dateText) {
+  if (!dateText) return "?";
+  const d = new Date(`${dateText}T00:00:00`);
+  if (Number.isNaN(d.getTime())) return dateText;
+  return d.toLocaleDateString("fr-FR", {
+    weekday: "short",
+    day: "2-digit",
+    month: "2-digit",
+  });
+}
+
+function buildDateOptions(days = 21) {
+  const out = [];
+  const now = new Date();
+  for (let i = 0; i < days; i += 1) {
+    const d = new Date(now);
+    d.setDate(now.getDate() + i);
+    const iso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(
+      2,
+      "0"
+    )}-${String(d.getDate()).padStart(2, "0")}`;
+    out.push(iso);
+  }
+  return out;
+}
+
+function nextTimeOption(value) {
+  const idx = BOOKING_TIME_OPTIONS.indexOf(value);
+  if (idx < 0) return BOOKING_TIME_OPTIONS[1];
+  return BOOKING_TIME_OPTIONS[Math.min(idx + 1, BOOKING_TIME_OPTIONS.length - 1)];
+}
+
 function difficultyBadgeStyle(level) {
   switch (level) {
     case "easy":
@@ -509,6 +548,93 @@ function OutlineButton({ label, onPress, icon, danger, compact, stretch }) {
         {label}
       </Text>
     </TouchableOpacity>
+  );
+}
+
+function DateTimeSelector({
+  dateValue,
+  onDateChange,
+  startValue,
+  onStartChange,
+  endValue,
+  onEndChange,
+}) {
+  const dateOptions = useMemo(() => buildDateOptions(21), []);
+  const startIndex = Math.max(0, BOOKING_TIME_OPTIONS.indexOf(startValue));
+  const endCandidates = BOOKING_TIME_OPTIONS.slice(startIndex + 1);
+  const endOptions = endCandidates.length > 0 ? endCandidates : [nextTimeOption(startValue)];
+  return (
+    <View>
+      <Text style={styles.fieldLabel}>Date</Text>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+        <View style={[styles.roleRow, { flexWrap: "nowrap", paddingRight: 8 }]}>
+          {dateOptions.map((opt) => (
+            <TouchableOpacity
+              key={`date-opt-${opt}`}
+              style={[styles.roleChip, dateValue === opt && styles.roleChipActive]}
+              onPress={() => onDateChange(opt)}
+              activeOpacity={0.85}
+            >
+              <Text
+                style={[
+                  styles.roleChipText,
+                  dateValue === opt && styles.roleChipTextActive,
+                ]}
+              >
+                {formatDateHuman(opt)}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+      </ScrollView>
+      <Text style={styles.fieldLabel}>Début</Text>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+        <View style={[styles.roleRow, { flexWrap: "nowrap", paddingRight: 8 }]}>
+          {BOOKING_TIME_OPTIONS.map((opt) => (
+            <TouchableOpacity
+              key={`start-opt-${opt}`}
+              style={[styles.roleChip, startValue === opt && styles.roleChipActive]}
+              onPress={() => {
+                onStartChange(opt);
+                if (endValue <= opt) onEndChange(nextTimeOption(opt));
+              }}
+              activeOpacity={0.85}
+            >
+              <Text
+                style={[
+                  styles.roleChipText,
+                  startValue === opt && styles.roleChipTextActive,
+                ]}
+              >
+                {opt}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+      </ScrollView>
+      <Text style={styles.fieldLabel}>Fin</Text>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+        <View style={[styles.roleRow, { flexWrap: "nowrap", paddingRight: 8 }]}>
+          {endOptions.map((opt) => (
+            <TouchableOpacity
+              key={`end-opt-${opt}`}
+              style={[styles.roleChip, endValue === opt && styles.roleChipActive]}
+              onPress={() => onEndChange(opt)}
+              activeOpacity={0.85}
+            >
+              <Text
+                style={[
+                  styles.roleChipText,
+                  endValue === opt && styles.roleChipTextActive,
+                ]}
+              >
+                {opt}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+      </ScrollView>
+    </View>
   );
 }
 
@@ -1076,29 +1202,14 @@ function ExplorerScreen() {
             subtitle="Horaires et message optionnel pour l’hôte (allergies, groupe, etc.)."
             icon="time-outline"
           >
-            <View style={styles.row}>
-              <TextInput
-                style={styles.inputHalf}
-                placeholder="AAAA-MM-JJ"
-                placeholderTextColor={theme.inkMuted}
-                value={bookingDate}
-                onChangeText={setBookingDate}
-              />
-              <TextInput
-                style={styles.inputHalf}
-                placeholder="Début"
-                placeholderTextColor={theme.inkMuted}
-                value={startTime}
-                onChangeText={setStartTime}
-              />
-              <TextInput
-                style={styles.inputHalf}
-                placeholder="Fin"
-                placeholderTextColor={theme.inkMuted}
-                value={endTime}
-                onChangeText={setEndTime}
-              />
-            </View>
+            <DateTimeSelector
+              dateValue={bookingDate}
+              onDateChange={setBookingDate}
+              startValue={startTime}
+              onStartChange={setStartTime}
+              endValue={endTime}
+              onEndChange={setEndTime}
+            />
             <Text style={styles.inputLabel}>Demande spéciale (optionnel)</Text>
             <TextInput
               style={[styles.input, styles.textArea]}
@@ -1989,9 +2100,15 @@ function HostScreen() {
 }
 
 function ProfileScreen() {
-  const { user, actionsRef } = useAppMain();
+  const { user, myReviewsSummary, myReviews, actionsRef } = useAppMain();
+  const isFocused = useIsFocused();
   const roleLabel = ROLE_LABELS[user?.role] || user?.role;
   const canEnableBoth = user?.role !== "both";
+
+  useEffect(() => {
+    if (!isFocused) return;
+    actionsRef.current.loadMyReviews?.();
+  }, [isFocused, actionsRef]);
 
   return (
     <SafeAreaView style={styles.screen} edges={["left", "right"]}>
@@ -2022,6 +2139,33 @@ function ProfileScreen() {
               <Text style={styles.profileRoleText}>{roleLabel}</Text>
             </View>
           </View>
+        </Section>
+        <Section
+          title="Réputation"
+          subtitle="Notes reçues par les autres utilisateurs."
+          icon="star-outline"
+        >
+          <Text style={styles.cardMeta}>
+            Note moyenne: {Number(myReviewsSummary?.avg_score || 0).toFixed(2)} / 5
+            {" · "}
+            {Number(myReviewsSummary?.count || 0)} avis
+          </Text>
+          {myReviews.slice(0, 6).map((r) => (
+            <View key={`my-review-${r.id}`} style={styles.card}>
+              <View style={styles.cardAccent} />
+              <Text style={styles.cardTitle}>{r.score}/5</Text>
+              <Text style={styles.cardMeta}>
+                {r.reviewer_name || "Utilisateur"} ·{" "}
+                {new Date(r.created_at).toLocaleDateString("fr-FR")}
+              </Text>
+              {r.comment ? (
+                <Text style={styles.cardAvailability}>{r.comment}</Text>
+              ) : null}
+            </View>
+          ))}
+          {myReviews.length === 0 ? (
+            <Text style={styles.emptyText}>Pas encore d'avis reçus.</Text>
+          ) : null}
         </Section>
         <PrimaryButton
           label="Rafraîchir la session"
@@ -2255,35 +2399,20 @@ function ReservationsScreen() {
                   <Text style={styles.infoBannerTitle}>
                     Modifier la réservation n°{editingHostBookingId}
                   </Text>
-                  <TextInput
-                    style={styles.input}
-                    placeholder="AAAA-MM-JJ"
-                    placeholderTextColor={theme.inkMuted}
-                    value={hostBookingDraft.bookingDate}
-                    onChangeText={(v) =>
+                  <DateTimeSelector
+                    dateValue={hostBookingDraft.bookingDate}
+                    onDateChange={(v) =>
                       setHostBookingDraft((s) => ({ ...s, bookingDate: v }))
                     }
+                    startValue={hostBookingDraft.startTime}
+                    onStartChange={(v) =>
+                      setHostBookingDraft((s) => ({ ...s, startTime: v }))
+                    }
+                    endValue={hostBookingDraft.endTime}
+                    onEndChange={(v) =>
+                      setHostBookingDraft((s) => ({ ...s, endTime: v }))
+                    }
                   />
-                  <View style={styles.row}>
-                    <TextInput
-                      style={styles.inputHalf}
-                      placeholder="Début"
-                      placeholderTextColor={theme.inkMuted}
-                      value={hostBookingDraft.startTime}
-                      onChangeText={(v) =>
-                        setHostBookingDraft((s) => ({ ...s, startTime: v }))
-                      }
-                    />
-                    <TextInput
-                      style={styles.inputHalf}
-                      placeholder="Fin"
-                      placeholderTextColor={theme.inkMuted}
-                      value={hostBookingDraft.endTime}
-                      onChangeText={(v) =>
-                        setHostBookingDraft((s) => ({ ...s, endTime: v }))
-                      }
-                    />
-                  </View>
                   <TextInput
                     style={[styles.input, styles.textArea]}
                     placeholder="Demande spéciale (optionnel)"
@@ -2441,35 +2570,20 @@ function ReservationsScreen() {
                   <Text style={styles.infoBannerTitle}>
                     Modifier ma réservation n°{editingAthleteBookingId}
                   </Text>
-                  <TextInput
-                    style={styles.input}
-                    placeholder="AAAA-MM-JJ"
-                    placeholderTextColor={theme.inkMuted}
-                    value={athleteBookingDraft.bookingDate}
-                    onChangeText={(v) =>
+                  <DateTimeSelector
+                    dateValue={athleteBookingDraft.bookingDate}
+                    onDateChange={(v) =>
                       setAthleteBookingDraft((s) => ({ ...s, bookingDate: v }))
                     }
+                    startValue={athleteBookingDraft.startTime}
+                    onStartChange={(v) =>
+                      setAthleteBookingDraft((s) => ({ ...s, startTime: v }))
+                    }
+                    endValue={athleteBookingDraft.endTime}
+                    onEndChange={(v) =>
+                      setAthleteBookingDraft((s) => ({ ...s, endTime: v }))
+                    }
                   />
-                  <View style={styles.row}>
-                    <TextInput
-                      style={styles.inputHalf}
-                      placeholder="Début"
-                      placeholderTextColor={theme.inkMuted}
-                      value={athleteBookingDraft.startTime}
-                      onChangeText={(v) =>
-                        setAthleteBookingDraft((s) => ({ ...s, startTime: v }))
-                      }
-                    />
-                    <TextInput
-                      style={styles.inputHalf}
-                      placeholder="Fin"
-                      placeholderTextColor={theme.inkMuted}
-                      value={athleteBookingDraft.endTime}
-                      onChangeText={(v) =>
-                        setAthleteBookingDraft((s) => ({ ...s, endTime: v }))
-                      }
-                    />
-                  </View>
                   <TextInput
                     style={[styles.input, styles.textArea]}
                     placeholder="Demande spéciale (optionnel)"
@@ -2777,6 +2891,11 @@ function RavitoApp() {
   const [hostBookings, setHostBookings] = useState([]);
   const [athleteBookings, setAthleteBookings] = useState([]);
   const [notifications, setNotifications] = useState([]);
+  const [myReviewsSummary, setMyReviewsSummary] = useState({
+    count: 0,
+    avg_score: 0,
+  });
+  const [myReviews, setMyReviews] = useState([]);
   const [mapLat, setMapLat] = useState("45.8992");
   const [mapLon, setMapLon] = useState("6.1294");
   const [specialRequest, setSpecialRequest] = useState("");
@@ -3030,6 +3149,17 @@ function RavitoApp() {
         { token }
       );
       setNotifications(Array.isArray(rows) ? rows : []);
+    } catch (error) {
+      userAlert("Erreur", error.message);
+    }
+  };
+
+  const loadMyReviews = async () => {
+    if (!token || !user?.id) return;
+    try {
+      const data = await apiFetch(`/users/${user.id}/reviews`);
+      setMyReviewsSummary(data?.stats || { count: 0, avg_score: 0 });
+      setMyReviews(Array.isArray(data?.reviews) ? data.reviews : []);
     } catch (error) {
       userAlert("Erreur", error.message);
     }
@@ -3833,6 +3963,7 @@ function RavitoApp() {
     loadHostBookings,
     loadAthleteBookings,
     loadNotifications,
+    loadMyReviews,
     markAllNotificationsRead,
     showBookingTimeline,
     submitReview,
@@ -3886,6 +4017,8 @@ function RavitoApp() {
       hostBookings,
       athleteBookings,
       notifications,
+      myReviewsSummary,
+      myReviews,
       user,
       webDropHover,
       setWebDropHover,
@@ -3943,6 +4076,8 @@ function RavitoApp() {
       hostBookings,
       athleteBookings,
       notifications,
+      myReviewsSummary,
+      myReviews,
       user,
       webDropHover,
       trailDifficulty,
