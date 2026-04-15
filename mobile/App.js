@@ -2069,20 +2069,35 @@ function ReservationsScreen() {
     endTime: "",
     specialRequest: "",
   });
+  const [reservationTab, setReservationTab] = useState(
+    canHost && !canBook ? "host" : "athlete"
+  );
+  const [notifUnreadOnly, setNotifUnreadOnly] = useState(false);
+
+  useEffect(() => {
+    if (canHost && canBook) return;
+    if (canHost) {
+      setReservationTab("host");
+      return;
+    }
+    if (canBook) {
+      setReservationTab("athlete");
+    }
+  }, [canHost, canBook]);
 
   useEffect(() => {
     if (!isFocused) return;
     if (canHost) actionsRef.current.loadHostBookings();
     if (canBook) actionsRef.current.loadAthleteBookings();
-    actionsRef.current.loadNotifications();
+    actionsRef.current.loadNotifications({ unreadOnly: notifUnreadOnly });
     actionsRef.current.markAllNotificationsRead?.();
     const id = setInterval(() => {
       if (canHost) actionsRef.current.loadHostBookings();
       if (canBook) actionsRef.current.loadAthleteBookings();
-      actionsRef.current.loadNotifications();
+      actionsRef.current.loadNotifications({ unreadOnly: notifUnreadOnly });
     }, 12000);
     return () => clearInterval(id);
-  }, [canHost, canBook, isFocused, actionsRef]);
+  }, [canHost, canBook, isFocused, actionsRef, notifUnreadOnly]);
 
   return (
     <SafeAreaView style={styles.screen} edges={["left", "right"]}>
@@ -2096,12 +2111,87 @@ function ReservationsScreen() {
         showsVerticalScrollIndicator={Platform.OS === "web"}
         keyboardShouldPersistTaps="handled"
       >
+        {canHost && canBook ? (
+          <View style={[styles.roleRow, { marginBottom: 8 }]}>
+            <TouchableOpacity
+              style={[
+                styles.roleChip,
+                reservationTab === "host" && styles.roleChipActive,
+              ]}
+              onPress={() => setReservationTab("host")}
+              activeOpacity={0.85}
+            >
+              <Text
+                style={[
+                  styles.roleChipText,
+                  reservationTab === "host" && styles.roleChipTextActive,
+                ]}
+              >
+                Reçues (hôte)
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[
+                styles.roleChip,
+                reservationTab === "athlete" && styles.roleChipActive,
+              ]}
+              onPress={() => setReservationTab("athlete")}
+              activeOpacity={0.85}
+            >
+              <Text
+                style={[
+                  styles.roleChipText,
+                  reservationTab === "athlete" && styles.roleChipTextActive,
+                ]}
+              >
+                Mes réservations
+              </Text>
+            </TouchableOpacity>
+          </View>
+        ) : null}
+
         {notifications?.length > 0 ? (
           <Section
             title="Notifications"
             subtitle="Mises à jour automatiques liées à tes réservations et box."
             icon="notifications-outline"
           >
+            <View style={styles.roleRow}>
+              <TouchableOpacity
+                style={[
+                  styles.roleChip,
+                  !notifUnreadOnly && styles.roleChipActive,
+                ]}
+                onPress={() => setNotifUnreadOnly(false)}
+                activeOpacity={0.85}
+              >
+                <Text
+                  style={[
+                    styles.roleChipText,
+                    !notifUnreadOnly && styles.roleChipTextActive,
+                  ]}
+                >
+                  Toutes
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[
+                  styles.roleChip,
+                  notifUnreadOnly && styles.roleChipActive,
+                ]}
+                onPress={() => setNotifUnreadOnly(true)}
+                activeOpacity={0.85}
+              >
+                <Text
+                  style={[
+                    styles.roleChipText,
+                    notifUnreadOnly && styles.roleChipTextActive,
+                  ]}
+                >
+                  Non lues
+                </Text>
+              </TouchableOpacity>
+            </View>
             {notifications.slice(0, 6).map((n) => (
               <View key={`notif-${n.id}`} style={styles.card}>
                 <View style={styles.cardAccent} />
@@ -2147,7 +2237,7 @@ function ReservationsScreen() {
           </Section>
         ) : null}
 
-        {canHost ? (
+        {canHost && reservationTab !== "athlete" ? (
           <Section
             title="Réservations reçues (hôte)"
             subtitle="Accepte ou refuse les demandes des athlètes."
@@ -2301,6 +2391,28 @@ function ReservationsScreen() {
                         />
                       </>
                     ) : null}
+                    <OutlineButton
+                      compact
+                      label="Voir timeline"
+                      icon="time-outline"
+                      onPress={() =>
+                        actionsRef.current.showBookingTimeline(b.id)
+                      }
+                    />
+                    {b.status === "completed" ? (
+                      <OutlineButton
+                        compact
+                        label="Noter l'athlète (5★)"
+                        icon="star-outline"
+                        onPress={() =>
+                          actionsRef.current.submitReview({
+                            bookingId: b.id,
+                            score: 5,
+                            comment: "Athlète recommandé.",
+                          })
+                        }
+                      />
+                    ) : null}
                   </View>
                 </SwipeActionRow>
               );
@@ -2311,7 +2423,7 @@ function ReservationsScreen() {
           </Section>
         ) : null}
 
-        {canBook ? (
+        {canBook && reservationTab !== "host" ? (
           <Section
             title="Mes réservations (athlète)"
             subtitle="Tes demandes de box : modifier, supprimer ou tout effacer."
@@ -2470,6 +2582,28 @@ function ReservationsScreen() {
                           }
                         />
                       </>
+                    ) : null}
+                    <OutlineButton
+                      compact
+                      label="Voir timeline"
+                      icon="time-outline"
+                      onPress={() =>
+                        actionsRef.current.showBookingTimeline(b.id)
+                      }
+                    />
+                    {b.status === "completed" ? (
+                      <OutlineButton
+                        compact
+                        label="Noter l'hôte (5★)"
+                        icon="star-outline"
+                        onPress={() =>
+                          actionsRef.current.submitReview({
+                            bookingId: b.id,
+                            score: 5,
+                            comment: "Hôte recommandé.",
+                          })
+                        }
+                      />
                     ) : null}
                   </View>
                 </SwipeActionRow>
@@ -2888,10 +3022,13 @@ function RavitoApp() {
     }
   };
 
-  const loadNotifications = async () => {
+  const loadNotifications = async ({ unreadOnly = false } = {}) => {
     if (!token) return;
     try {
-      const rows = await apiFetch("/notifications", { token });
+      const rows = await apiFetch(
+        `/notifications?unreadOnly=${unreadOnly ? "true" : "false"}`,
+        { token }
+      );
       setNotifications(Array.isArray(rows) ? rows : []);
     } catch (error) {
       userAlert("Erreur", error.message);
@@ -2907,6 +3044,50 @@ function RavitoApp() {
       });
     } catch (_error) {
       // Silent fail: reading notifications should not block core flows.
+    }
+  };
+
+  const showBookingTimeline = async (bookingId) => {
+    if (!token) return;
+    try {
+      const rows = await apiFetch(`/bookings/${bookingId}/events`, { token });
+      const list = Array.isArray(rows) ? rows : [];
+      if (list.length === 0) {
+        userAlert("Timeline", "Aucun événement pour cette réservation.");
+        return;
+      }
+      const preview = list
+        .slice(0, 12)
+        .map((evt) => {
+          const at = new Date(evt.created_at).toLocaleString("fr-FR");
+          const actor = evt.actor_name ? ` (${evt.actor_name})` : "";
+          return `- ${at} · ${evt.event_type}${actor}${
+            evt.message ? `\n  ${evt.message}` : ""
+          }`;
+        })
+        .join("\n");
+      userAlert("Timeline réservation", preview);
+    } catch (error) {
+      userAlert("Erreur", error.message);
+    }
+  };
+
+  const submitReview = async ({ bookingId, score = 5, comment = "" }) => {
+    if (!token) return;
+    try {
+      await apiFetch("/reviews", {
+        method: "POST",
+        token,
+        body: {
+          bookingId,
+          score,
+          ...(comment.trim() ? { comment: comment.trim() } : {}),
+        },
+      });
+      userAlert("Merci", "Ton avis a bien été enregistré.");
+      await loadNotifications();
+    } catch (error) {
+      userAlert("Erreur", error.message);
     }
   };
 
@@ -3653,6 +3834,8 @@ function RavitoApp() {
     loadAthleteBookings,
     loadNotifications,
     markAllNotificationsRead,
+    showBookingTimeline,
+    submitReview,
     loadNearbyBoxes,
     refetchExplorerBoxes,
     loadTrails,

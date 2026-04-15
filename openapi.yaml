@@ -1,0 +1,195 @@
+openapi: 3.0.3
+info:
+  title: RavitoBox API
+  version: 0.4.0
+servers:
+  - url: http://localhost:3000/api
+paths:
+  /health:
+    get:
+      summary: Health check
+      responses:
+        "200":
+          description: OK
+  /notifications:
+    get:
+      summary: List notifications
+      parameters:
+        - in: query
+          name: unreadOnly
+          schema:
+            type: boolean
+        - in: query
+          name: limit
+          schema:
+            type: integer
+        - in: query
+          name: offset
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Notifications list
+  /notifications/read-all:
+    patch:
+      summary: Mark all notifications as read
+      responses:
+        "200":
+          description: Marked as read
+  /bookings:
+    post:
+      summary: Create booking
+      responses:
+        "201":
+          description: Booking created
+        "409":
+          description: Overlapping booking or conflict
+    get:
+      summary: List athlete bookings
+      responses:
+        "200":
+          description: Bookings list
+  /bookings/{id}/events:
+    get:
+      summary: Booking timeline events
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Booking events
+  /bookings/{id}:
+    patch:
+      summary: Athlete requests booking change
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Change request created
+    delete:
+      summary: Athlete deletes booking
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Booking deleted
+        "409":
+          description: Cancellation policy conflict
+  /bookings/{id}/decision:
+    patch:
+      summary: Athlete accepts/rejects host change request
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Decision applied
+  /host/bookings:
+    get:
+      summary: List host bookings
+      responses:
+        "200":
+          description: Host bookings list
+  /host/bookings/{id}:
+    patch:
+      summary: Host requests booking change
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Change request created
+  /host/bookings/{id}/decision:
+    patch:
+      summary: Host accepts/rejects booking or athlete change request
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Decision applied
+  /host/boxes/{id}:
+    patch:
+      summary: Update host box and notify impacted bookings
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Box updated
+    delete:
+      summary: Archive host box
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Box archived and impacted bookings cancelled
+  /host/boxes/{id}/deletion-impact:
+    get:
+      summary: Preview deletion impact for a host box
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Impact summary
+  /host/boxes/{id}/restore:
+    patch:
+      summary: Restore archived box
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Box restored
+  /reviews:
+    post:
+      summary: Create or update review for completed booking
+      responses:
+        "201":
+          description: Review saved
+  /users/{id}/reviews:
+    get:
+      summary: List reviews and average score for a user
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: User reviews

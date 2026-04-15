@@ -118,6 +118,21 @@ const deleteHostBoxSchema = z.object({
   confirmImpact: z.boolean().optional(),
 });
 
+const notificationsQuerySchema = z.object({
+  unreadOnly: z
+    .union([z.string(), z.boolean()])
+    .optional()
+    .transform((v) => v === true || v === "true" || v === "1"),
+  limit: z.coerce.number().int().min(1).max(200).optional(),
+  offset: z.coerce.number().int().min(0).optional(),
+});
+
+const createReviewSchema = z.object({
+  bookingId: z.number().int().positive(),
+  score: z.number().int().min(1).max(5),
+  comment: z.string().max(1500).optional(),
+});
+
 const updateMyRoleSchema = z.object({
   role: z.enum(["athlete", "host", "both"]),
 });
@@ -289,6 +304,28 @@ function buildBoxChangedFields(beforeBox, afterBox) {
   return out;
 }
 
+function toMinutesFromHHMM(value) {
+  const str = String(value || "").trim();
+  const m = /^(\d{1,2}):(\d{2})$/.exec(str);
+  if (!m) return null;
+  const hh = Number(m[1]);
+  const mm = Number(m[2]);
+  if (!Number.isInteger(hh) || !Number.isInteger(mm)) return null;
+  if (hh < 0 || hh > 23 || mm < 0 || mm > 59) return null;
+  return hh * 60 + mm;
+}
+
+function isIntervalOverlap(startA, endA, startB, endB) {
+  return startA < endB && startB < endA;
+}
+
+function parseISODateTimeUtc(dateText, timeText) {
+  if (!dateText || !timeText) return null;
+  const d = new Date(`${dateText}T${timeText}:00Z`);
+  if (Number.isNaN(d.getTime())) return null;
+  return d;
+}
+
 async function createNotification({
   recipientUserId,
   type,
@@ -302,6 +339,61 @@ async function createNotification({
      VALUES ($1, $2, $3, $4, $5)`,
     [recipientUserId, type, title, body, data ? JSON.stringify(data) : null]
   );
+}
+
+async function logBookingEvent({
+  bookingId,
+  actorUserId = null,
+  eventType,
+  message = null,
+  data = null,
+}) {
+  if (!bookingId || !eventType) return;
+  await pool.query(
+    `INSERT INTO booking_events (booking_id, actor_user_id, event_type, message, data_json)
+     VALUES ($1, $2, $3, $4, $5)`,
+    [
+      bookingId,
+      actorUserId,
+      eventType,
+      message,
+      data ? JSON.stringify(data) : null,
+    ]
+  );
+}
+
+async function ensureNoBookingOverlap({
+  boxId,
+  bookingDate,
+  startTime,
+  endTime,
+  ignoreBookingId = null,
+}) {
+  const startMin = toMinutesFromHHMM(startTime);
+  const endMin = toMinutesFromHHMM(endTime);
+  if (startMin == null || endMin == null || endMin <= startMin) {
+    throw new Error("Invalid booking time range");
+  }
+  const params = [boxId, bookingDate];
+  let sql = `SELECT id, start_time, end_time
+    FROM bookings
+    WHERE box_id = $1
+      AND booking_date = $2
+      AND status <> 'cancelled'
+      AND status <> 'completed'`;
+  if (ignoreBookingId != null) {
+    params.push(ignoreBookingId);
+    sql += ` AND id <> $3`;
+  }
+  const { rows } = await pool.query(sql, params);
+  for (const row of rows) {
+    const rowStart = toMinutesFromHHMM(row.start_time);
+    const rowEnd = toMinutesFromHHMM(row.end_time);
+    if (rowStart == null || rowEnd == null) continue;
+    if (isIntervalOverlap(startMin, endMin, rowStart, rowEnd)) {
+      throw new Error("Booking time overlaps with another reservation");
+    }
+  }
 }
 
 router.get("/health", (_req, res) => {
@@ -478,13 +570,22 @@ router.get("/users", requireAuth, async (_req, res) => {
 });
 
 router.get("/notifications", requireAuth, async (req, res) => {
+  const parsed = notificationsQuerySchema.safeParse(req.query);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error.flatten() });
+  }
+  const { unreadOnly, limit, offset } = parsed.data;
+  const lim = limit ?? 120;
+  const off = offset ?? 0;
   const { rows } = await pool.query(
     `SELECT id, type, title, body, data_json, is_read, created_at
      FROM notifications
      WHERE recipient_user_id = $1
+       AND ($2::boolean = false OR is_read = 0)
      ORDER BY created_at DESC
-     LIMIT 120`,
-    [req.auth.sub]
+     LIMIT $3
+     OFFSET $4`,
+    [req.auth.sub, Boolean(unreadOnly), lim, off]
   );
   res.json(rows);
 });
@@ -974,6 +1075,16 @@ router.post("/bookings", requireAuth, async (req, res) => {
   );
   if (!athleteRows[0])
     return res.status(404).json({ error: "Athlete user not found" });
+  try {
+    await ensureNoBookingOverlap({
+      boxId: input.boxId,
+      bookingDate: input.bookingDate,
+      startTime: input.startTime,
+      endTime: input.endTime,
+    });
+  } catch (error) {
+    return res.status(409).json({ error: error.message });
+  }
 
   const amountCents = box.price_cents;
   const { platformFeeCents, hostEarningsCents } =
@@ -1000,7 +1111,20 @@ router.post("/bookings", requireAuth, async (req, res) => {
       input.specialRequest?.trim() || null,
     ]
   );
-  return res.status(201).json(rows[0]);
+  const created = rows[0];
+  await logBookingEvent({
+    bookingId: created.id,
+    actorUserId: req.auth.sub,
+    eventType: "booking_created",
+    message: "Reservation created by athlete",
+    data: {
+      bookingDate: created.booking_date,
+      startTime: created.start_time,
+      endTime: created.end_time,
+      specialRequest: created.special_request,
+    },
+  });
+  return res.status(201).json(created);
 });
 
 router.get("/host/bookings", requireAuth, async (req, res) => {
@@ -1059,6 +1183,17 @@ router.patch("/host/bookings/:id/decision", requireAuth, async (req, res) => {
           .status(409)
           .json({ error: "Missing change request payload" });
       }
+      try {
+        await ensureNoBookingOverlap({
+          boxId: booking.box_id,
+          bookingDate: draft.bookingDate,
+          startTime: draft.startTime,
+          endTime: draft.endTime,
+          ignoreBookingId: bookingId,
+        });
+      } catch (error) {
+        return res.status(409).json({ error: error.message });
+      }
       const { rows } = await pool.query(
         `UPDATE bookings
          SET booking_date = $1,
@@ -1090,9 +1225,27 @@ router.patch("/host/bookings/:id/decision", requireAuth, async (req, res) => {
           data: { bookingId },
         });
       }
+      await logBookingEvent({
+        bookingId,
+        actorUserId: req.auth.sub,
+        eventType: "booking_change_accepted_by_host",
+        message: "Host accepted athlete change request",
+        data: draft,
+      });
       return res.json(rows[0]);
     }
 
+    try {
+      await ensureNoBookingOverlap({
+        boxId: booking.box_id,
+        bookingDate: booking.booking_date,
+        startTime: booking.start_time,
+        endTime: booking.end_time,
+        ignoreBookingId: bookingId,
+      });
+    } catch (error) {
+      return res.status(409).json({ error: error.message });
+    }
     const { rows } = await pool.query(
       `UPDATE bookings
        SET approval_status = 'accepted', status = 'confirmed'
@@ -1108,6 +1261,12 @@ router.patch("/host/bookings/:id/decision", requireAuth, async (req, res) => {
         booking.box_title || "ce box"
       } ».`,
       data: { bookingId },
+    });
+    await logBookingEvent({
+      bookingId,
+      actorUserId: req.auth.sub,
+      eventType: "booking_accepted",
+      message: "Host accepted booking request",
     });
     return res.json(rows[0]);
   }
@@ -1133,6 +1292,12 @@ router.patch("/host/bookings/:id/decision", requireAuth, async (req, res) => {
         data: { bookingId },
       });
     }
+    await logBookingEvent({
+      bookingId,
+      actorUserId: req.auth.sub,
+      eventType: "booking_change_rejected_by_host",
+      message: "Host rejected athlete change request",
+    });
     const { rows } = await pool.query(`SELECT * FROM bookings WHERE id = $1`, [
       bookingId,
     ]);
@@ -1155,6 +1320,12 @@ router.patch("/host/bookings/:id/decision", requireAuth, async (req, res) => {
     } ».`,
     data: { bookingId },
   });
+  await logBookingEvent({
+    bookingId,
+    actorUserId: req.auth.sub,
+    eventType: "booking_rejected",
+    message: "Host rejected booking request",
+  });
   return res.json(rows[0]);
 });
 
@@ -1168,6 +1339,112 @@ router.get("/bookings", requireAuth, async (req, res) => {
     [req.auth.sub]
   );
   res.json(rows);
+});
+
+router.get("/bookings/:id/events", requireAuth, async (req, res) => {
+  const bookingId = Number(req.params.id);
+  if (!Number.isInteger(bookingId) || bookingId <= 0) {
+    return res.status(400).json({ error: "Invalid booking id" });
+  }
+  const { rows: authRows } = await pool.query(
+    `SELECT b.id
+     FROM bookings b
+     JOIN boxes bx ON bx.id = b.box_id
+     WHERE b.id = $1
+       AND (b.athlete_user_id = $2 OR bx.host_user_id = $2)`,
+    [bookingId, req.auth.sub]
+  );
+  if (!authRows[0]) {
+    return res.status(404).json({ error: "Booking not found" });
+  }
+  const { rows } = await pool.query(
+    `SELECT e.id, e.event_type, e.message, e.data_json, e.created_at,
+            u.full_name AS actor_name
+     FROM booking_events e
+     LEFT JOIN users u ON u.id = e.actor_user_id
+     WHERE e.booking_id = $1
+     ORDER BY e.created_at DESC`,
+    [bookingId]
+  );
+  return res.json(rows);
+});
+
+router.post("/reviews", requireAuth, async (req, res) => {
+  const parsed = createReviewSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error.flatten() });
+  }
+  const { bookingId, score, comment } = parsed.data;
+  const { rows: bookingRows } = await pool.query(
+    `SELECT b.id, b.status, b.athlete_user_id, bx.host_user_id
+     FROM bookings b
+     JOIN boxes bx ON bx.id = b.box_id
+     WHERE b.id = $1`,
+    [bookingId]
+  );
+  const booking = bookingRows[0];
+  if (!booking) {
+    return res.status(404).json({ error: "Booking not found" });
+  }
+  if (booking.status !== "completed") {
+    return res.status(409).json({
+      error: "Review is allowed only for completed bookings",
+    });
+  }
+  const reviewerId = req.auth.sub;
+  let revieweeId = null;
+  if (reviewerId === booking.athlete_user_id) {
+    revieweeId = booking.host_user_id;
+  } else if (reviewerId === booking.host_user_id) {
+    revieweeId = booking.athlete_user_id;
+  } else {
+    return res.status(403).json({ error: "You are not part of this booking" });
+  }
+  const { rows } = await pool.query(
+    `INSERT INTO reviews (booking_id, reviewer_user_id, reviewee_user_id, score, comment)
+     VALUES ($1, $2, $3, $4, $5)
+     ON CONFLICT (booking_id) DO UPDATE
+       SET reviewer_user_id = EXCLUDED.reviewer_user_id,
+           reviewee_user_id = EXCLUDED.reviewee_user_id,
+           score = EXCLUDED.score,
+           comment = EXCLUDED.comment
+     RETURNING *`,
+    [bookingId, reviewerId, revieweeId, score, comment?.trim() || null]
+  );
+  await createNotification({
+    recipientUserId: revieweeId,
+    type: "new_review",
+    title: "Nouvel avis reçu",
+    body: `Tu as reçu une note ${score}/5.`,
+    data: { bookingId, score },
+  });
+  return res.status(201).json(rows[0]);
+});
+
+router.get("/users/:id/reviews", async (req, res) => {
+  const userId = Number(req.params.id);
+  if (!Number.isInteger(userId) || userId <= 0) {
+    return res.status(400).json({ error: "Invalid user id" });
+  }
+  const { rows } = await pool.query(
+    `SELECT r.id, r.booking_id, r.score, r.comment, r.created_at,
+            u.full_name AS reviewer_name
+     FROM reviews r
+     JOIN users u ON u.id = r.reviewer_user_id
+     WHERE r.reviewee_user_id = $1
+     ORDER BY r.created_at DESC`,
+    [userId]
+  );
+  const { rows: aggRows } = await pool.query(
+    `SELECT COUNT(*)::int AS count, COALESCE(AVG(score), 0)::float AS avg_score
+     FROM reviews
+     WHERE reviewee_user_id = $1`,
+    [userId]
+  );
+  return res.json({
+    stats: aggRows[0] || { count: 0, avg_score: 0 },
+    reviews: rows,
+  });
 });
 
 router.patch("/host/bookings/:id", requireAuth, async (req, res) => {
@@ -1217,6 +1494,13 @@ router.patch("/host/bookings/:id", requireAuth, async (req, res) => {
       booking.box_title || "ta réservation"
     } ».`,
     data: { bookingId, draft },
+  });
+  await logBookingEvent({
+    bookingId,
+    actorUserId: req.auth.sub,
+    eventType: "booking_change_requested_by_host",
+    message: "Host requested booking changes",
+    data: draft,
   });
   return res.json(rows[0]);
 });
@@ -1269,6 +1553,13 @@ router.patch("/bookings/:id", requireAuth, async (req, res) => {
     } ».`,
     data: { bookingId, draft },
   });
+  await logBookingEvent({
+    bookingId,
+    actorUserId: req.auth.sub,
+    eventType: "booking_change_requested_by_athlete",
+    message: "Athlete requested booking changes",
+    data: draft,
+  });
   return res.json(rows[0]);
 });
 
@@ -1302,6 +1593,17 @@ router.patch("/bookings/:id/decision", requireAuth, async (req, res) => {
     if (!draft) {
       return res.status(409).json({ error: "Missing change request payload" });
     }
+    try {
+      await ensureNoBookingOverlap({
+        boxId: booking.box_id,
+        bookingDate: draft.bookingDate,
+        startTime: draft.startTime,
+        endTime: draft.endTime,
+        ignoreBookingId: bookingId,
+      });
+    } catch (error) {
+      return res.status(409).json({ error: error.message });
+    }
     const { rows } = await pool.query(
       `UPDATE bookings
        SET booking_date = $1,
@@ -1331,6 +1633,13 @@ router.patch("/bookings/:id/decision", requireAuth, async (req, res) => {
       } ».`,
       data: { bookingId },
     });
+    await logBookingEvent({
+      bookingId,
+      actorUserId: req.auth.sub,
+      eventType: "booking_change_accepted_by_athlete",
+      message: "Athlete accepted host change request",
+      data: draft,
+    });
     return res.json(rows[0]);
   }
   await pool.query(
@@ -1350,6 +1659,12 @@ router.patch("/bookings/:id/decision", requireAuth, async (req, res) => {
       booking.box_title || "la réservation"
     } ».`,
     data: { bookingId },
+  });
+  await logBookingEvent({
+    bookingId,
+    actorUserId: req.auth.sub,
+    eventType: "booking_change_rejected_by_athlete",
+    message: "Athlete rejected host change request",
   });
   const { rows } = await pool.query(`SELECT * FROM bookings WHERE id = $1`, [
     bookingId,
@@ -1448,6 +1763,13 @@ router.delete("/host/boxes/:id", requireAuth, async (req, res) => {
       } » a été supprimé par l'hôte.`,
       data: { bookingId: row.id, boxId },
     });
+    await logBookingEvent({
+      bookingId: row.id,
+      actorUserId: req.auth.sub,
+      eventType: "booking_cancelled_box_archived",
+      message: "Booking cancelled because host archived the box",
+      data: { boxId },
+    });
   }
   return res.json({
     ok: true,
@@ -1519,6 +1841,13 @@ router.delete("/host/boxes", requireAuth, async (req, res) => {
       } » a été supprimé par l'hôte.`,
       data: { bookingId: row.id, boxId: row.box_id },
     });
+    await logBookingEvent({
+      bookingId: row.id,
+      actorUserId: req.auth.sub,
+      eventType: "booking_cancelled_box_archived",
+      message: "Booking cancelled because host archived boxes",
+      data: { boxId: row.box_id },
+    });
   }
   return res.json({
     ok: true,
@@ -1578,13 +1907,39 @@ router.delete("/bookings/:id", requireAuth, async (req, res) => {
   if (!Number.isInteger(bookingId) || bookingId <= 0) {
     return res.status(400).json({ error: "Invalid booking id" });
   }
+  const { rows: beforeRows } = await pool.query(
+    `SELECT id, status, booking_date, start_time
+     FROM bookings
+     WHERE id = $1 AND athlete_user_id = $2`,
+    [bookingId, req.auth.sub]
+  );
+  const before = beforeRows[0];
+  if (!before) {
+    return res.status(404).json({ error: "Booking not found" });
+  }
+  const startAt = parseISODateTimeUtc(before.booking_date, before.start_time);
+  if (
+    startAt &&
+    before.status !== "cancelled" &&
+    before.status !== "completed"
+  ) {
+    const diffMs = startAt.getTime() - Date.now();
+    if (diffMs > 0 && diffMs < 2 * 60 * 60 * 1000) {
+      return res.status(409).json({
+        error: "Cannot cancel less than 2 hours before start time",
+      });
+    }
+  }
   const { rows } = await pool.query(
     `DELETE FROM bookings WHERE id = $1 AND athlete_user_id = $2 RETURNING id`,
     [bookingId, req.auth.sub]
   );
-  if (!rows[0]) {
-    return res.status(404).json({ error: "Booking not found" });
-  }
+  await logBookingEvent({
+    bookingId,
+    actorUserId: req.auth.sub,
+    eventType: "booking_deleted_by_athlete",
+    message: "Athlete deleted booking",
+  });
   return res.json({ ok: true });
 });
 

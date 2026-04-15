@@ -38,6 +38,7 @@ app.get("/", (_req, res) => {
       "/api/trails/upload-gpx",
       "/api/bookings",
       "/api/bookings/:id",
+      "/api/bookings/:id/events",
       "/api/host/bookings",
       "/api/host/bookings/:id (PATCH, DELETE)",
       "/api/host/bookings/:id",
@@ -47,6 +48,8 @@ app.get("/", (_req, res) => {
       "/api/host/boxes/:id/restore",
       "/api/bookings/:id (PATCH, DELETE)",
       "/api/bookings/:id/decision",
+      "/api/reviews",
+      "/api/users/:id/reviews",
     ],
   });
 });
