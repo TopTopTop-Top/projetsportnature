@@ -2114,6 +2114,9 @@ function ReservationsScreen() {
                 {(() => {
                   const data = parseNotificationData(n);
                   if (!data?.before || !data?.after) return null;
+                  const changedFields = Array.isArray(data.changedFields)
+                    ? data.changedFields
+                    : [];
                   return (
                     <Text style={styles.cardAvailability}>
                       Avant: {data.before.city || "?"} ·{" "}
@@ -2126,6 +2129,13 @@ function ReservationsScreen() {
                         (Number(data.after.priceCents || 0) || 0) / 100
                       ).toFixed(2)}{" "}
                       €
+                      {changedFields.length > 0
+                        ? `\nChangements:\n${changedFields
+                            .map(
+                              (f) => `- ${f.label}: ${f.before} -> ${f.after}`
+                            )
+                            .join("\n")}`
+                        : ""}
                     </Text>
                   );
                 })()}

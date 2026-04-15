@@ -255,6 +255,40 @@ function parseChangeRequest(value) {
   }
 }
 
+function normalizeComparable(value) {
+  if (value === undefined || value === null) return "";
+  if (typeof value === "number" || typeof value === "boolean")
+    return String(value);
+  return String(value).trim();
+}
+
+function buildBoxChangedFields(beforeBox, afterBox) {
+  const descriptors = [
+    { key: "title", label: "Titre" },
+    { key: "description", label: "Description" },
+    { key: "city", label: "Ville" },
+    { key: "price_cents", label: "Prix" },
+    { key: "capacity_liters", label: "Capacité" },
+    { key: "has_water", label: "Eau disponible" },
+    { key: "availability_note", label: "Disponibilités" },
+    { key: "criteria_note", label: "Note critères" },
+    { key: "criteria_json", label: "Tags critères" },
+  ];
+  const out = [];
+  for (const f of descriptors) {
+    const before = normalizeComparable(beforeBox?.[f.key]);
+    const after = normalizeComparable(afterBox?.[f.key]);
+    if (before !== after) {
+      out.push({
+        label: f.label,
+        before: before || "(vide)",
+        after: after || "(vide)",
+      });
+    }
+  }
+  return out;
+}
+
 async function createNotification({
   recipientUserId,
   type,
@@ -641,6 +675,11 @@ router.patch("/host/boxes/:id", requireAuth, async (req, res) => {
     ]
   );
   const updated = rows[0];
+  const changedFields = buildBoxChangedFields(beforeBox, updated);
+  const changeLabels =
+    changedFields.length > 0
+      ? changedFields.map((f) => f.label).join(", ")
+      : "Aucun détail de champ";
   const { rows: impactedBookings } = await pool.query(
     `SELECT id, athlete_user_id, booking_date, start_time, end_time
      FROM bookings
@@ -656,10 +695,11 @@ router.patch("/host/boxes/:id", requireAuth, async (req, res) => {
       title: "Mise à jour d'un box réservé",
       body: `Le box « ${
         updated.title || "sans titre"
-      } » a été modifié par l'hôte.`,
+      } » a été modifié par l'hôte. Changements: ${changeLabels}.`,
       data: {
         boxId,
         bookingId: booking.id,
+        changedFields,
         before: {
           title: beforeBox.title,
           city: beforeBox.city,
