@@ -20,6 +20,7 @@ import {
   Platform,
   ActivityIndicator,
   Linking,
+  useWindowDimensions,
 } from "react-native";
 import NativeExplorerMap from "./NativeExplorerMap";
 import ExplorerWebMap from "./ExplorerWebMap";
@@ -541,6 +542,7 @@ function ExplorerScreen() {
 
   const trailsOnMap = Array.isArray(trailsForMap) ? trailsForMap : [];
   const boxesOnMap = Array.isArray(boxesForMap) ? boxesForMap : [];
+  const { width: viewportWidth } = useWindowDimensions();
 
   useEffect(() => {
     actionsRef.current.loadTrails();
@@ -548,6 +550,7 @@ function ExplorerScreen() {
   }, []);
 
   const webSplit = Platform.OS === "web";
+  const webDesktopSplit = webSplit && viewportWidth >= 1080;
 
   const explorerScrollContent = (
     <>
@@ -1099,6 +1102,62 @@ function ExplorerScreen() {
   );
 
   if (webSplit) {
+    if (webDesktopSplit) {
+      return (
+        <SafeAreaView style={styles.screen} edges={["left", "right"]}>
+          <View style={styles.explorerWebSplitRow}>
+            <View style={styles.explorerWebPanel}>
+              <ScrollView
+                style={styles.explorerWebPanelScroll}
+                contentContainerStyle={styles.explorerWebPanelContent}
+                showsVerticalScrollIndicator
+                keyboardShouldPersistTaps="handled"
+              >
+                {explorerScrollContent}
+              </ScrollView>
+            </View>
+            <View style={styles.explorerWebMapPane}>
+              <View
+                style={[
+                  styles.explorerWebMapHost,
+                  styles.explorerWebMapHostDesktop,
+                ]}
+              >
+                <Text style={styles.webMapPaneCaption}>
+                  Carte — molette : zoom · glisser : déplacer
+                </Text>
+                <View
+                  style={[
+                    styles.explorerWebMapInner,
+                    styles.explorerWebMapInnerDesktop,
+                  ]}
+                >
+                  <ExplorerWebMap
+                    center={webMapCenter}
+                    boxes={boxesOnMap}
+                    trails={trailsOnMap}
+                    onSelectBox={setSelectedBoxId}
+                    onVisibleBoundsChange={
+                      mapListSource === "viewport"
+                        ? setMapViewportBounds
+                        : undefined
+                    }
+                    autoFitToData={mapListSource !== "viewport"}
+                    followExternalCenter={
+                      !(mapListSource === "viewport" && selectedBoxId == null)
+                    }
+                    recenterNonce={mapExplorerRecenterNonce}
+                    staticOrigin={API_STATIC_ORIGIN}
+                    inFixedPane
+                  />
+                </View>
+              </View>
+            </View>
+          </View>
+        </SafeAreaView>
+      );
+    }
+
     return (
       <SafeAreaView style={styles.screen} edges={["left", "right"]}>
         <View style={styles.explorerWebColumn}>
@@ -3482,6 +3541,38 @@ const styles = StyleSheet.create({
     minHeight: 0,
     flexDirection: "column",
   },
+  explorerWebSplitRow: {
+    flex: 1,
+    minHeight: 0,
+    flexDirection: "row",
+    gap: 12,
+    paddingHorizontal: 12,
+    paddingTop: 8,
+    paddingBottom: 10,
+  },
+  explorerWebPanel: {
+    width: "38%",
+    minWidth: 360,
+    maxWidth: 560,
+    minHeight: 0,
+    borderRadius: 20,
+    overflow: "hidden",
+    borderWidth: 1,
+    borderColor: theme.borderSoft,
+    backgroundColor: theme.bg,
+  },
+  explorerWebPanelScroll: {
+    flex: 1,
+    minHeight: 0,
+  },
+  explorerWebPanelContent: {
+    padding: 14,
+    paddingBottom: 28,
+  },
+  explorerWebMapPane: {
+    flex: 1,
+    minWidth: 0,
+  },
   explorerWebScroll: {
     flexGrow: 0,
     flexShrink: 1,
@@ -3495,6 +3586,13 @@ const styles = StyleSheet.create({
     paddingTop: 8,
     paddingBottom: 14,
     backgroundColor: theme.bg,
+  },
+  explorerWebMapHostDesktop: {
+    minHeight: 0,
+    height: "100%",
+    paddingHorizontal: 0,
+    paddingTop: 0,
+    paddingBottom: 0,
   },
   explorerWebMapInner: {
     flex: 1,
@@ -3510,6 +3608,11 @@ const styles = StyleSheet.create({
     shadowOpacity: 1,
     shadowRadius: 16,
     elevation: 6,
+  },
+  explorerWebMapInnerDesktop: {
+    minHeight: 0,
+    height: "100%",
+    maxHeight: undefined,
   },
   webMapPaneCaption: {
     fontSize: 12,
