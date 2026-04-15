@@ -685,16 +685,16 @@ function ExplorerScreen() {
                       : "Carte native : marqueurs et tracés."
                   }`
                 : mapListSource === "viewport"
-                  ? `Zone visible sur la carte (automatique). ${
-                      webSplit
-                        ? "Carte : OSM · marqueurs = box ; lignes = traces."
-                        : "Carte native : marqueurs et tracés."
-                    }`
-                  : `Box les plus proches du point lat/lon (automatique). ${
-                      webSplit
-                        ? "Carte : OSM · marqueurs = box ; lignes = traces."
-                        : "Carte native : marqueurs et tracés."
-                    }`}
+                ? `Zone visible sur la carte (automatique). ${
+                    webSplit
+                      ? "Carte : OSM · marqueurs = box ; lignes = traces."
+                      : "Carte native : marqueurs et tracés."
+                  }`
+                : `Box les plus proches du point lat/lon (automatique). ${
+                    webSplit
+                      ? "Carte : OSM · marqueurs = box ; lignes = traces."
+                      : "Carte native : marqueurs et tracés."
+                  }`}
             </Text>
           </View>
         </View>
@@ -956,9 +956,7 @@ function ExplorerScreen() {
             trails={trailsOnMap}
             onSelectBox={setSelectedBoxId}
             onVisibleBoundsChange={
-              mapListSource === "viewport"
-                ? setMapViewportBounds
-                : undefined
+              mapListSource === "viewport" ? setMapViewportBounds : undefined
             }
             followExternalCenter={
               !(mapListSource === "viewport" && selectedBoxId == null)
@@ -1817,7 +1815,9 @@ function HostScreen() {
               <SwipeActionRow
                 key={`host-box-${box.id}`}
                 onEdit={() => actionsRef.current.startEditingHostBox(box)}
-                onDelete={() => actionsRef.current.deleteHostBox(box.id, box.title)}
+                onDelete={() =>
+                  actionsRef.current.deleteHostBox(box.id, box.title)
+                }
                 editLabel="Modifier"
                 deleteLabel="Supprimer"
               >
@@ -1841,7 +1841,9 @@ function HostScreen() {
                     </Text>
                   ) : null}
                   {box.description ? (
-                    <Text style={styles.cardAvailability}>{box.description}</Text>
+                    <Text style={styles.cardAvailability}>
+                      {box.description}
+                    </Text>
                   ) : null}
                   {box.availability_note ? (
                     <Text style={styles.cardAvailability}>
@@ -2644,7 +2646,11 @@ function RavitoApp() {
       } else if (mapListSource === "viewport" && mapViewportBounds) {
         const { south, north, west, east } = mapViewportBounds;
         const rows = await apiFetch(
-          `/boxes/bounds?south=${encodeURIComponent(south)}&west=${encodeURIComponent(west)}&north=${encodeURIComponent(north)}&east=${encodeURIComponent(east)}&limit=200`
+          `/boxes/bounds?south=${encodeURIComponent(
+            south
+          )}&west=${encodeURIComponent(west)}&north=${encodeURIComponent(
+            north
+          )}&east=${encodeURIComponent(east)}&limit=200`
         );
         setBoxes(rows);
         setSelectedBoxId((prev) =>
@@ -2739,7 +2745,11 @@ function RavitoApp() {
       (async () => {
         try {
           const rows = await apiFetch(
-            `/boxes/bounds?south=${encodeURIComponent(south)}&west=${encodeURIComponent(west)}&north=${encodeURIComponent(north)}&east=${encodeURIComponent(east)}&limit=200`
+            `/boxes/bounds?south=${encodeURIComponent(
+              south
+            )}&west=${encodeURIComponent(west)}&north=${encodeURIComponent(
+              north
+            )}&east=${encodeURIComponent(east)}&limit=200`
           );
           setBoxes(rows);
           setSelectedBoxId((prev) =>
@@ -3473,18 +3483,23 @@ const styles = StyleSheet.create({
     flexDirection: "column",
   },
   explorerWebScroll: {
-    flex: 1,
+    flexGrow: 0,
+    flexShrink: 1,
     minHeight: 0,
+    maxHeight: "50vh",
   },
   explorerWebMapHost: {
-    flexShrink: 0,
+    flex: 1,
+    minHeight: 300,
     paddingHorizontal: 16,
     paddingTop: 8,
-    paddingBottom: 20,
+    paddingBottom: 14,
     backgroundColor: theme.bg,
   },
   explorerWebMapInner: {
-    height: 320,
+    flex: 1,
+    minHeight: 300,
+    maxHeight: "68vh",
     borderRadius: 20,
     overflow: "hidden",
     backgroundColor: theme.surface,
