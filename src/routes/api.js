@@ -852,11 +852,16 @@ router.get("/boxes/bounds", async (req, res) => {
   }
   const lim = limit ?? 200;
   const { rows } = await pool.query(
-    `SELECT * FROM boxes
-     WHERE is_active = 1
-       AND latitude >= $1 AND latitude <= $2
-       AND longitude >= $3 AND longitude <= $4
-     ORDER BY created_at DESC
+    `SELECT b.*,
+            u.full_name AS host_full_name,
+            (SELECT COUNT(*)::int FROM reviews r WHERE r.reviewee_user_id = b.host_user_id) AS host_review_count,
+            (SELECT COALESCE(AVG(score), 0)::float FROM reviews r WHERE r.reviewee_user_id = b.host_user_id) AS host_avg_score
+     FROM boxes b
+     LEFT JOIN users u ON u.id = b.host_user_id
+     WHERE b.is_active = 1
+       AND b.latitude >= $1 AND b.latitude <= $2
+       AND b.longitude >= $3 AND b.longitude <= $4
+     ORDER BY b.created_at DESC
      LIMIT $5`,
     [south, north, west, east, lim]
   );
@@ -871,15 +876,19 @@ router.get("/boxes/nearby", async (req, res) => {
   const { lat, lon, limit } = parsed.data;
   const lim = limit ?? 30;
   const { rows } = await pool.query(
-    `SELECT *,
+    `SELECT b.*,
+            u.full_name AS host_full_name,
+            (SELECT COUNT(*)::int FROM reviews r WHERE r.reviewee_user_id = b.host_user_id) AS host_review_count,
+            (SELECT COALESCE(AVG(score), 0)::float FROM reviews r WHERE r.reviewee_user_id = b.host_user_id) AS host_avg_score,
       (6371000 * acos(
         LEAST(1, GREATEST(-1,
-          cos(radians($1)) * cos(radians(latitude)) * cos(radians(longitude) - radians($2))
-          + sin(radians($1)) * sin(radians(latitude))
+          cos(radians($1)) * cos(radians(b.latitude)) * cos(radians(b.longitude) - radians($2))
+          + sin(radians($1)) * sin(radians(b.latitude))
         ))
       )) / 1000 AS distance_km
-     FROM boxes
-     WHERE is_active = 1
+     FROM boxes b
+     LEFT JOIN users u ON u.id = b.host_user_id
+     WHERE b.is_active = 1
      ORDER BY distance_km ASC
      LIMIT $3`,
     [lat, lon, lim]
@@ -891,11 +900,25 @@ router.get("/boxes", async (req, res) => {
   const city = req.query.city;
   const { rows } = city
     ? await pool.query(
-        `SELECT * FROM boxes WHERE city = $1 AND is_active = 1 ORDER BY created_at DESC`,
+        `SELECT b.*,
+                u.full_name AS host_full_name,
+                (SELECT COUNT(*)::int FROM reviews r WHERE r.reviewee_user_id = b.host_user_id) AS host_review_count,
+                (SELECT COALESCE(AVG(score), 0)::float FROM reviews r WHERE r.reviewee_user_id = b.host_user_id) AS host_avg_score
+         FROM boxes b
+         LEFT JOIN users u ON u.id = b.host_user_id
+         WHERE b.is_active = 1 AND b.city = $1
+         ORDER BY b.created_at DESC`,
         [city]
       )
     : await pool.query(
-        `SELECT * FROM boxes WHERE is_active = 1 ORDER BY created_at DESC`
+        `SELECT b.*,
+                u.full_name AS host_full_name,
+                (SELECT COUNT(*)::int FROM reviews r WHERE r.reviewee_user_id = b.host_user_id) AS host_review_count,
+                (SELECT COALESCE(AVG(score), 0)::float FROM reviews r WHERE r.reviewee_user_id = b.host_user_id) AS host_avg_score
+         FROM boxes b
+         LEFT JOIN users u ON u.id = b.host_user_id
+         WHERE b.is_active = 1
+         ORDER BY b.created_at DESC`
       );
   res.json(rows);
 });

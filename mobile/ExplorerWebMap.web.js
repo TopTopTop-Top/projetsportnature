@@ -79,6 +79,14 @@ function parseCriteria(box) {
   }
 }
 
+function hostRatingLineHtml(box) {
+  const n = Number(box.host_review_count || 0);
+  const avg = Number(box.host_avg_score || 0);
+  const name = box.host_full_name ? `${escapeHtml(box.host_full_name)} · ` : "";
+  if (!n) return `${name}<em>Pas encore d'avis</em>`;
+  return `${name}<strong>Note hôte ${avg.toFixed(1)}/5</strong> (${n} avis)`;
+}
+
 function buildBoxPopupHtml(box) {
   const lines = [
     `<strong>${escapeHtml(box.title)}</strong>`,
@@ -87,6 +95,7 @@ function buildBoxPopupHtml(box) {
   if (box.distance_km != null) {
     lines.push(`≈ ${Number(box.distance_km).toFixed(1)} km`);
   }
+  lines.push(hostRatingLineHtml(box));
   lines.push(
     '<hr style="border:none;border-top:1px solid #ccc;margin:6px 0"/>'
   );

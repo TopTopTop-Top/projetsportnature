@@ -2,6 +2,13 @@ import React, { useEffect, useMemo, useRef } from "react";
 import { StyleSheet } from "react-native";
 import MapView, { Marker, Polyline } from "react-native-maps";
 
+function boxHostRatingSnippet(box) {
+  const n = Number(box.host_review_count || 0);
+  const avg = Number(box.host_avg_score || 0);
+  if (!n) return "Hôte : pas encore d'avis";
+  return `Hôte ${avg.toFixed(1)}/5 (${n} avis)`;
+}
+
 export default function NativeExplorerMap({
   center,
   boxes,
@@ -88,7 +95,9 @@ export default function NativeExplorerMap({
             longitude: box.longitude,
           }}
           title={box.title}
-          description={`${box.city} · ${(box.price_cents / 100).toFixed(2)} €`}
+          description={`${box.city} · ${(box.price_cents / 100).toFixed(
+            2
+          )} € · ${boxHostRatingSnippet(box)}`}
           onPress={() => onSelectBox(box.id)}
         />
       ))}

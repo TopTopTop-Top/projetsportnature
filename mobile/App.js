@@ -95,6 +95,29 @@ function minDistanceKmFromBoxToTrails(box, trailsList) {
   return minD;
 }
 
+/** Distance minimale (km) d’un point GPS aux sommets du tracé (approximation). */
+function minDistanceKmPointToTrail(trail, lat, lon) {
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return Infinity;
+  let positions = [];
+  try {
+    if (trail.polyline_json) positions = JSON.parse(trail.polyline_json);
+  } catch {
+    positions = [];
+  }
+  if (!Array.isArray(positions)) return Infinity;
+  let minD = Infinity;
+  for (const pt of positions) {
+    const p = Array.isArray(pt) ? pt : null;
+    if (!p || p.length < 2) continue;
+    const plat = Number(p[0]);
+    const plng = Number(p[1]);
+    if (!Number.isFinite(plat) || !Number.isFinite(plng)) continue;
+    const d = haversineKm(lat, lon, plat, plng);
+    if (d < minD) minD = d;
+  }
+  return minD;
+}
+
 const theme = {
   bg: "#EEF4F0",
   surface: "#FFFFFF",
@@ -355,6 +378,15 @@ function formatPublicRatingLine(stats) {
   return `Note moyenne ${avg.toFixed(1)}/5 · ${n} avis`;
 }
 
+function formatHostRatingLine(box) {
+  if (!box) return "Hôte : pas encore d'avis";
+  const n = Number(box.host_review_count || 0);
+  const avg = Number(box.host_avg_score || 0);
+  const name = box.host_full_name ? `${box.host_full_name} · ` : "";
+  if (!n) return `${name}Pas encore d'avis`;
+  return `${name}Note ${avg.toFixed(1)}/5 (${n} avis)`;
+}
+
 function parseTimeToParts(t) {
   if (!t || typeof t !== "string") return { h: 8, m: 0 };
   const [a, b] = t.split(":");
@@ -378,6 +410,40 @@ function todayIsoDate() {
     2,
     "0"
   )}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+function buildBookingVigilances(box, bookingDate, startTime, endTime, specialRequest) {
+  const warnings = [];
+  const blocking = [];
+  if (timeToMinutes(endTime) <= timeToMinutes(startTime)) {
+    blocking.push("L'heure de fin doit être après l'heure de début.");
+  }
+  const today = todayIsoDate();
+  if (bookingDate && bookingDate < today) {
+    blocking.push("La date choisie est dans le passé.");
+  }
+  if (!specialRequest?.trim()) {
+    warnings.push(
+      "Tu n'as pas indiqué de demande spéciale (allergies, nombre de personnes, type de vélo, horaire d'arrivée, etc.). Plus l'hôte en sait, mieux c'est."
+    );
+  }
+  if (box?.availability_note && String(box.availability_note).trim().length > 4) {
+    warnings.push(
+      "Ce box a une note de disponibilité de l'hôte : vérifie que ton créneau et ton usage sont compatibles."
+    );
+  }
+  const crit = box ? parseBoxCriteria(box) : [];
+  if (crit.length > 0) {
+    warnings.push(
+      "Ce box affiche des critères ou services précis : assure-toi d'y correspondre avant d'envoyer la demande."
+    );
+  }
+  if (box?.criteria_note && String(box.criteria_note).trim().length > 4) {
+    warnings.push(
+      "L'hôte a ajouté des précisions dans « critères » : relis-les avant de confirmer."
+    );
+  }
+  return { warnings, blocking };
 }
 
 function parseIsoToLocalParts(iso) {
@@ -997,6 +1063,115 @@ function UserReviewsModal({ visible, userId, title, onClose }) {
   );
 }
 
+function BookingConfirmModal({
+  visible,
+  box,
+  bookingDate,
+  startTime,
+  endTime,
+  specialRequest,
+  submitting,
+  onClose,
+  onConfirm,
+}) {
+  if (!box) return null;
+  const { warnings, blocking } = buildBookingVigilances(
+    box,
+    bookingDate,
+    startTime,
+    endTime,
+    specialRequest
+  );
+  return (
+    <Modal
+      visible={visible}
+      transparent
+      animationType="fade"
+      onRequestClose={onClose}
+    >
+      <View style={styles.modalBackdrop}>
+        <View style={[styles.modalSheet, styles.bookingConfirmSheet]}>
+          <View style={styles.modalSheetHeader}>
+            <Text style={styles.modalSheetTitle}>Confirmer la réservation</Text>
+            <TouchableOpacity onPress={onClose} hitSlop={12} disabled={submitting}>
+              <Ionicons name="close" size={26} color={theme.ink} />
+            </TouchableOpacity>
+          </View>
+          <ScrollView
+            style={styles.modalSheetBody}
+            keyboardShouldPersistTaps="handled"
+          >
+            <Text style={styles.bookingRecapTitle}>Récapitulatif</Text>
+            <View style={styles.card}>
+              <View style={styles.cardAccent} />
+              <Text style={styles.cardTitle}>{box.title}</Text>
+              <Text style={styles.cardMeta}>
+                {box.city} · {(Number(box.price_cents || 0) / 100).toFixed(2)} €
+              </Text>
+              <Text style={styles.cardAvailability}>
+                {formatHostRatingLine(box)}
+              </Text>
+            </View>
+            <Text style={styles.cardMeta}>
+              Date : {formatDateLongFr(bookingDate)} · {startTime} → {endTime}
+            </Text>
+            {specialRequest?.trim() ? (
+              <Text style={styles.cardAvailability}>
+                Demande : {specialRequest.trim()}
+              </Text>
+            ) : (
+              <Text style={styles.cardAvailability}>
+                Aucune demande spéciale saisie.
+              </Text>
+            )}
+            {blocking.length > 0 ? (
+              <View style={[styles.infoBanner, { borderColor: "#FECACA" }]}>
+                <Text style={styles.infoBannerTitle}>À corriger</Text>
+                {blocking.map((t, i) => (
+                  <Text key={`blk-${i}`} style={styles.infoBannerText}>
+                    • {t}
+                  </Text>
+                ))}
+              </View>
+            ) : null}
+            {warnings.length > 0 ? (
+              <View style={[styles.infoBanner, { marginTop: 10 }]}>
+                <Text style={styles.infoBannerTitle}>Points de vigilance</Text>
+                {warnings.map((t, i) => (
+                  <Text key={`warn-${i}`} style={styles.infoBannerText}>
+                    • {t}
+                  </Text>
+                ))}
+              </View>
+            ) : null}
+            <Text style={styles.helperText}>
+              En confirmant, tu envoies une demande à l'hôte (acceptation ou
+              refus possible).
+            </Text>
+          </ScrollView>
+          <View style={styles.modalSheetFooter}>
+            <OutlineButton
+              compact
+              label="Modifier"
+              icon="create-outline"
+              onPress={onClose}
+              disabled={submitting}
+            />
+            <PrimaryButton
+              compact
+              label={submitting ? "Envoi…" : "Confirmer l'envoi"}
+              icon="checkmark-circle-outline"
+              onPress={onConfirm}
+              disabled={submitting || blocking.length > 0}
+              loading={submitting}
+            />
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
 function SwipeActionRow({
   children,
   onDelete,
@@ -1069,6 +1244,19 @@ function ExplorerScreen() {
     setMapTrailDifficultyFilter,
     mapTrailsScope,
     setMapTrailsScope,
+    mapTrailPickIds,
+    setMapTrailPickIds,
+    mapTrailTerritoryQuery,
+    setMapTrailTerritoryQuery,
+    mapTrailFilterLat,
+    setMapTrailFilterLat,
+    mapTrailFilterLon,
+    setMapTrailFilterLon,
+    mapTrailFilterRadiusKm,
+    setMapTrailFilterRadiusKm,
+    mapBoxSort,
+    setMapBoxSort,
+    boxesForExplorerList,
     boxesForMap,
     mapShowBoxes,
     setMapShowBoxes,
@@ -1097,38 +1285,14 @@ function ExplorerScreen() {
 
   const trailsOnMap = Array.isArray(trailsForMap) ? trailsForMap : [];
   const boxesOnMap = Array.isArray(boxesForMap) ? boxesForMap : [];
-  const { width: viewportWidth } = useWindowDimensions();
-  const [hostPreview, setHostPreview] = useState(null);
-  const [hostPreviewLoading, setHostPreviewLoading] = useState(false);
-
-  useEffect(() => {
-    const hid = selectedBox?.host_user_id;
-    if (hid == null) {
-      setHostPreview(null);
-      return;
+  const trailsForPickList = useMemo(() => {
+    let t = Array.isArray(trails) ? trails : [];
+    if (mapTrailDifficultyFilter !== "all") {
+      t = t.filter((tr) => tr.difficulty === mapTrailDifficultyFilter);
     }
-    let cancelled = false;
-    setHostPreviewLoading(true);
-    apiFetch(`/users/${hid}/reviews`)
-      .then((data) => {
-        if (!cancelled) {
-          setHostPreview({
-            stats: data?.stats || { count: 0, avg_score: 0 },
-            user: data?.user,
-            userId: hid,
-          });
-        }
-      })
-      .catch(() => {
-        if (!cancelled) setHostPreview(null);
-      })
-      .finally(() => {
-        if (!cancelled) setHostPreviewLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [selectedBox?.host_user_id]);
+    return t;
+  }, [trails, mapTrailDifficultyFilter]);
+  const { width: viewportWidth } = useWindowDimensions();
 
   useEffect(() => {
     actionsRef.current.loadTrails();
@@ -1363,8 +1527,8 @@ function ExplorerScreen() {
             ) : null}
             <Text style={styles.helperText}>
               Sur la carte : {boxesOnMap.length} marqueur
-              {boxesOnMap.length !== 1 ? "s" : ""} · Liste : {boxes.length} box
-              chargé{boxes.length !== 1 ? "s" : ""}
+              {boxesOnMap.length !== 1 ? "s" : ""} · Liste :{" "}
+              {boxesForExplorerList.length} box (après filtres / tri)
             </Text>
           </>
         ) : null}
@@ -1402,7 +1566,7 @@ function ExplorerScreen() {
         {mapShowTrails ? (
           <>
             <Text style={styles.fieldLabel}>Portée des traces</Text>
-            <View style={styles.roleRow}>
+            <View style={[styles.roleRow, { flexWrap: "wrap" }]}>
               <TouchableOpacity
                 style={[
                   styles.roleChip,
@@ -1421,25 +1585,175 @@ function ExplorerScreen() {
                 </Text>
               </TouchableOpacity>
               {user ? (
-                <TouchableOpacity
-                  style={[
-                    styles.roleChip,
-                    mapTrailsScope === "mine" && styles.roleChipActive,
-                  ]}
-                  onPress={() => setMapTrailsScope("mine")}
-                  activeOpacity={0.85}
-                >
-                  <Text
+                <>
+                  <TouchableOpacity
                     style={[
-                      styles.roleChipText,
-                      mapTrailsScope === "mine" && styles.roleChipTextActive,
+                      styles.roleChip,
+                      mapTrailsScope === "mine" && styles.roleChipActive,
                     ]}
+                    onPress={() => setMapTrailsScope("mine")}
+                    activeOpacity={0.85}
                   >
-                    Les miennes
-                  </Text>
-                </TouchableOpacity>
+                    <Text
+                      style={[
+                        styles.roleChipText,
+                        mapTrailsScope === "mine" && styles.roleChipTextActive,
+                      ]}
+                    >
+                      Les miennes
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[
+                      styles.roleChip,
+                      mapTrailsScope === "others" && styles.roleChipActive,
+                    ]}
+                    onPress={() => setMapTrailsScope("others")}
+                    activeOpacity={0.85}
+                  >
+                    <Text
+                      style={[
+                        styles.roleChipText,
+                        mapTrailsScope === "others" && styles.roleChipTextActive,
+                      ]}
+                    >
+                      Les autres
+                    </Text>
+                  </TouchableOpacity>
+                </>
               ) : null}
+              <TouchableOpacity
+                style={[
+                  styles.roleChip,
+                  mapTrailsScope === "picked" && styles.roleChipActive,
+                ]}
+                onPress={() => setMapTrailsScope("picked")}
+                activeOpacity={0.85}
+              >
+                <Text
+                  style={[
+                    styles.roleChipText,
+                    mapTrailsScope === "picked" && styles.roleChipTextActive,
+                  ]}
+                >
+                  Sélection…
+                </Text>
+              </TouchableOpacity>
             </View>
+            {mapTrailsScope === "picked" ? (
+              <>
+                <Text style={styles.helperText}>
+                  Choisis une ou plusieurs traces ci-dessous (liste selon la
+                  difficulté sélectionnée). Liste vide = aucune trace sur la
+                  carte.
+                </Text>
+                <View style={[styles.roleRow, { flexWrap: "wrap" }]}>
+                  <OutlineButton
+                    compact
+                    label="Mes traces (liste)"
+                    icon="person-outline"
+                    onPress={() => {
+                      if (!user?.id) return;
+                      const uid = Number(user.id);
+                      setMapTrailPickIds(
+                        trailsForPickList
+                          .filter((tr) => Number(tr.creator_user_id) === uid)
+                          .map((tr) => Number(tr.id))
+                      );
+                    }}
+                  />
+                  <OutlineButton
+                    compact
+                    label="Effacer sélection"
+                    icon="close-circle-outline"
+                    onPress={() => setMapTrailPickIds([])}
+                  />
+                </View>
+                <ScrollView
+                  style={styles.trailPickScroll}
+                  nestedScrollEnabled
+                  keyboardShouldPersistTaps="handled"
+                >
+                  {trailsForPickList.map((trail) => {
+                    const tid = Number(trail.id);
+                    const sel = mapTrailPickIds.includes(tid);
+                    const mine =
+                      user && Number(trail.creator_user_id) === Number(user.id);
+                    return (
+                      <TouchableOpacity
+                        key={`pick-tr-${trail.id}`}
+                        style={[
+                          styles.trailPickRow,
+                          sel && styles.trailPickRowActive,
+                        ]}
+                        onPress={() => {
+                          setMapTrailPickIds((prev) =>
+                            prev.includes(tid)
+                              ? prev.filter((x) => x !== tid)
+                              : [...prev, tid]
+                          );
+                        }}
+                        activeOpacity={0.85}
+                      >
+                        <Ionicons
+                          name={sel ? "checkbox" : "square-outline"}
+                          size={22}
+                          color={theme.primary}
+                        />
+                        <View style={{ flex: 1, marginLeft: 10 }}>
+                          <Text style={styles.cardTitle}>{trail.name}</Text>
+                          <Text style={styles.cardMeta}>
+                            {trail.territory} ·{" "}
+                            {DIFFICULTY_LABELS[trail.difficulty] ||
+                              trail.difficulty}
+                            {mine ? " · Mienne" : ""}
+                          </Text>
+                        </View>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </ScrollView>
+              </>
+            ) : null}
+            <Text style={styles.fieldLabel}>Territoire / ville (contient)</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="Ex. Annecy, Chamonix… (min. 2 caractères)"
+              placeholderTextColor={theme.inkMuted}
+              value={mapTrailTerritoryQuery}
+              onChangeText={setMapTrailTerritoryQuery}
+            />
+            <Text style={styles.fieldLabel}>Autour d’un point GPS (optionnel)</Text>
+            <Text style={styles.helperText}>
+              Filtre les traces dont au moins un point du tracé est à moins du
+              rayon indiqué (km).
+            </Text>
+            <View style={styles.row}>
+              <TextInput
+                style={[styles.inputHalf, { marginRight: 4 }]}
+                placeholder="Lat."
+                placeholderTextColor={theme.inkMuted}
+                value={mapTrailFilterLat}
+                onChangeText={setMapTrailFilterLat}
+                keyboardType="decimal-pad"
+              />
+              <TextInput
+                style={[styles.inputHalf, { marginLeft: 4 }]}
+                placeholder="Lon."
+                placeholderTextColor={theme.inkMuted}
+                value={mapTrailFilterLon}
+                onChangeText={setMapTrailFilterLon}
+                keyboardType="decimal-pad"
+              />
+            </View>
+            <TextInput
+              style={styles.input}
+              placeholder="Rayon km (ex. 15) — laisser vide pour ignorer"
+              placeholderTextColor={theme.inkMuted}
+              value={mapTrailFilterRadiusKm}
+              onChangeText={setMapTrailFilterRadiusKm}
+              keyboardType="decimal-pad"
+            />
             <Text style={styles.fieldLabel}>Difficulté (carte)</Text>
             <View style={styles.roleRow}>
               {["all", "easy", "medium", "hard"].map((d) => (
@@ -1469,6 +1783,37 @@ function ExplorerScreen() {
               {trailsOnMap.length !== 1 ? "s" : ""} sur la carte (sur{" "}
               {trails.length} au total)
             </Text>
+            <Text style={styles.fieldLabel}>Liste des traces affichées</Text>
+            <Text style={styles.helperText}>
+              Même ensemble que sur la carte (aperçu, max. 40).
+            </Text>
+            {trailsOnMap.length === 0 ? (
+              <Text style={styles.emptyText}>
+                Aucune trace avec ces critères.
+              </Text>
+            ) : (
+              trailsOnMap.slice(0, 40).map((trail) => {
+                const mine =
+                  user && Number(trail.creator_user_id) === Number(user.id);
+                return (
+                  <View key={`map-tr-list-${trail.id}`} style={styles.card}>
+                    <View style={styles.cardAccent} />
+                    <Text style={styles.cardTitle}>{trail.name}</Text>
+                    <Text style={styles.cardMeta}>
+                      {trail.territory} · {trail.distance_km} km ·{" "}
+                      {DIFFICULTY_LABELS[trail.difficulty] || trail.difficulty}
+                      {mine ? " · Mienne" : ""}
+                    </Text>
+                  </View>
+                );
+              })
+            )}
+            {trailsOnMap.length > 40 ? (
+              <Text style={styles.helperText}>
+                … et {trailsOnMap.length - 40} autre(s). Affine les filtres pour
+                raccourcir la liste.
+              </Text>
+            ) : null}
             {mapShowBoxes ? (
               <>
                 <Text style={styles.fieldLabel}>Box près du tracé GPX</Text>
@@ -1566,17 +1911,9 @@ function ExplorerScreen() {
             </Text>
             {selectedBox.host_user_id != null ? (
               <>
-                <Text style={styles.cardDetailLine}>
-                  Hôte :{" "}
-                  {hostPreviewLoading
-                    ? "…"
-                    : hostPreview?.user?.full_name || "Hôte"}
+                <Text style={styles.cardAvailability}>
+                  {formatHostRatingLine(selectedBox)}
                 </Text>
-                {!hostPreviewLoading && hostPreview?.stats ? (
-                  <Text style={styles.cardAvailability}>
-                    {formatPublicRatingLine(hostPreview.stats)}
-                  </Text>
-                ) : null}
                 <OutlineButton
                   compact
                   stretch
@@ -1594,8 +1931,8 @@ function ExplorerScreen() {
             {canBook ? (
               <>
                 <Text style={styles.helperText}>
-                  Avant de réserver, vérifie le bloc « Créneau & demande »
-                  (date, début/fin, message optionnel).
+                  Créneau dans « Créneau & demande ». Un récapitulatif et des
+                  points de vigilance s’affichent avant l’envoi.
                 </Text>
                 <PrimaryButton
                   compact
@@ -1642,8 +1979,37 @@ function ExplorerScreen() {
       ) : null}
 
       <Section title="Liste des box" icon="list-outline">
+        <Text style={styles.fieldLabel}>Trier la liste</Text>
+        <View style={[styles.roleRow, { flexWrap: "wrap" }]}>
+          {[
+            { id: "default", label: "Défaut" },
+            { id: "rating_desc", label: "Notes ↓" },
+            { id: "rating_asc", label: "Notes ↑" },
+            { id: "price_asc", label: "Prix ↑" },
+            { id: "price_desc", label: "Prix ↓" },
+          ].map((opt) => (
+            <TouchableOpacity
+              key={`box-sort-${opt.id}`}
+              style={[
+                styles.roleChip,
+                mapBoxSort === opt.id && styles.roleChipActive,
+              ]}
+              onPress={() => setMapBoxSort(opt.id)}
+              activeOpacity={0.85}
+            >
+              <Text
+                style={[
+                  styles.roleChipText,
+                  mapBoxSort === opt.id && styles.roleChipTextActive,
+                ]}
+              >
+                {opt.label}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
         <FlatList
-          data={boxes}
+          data={boxesForExplorerList}
           scrollEnabled={false}
           keyExtractor={(item) => `${item.id}`}
           renderItem={({ item }) => (
@@ -1654,6 +2020,9 @@ function ExplorerScreen() {
                 {item.city} · {(item.price_cents / 100).toFixed(2)} €
                 {item.distance_km != null &&
                   ` · ≈ ${Number(item.distance_km).toFixed(1)} km`}
+              </Text>
+              <Text style={styles.cardAvailability}>
+                {formatHostRatingLine(item)}
               </Text>
               <Text style={styles.cardDetailLine}>
                 {item.capacity_liters ?? "?"} L · Eau : {boxWaterLabel(item)}
@@ -1682,7 +2051,8 @@ function ExplorerScreen() {
               {canBook ? (
                 <>
                   <Text style={styles.helperText}>
-                    Date/heure à définir dans « Créneau & demande ».
+                    Créneau dans « Créneau & demande ». Un récapitulatif et des
+                    points de vigilance s’affichent avant l’envoi.
                   </Text>
                   <PrimaryButton
                     compact
@@ -3354,6 +3724,11 @@ function RavitoApp() {
     userId: null,
     title: "",
   });
+  const [bookingConfirm, setBookingConfirm] = useState({
+    visible: false,
+    boxId: null,
+  });
+  const [bookingSubmitting, setBookingSubmitting] = useState(false);
   const [mapLat, setMapLat] = useState("45.8992");
   const [mapLon, setMapLon] = useState("6.1294");
   const [specialRequest, setSpecialRequest] = useState("");
@@ -3363,6 +3738,12 @@ function RavitoApp() {
   const [mapTrailDifficultyFilter, setMapTrailDifficultyFilter] =
     useState("all");
   const [mapTrailsScope, setMapTrailsScope] = useState("all");
+  const [mapTrailPickIds, setMapTrailPickIds] = useState([]);
+  const [mapTrailTerritoryQuery, setMapTrailTerritoryQuery] = useState("");
+  const [mapTrailFilterLat, setMapTrailFilterLat] = useState("");
+  const [mapTrailFilterLon, setMapTrailFilterLon] = useState("");
+  const [mapTrailFilterRadiusKm, setMapTrailFilterRadiusKm] = useState("");
+  const [mapBoxSort, setMapBoxSort] = useState("default");
   const [mapShowBoxes, setMapShowBoxes] = useState(true);
   const [mapBoxCriteriaTags, setMapBoxCriteriaTags] = useState([]);
   const [mapListSource, setMapListSource] = useState("viewport");
@@ -3373,7 +3754,10 @@ function RavitoApp() {
   const [mapTrailProximityKm, setMapTrailProximityKm] = useState("3");
 
   useEffect(() => {
-    if (!user) setMapTrailsScope("all");
+    if (!user) {
+      setMapTrailsScope("all");
+      setMapTrailPickIds([]);
+    }
   }, [user]);
 
   const isAuthed = useMemo(() => Boolean(token), [token]);
@@ -3389,19 +3773,50 @@ function RavitoApp() {
   const trailsForMap = useMemo(() => {
     if (!mapShowTrails) return [];
     let t = trails;
-    if (mapTrailsScope === "mine" && user?.id != null) {
-      const uid = Number(user.id);
+    const uid = user?.id != null ? Number(user.id) : null;
+    if (mapTrailsScope === "mine" && uid != null && Number.isFinite(uid)) {
       t = t.filter((tr) => Number(tr.creator_user_id) === uid);
+    } else if (mapTrailsScope === "others" && uid != null && Number.isFinite(uid)) {
+      t = t.filter((tr) => Number(tr.creator_user_id) !== uid);
+    } else if (mapTrailsScope === "picked") {
+      const set = new Set(
+        (mapTrailPickIds || []).map((x) => Number(x)).filter(Number.isFinite)
+      );
+      t = t.filter((tr) => set.has(Number(tr.id)));
     }
     if (mapTrailDifficultyFilter !== "all") {
       t = t.filter((tr) => tr.difficulty === mapTrailDifficultyFilter);
+    }
+    const q = mapTrailTerritoryQuery.trim().toLowerCase();
+    if (q.length >= 2) {
+      t = t.filter((tr) =>
+        String(tr.territory || "")
+          .toLowerCase()
+          .includes(q)
+      );
+    }
+    const plat = parseFloat(mapTrailFilterLat);
+    const plon = parseFloat(mapTrailFilterLon);
+    const rKm = parseFloat(mapTrailFilterRadiusKm);
+    if (
+      Number.isFinite(plat) &&
+      Number.isFinite(plon) &&
+      Number.isFinite(rKm) &&
+      rKm > 0
+    ) {
+      t = t.filter((tr) => minDistanceKmPointToTrail(tr, plat, plon) <= rKm);
     }
     return t;
   }, [
     trails,
     mapShowTrails,
     mapTrailsScope,
+    mapTrailPickIds,
     mapTrailDifficultyFilter,
+    mapTrailTerritoryQuery,
+    mapTrailFilterLat,
+    mapTrailFilterLon,
+    mapTrailFilterRadiusKm,
     user?.id,
   ]);
 
@@ -3430,6 +3845,43 @@ function RavitoApp() {
     mapTrailProximityKm,
     trailsForMap,
   ]);
+
+  const boxesForExplorerList = useMemo(() => {
+    const list = [...boxesForMap];
+    const avg = (b) => Number(b.host_avg_score) || 0;
+    const cnt = (b) => Number(b.host_review_count) || 0;
+    switch (mapBoxSort) {
+      case "rating_desc":
+        list.sort((a, b) => avg(b) - avg(a) || cnt(b) - cnt(a));
+        break;
+      case "rating_asc": {
+        list.sort((a, b) => {
+          const ca = cnt(a);
+          const cb = cnt(b);
+          if (ca === 0 && cb > 0) return 1;
+          if (cb === 0 && ca > 0) return -1;
+          if (avg(a) !== avg(b)) return avg(a) - avg(b);
+          return ca - cb;
+        });
+        break;
+      }
+      case "price_asc":
+        list.sort((a, b) => (a.price_cents || 0) - (b.price_cents || 0));
+        break;
+      case "price_desc":
+        list.sort((a, b) => (b.price_cents || 0) - (a.price_cents || 0));
+        break;
+      default:
+        if (list.some((b) => b.distance_km != null)) {
+          list.sort(
+            (a, b) =>
+              (Number(a.distance_km) || 1e9) - (Number(b.distance_km) || 1e9)
+          );
+        }
+        break;
+    }
+    return list;
+  }, [boxesForMap, mapBoxSort]);
 
   const selectedBox = boxes.find((box) => box.id === selectedBoxId) || null;
 
@@ -3897,7 +4349,7 @@ function RavitoApp() {
     return () => clearTimeout(t);
   }, [hostForm.latitude, hostForm.longitude]);
 
-  const bookBox = async (boxId) => {
+  const bookBox = (boxId) => {
     if (!canBook) {
       userAlert(
         "Rôle athlète",
@@ -3905,6 +4357,53 @@ function RavitoApp() {
       );
       return;
     }
+    if (!token) {
+      userAlert("Connexion", "Connecte-toi pour réserver.");
+      return;
+    }
+    const box = boxes.find((b) => b.id === boxId);
+    if (!box) {
+      userAlert(
+        "Box introuvable",
+        "Recharge la liste des box (carte ou ville) puis réessaie."
+      );
+      return;
+    }
+    const { blocking } = buildBookingVigilances(
+      box,
+      bookingDate,
+      startTime,
+      endTime,
+      specialRequest
+    );
+    if (blocking.length > 0) {
+      userAlert("Réservation impossible", blocking.join("\n"));
+      return;
+    }
+    setBookingConfirm({ visible: true, boxId });
+  };
+
+  const confirmBookBox = async () => {
+    const boxId = bookingConfirm.boxId;
+    if (!token || !boxId) return;
+    const box = boxes.find((b) => b.id === boxId);
+    if (!box) {
+      userAlert("Erreur", "Ce box n'est plus dans la liste chargée.");
+      setBookingConfirm({ visible: false, boxId: null });
+      return;
+    }
+    const { blocking } = buildBookingVigilances(
+      box,
+      bookingDate,
+      startTime,
+      endTime,
+      specialRequest
+    );
+    if (blocking.length > 0) {
+      userAlert("Réservation impossible", blocking.join("\n"));
+      return;
+    }
+    setBookingSubmitting(true);
     try {
       const result = await apiFetch("/bookings", {
         method: "POST",
@@ -3919,6 +4418,7 @@ function RavitoApp() {
             : {}),
         },
       });
+      setBookingConfirm({ visible: false, boxId: null });
       userAlert(
         "Réservation enregistrée",
         `Code d’accès : ${result.access_code}${
@@ -3928,7 +4428,14 @@ function RavitoApp() {
       await loadAthleteBookings();
     } catch (error) {
       userAlert("Erreur", error.message);
+    } finally {
+      setBookingSubmitting(false);
     }
+  };
+
+  const cancelBookBoxConfirm = () => {
+    if (bookingSubmitting) return;
+    setBookingConfirm({ visible: false, boxId: null });
   };
 
   const uploadGpxWithFormData = async (formData) => {
@@ -4512,6 +5019,19 @@ function RavitoApp() {
       setMapBoxesNearTrailsOnly,
       mapTrailProximityKm,
       setMapTrailProximityKm,
+      mapTrailPickIds,
+      setMapTrailPickIds,
+      mapTrailTerritoryQuery,
+      setMapTrailTerritoryQuery,
+      mapTrailFilterLat,
+      setMapTrailFilterLat,
+      mapTrailFilterLon,
+      setMapTrailFilterLon,
+      mapTrailFilterRadiusKm,
+      setMapTrailFilterRadiusKm,
+      mapBoxSort,
+      setMapBoxSort,
+      boxesForExplorerList,
       mapViewportBounds,
       setMapViewportBounds,
       mapExplorerRecenterNonce,
@@ -4562,6 +5082,13 @@ function RavitoApp() {
       mapListSource,
       mapBoxesNearTrailsOnly,
       mapTrailProximityKm,
+      mapTrailPickIds,
+      mapTrailTerritoryQuery,
+      mapTrailFilterLat,
+      mapTrailFilterLon,
+      mapTrailFilterRadiusKm,
+      mapBoxSort,
+      boxesForExplorerList,
       mapViewportBounds,
       mapExplorerRecenterNonce,
       bookingDate,
@@ -4612,12 +5139,34 @@ function RavitoApp() {
                   )}
                 </Stack.Navigator>
                 {isAuthed ? (
-                  <UserReviewsModal
-                    visible={userReviewsModal.visible}
-                    userId={userReviewsModal.userId}
-                    title={userReviewsModal.title}
-                    onClose={closeUserReviews}
-                  />
+                  <>
+                    <UserReviewsModal
+                      visible={userReviewsModal.visible}
+                      userId={userReviewsModal.userId}
+                      title={userReviewsModal.title}
+                      onClose={closeUserReviews}
+                    />
+                    <BookingConfirmModal
+                      visible={
+                        bookingConfirm.visible &&
+                        bookingConfirm.boxId != null &&
+                        Boolean(
+                          boxes.find((b) => b.id === bookingConfirm.boxId)
+                        )
+                      }
+                      box={
+                        boxes.find((b) => b.id === bookingConfirm.boxId) ||
+                        null
+                      }
+                      bookingDate={bookingDate}
+                      startTime={startTime}
+                      endTime={endTime}
+                      specialRequest={specialRequest}
+                      submitting={bookingSubmitting}
+                      onClose={cancelBookBoxConfirm}
+                      onConfirm={confirmBookBox}
+                    />
+                  </>
                 ) : null}
               </>
             </AppMainContext.Provider>
@@ -4936,6 +5485,17 @@ const styles = StyleSheet.create({
   userReviewsSheet: {
     maxHeight: "92%",
   },
+  bookingConfirmSheet: {
+    maxHeight: "92%",
+  },
+  bookingRecapTitle: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: theme.inkMuted,
+    marginBottom: 8,
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+  },
   modalSheetHeader: {
     flexDirection: "row",
     alignItems: "center",
@@ -5062,6 +5622,25 @@ const styles = StyleSheet.create({
     paddingVertical: 40,
     alignItems: "center",
     justifyContent: "center",
+  },
+  trailPickScroll: {
+    maxHeight: 220,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: theme.borderSoft,
+    borderRadius: 14,
+    backgroundColor: theme.surfaceMuted,
+  },
+  trailPickRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: theme.borderSoft,
+  },
+  trailPickRowActive: {
+    backgroundColor: theme.chipBg,
   },
   section: {
     backgroundColor: theme.surface,
