@@ -95,7 +95,9 @@ export default function NativeExplorerMap({
             latitude: box.latitude,
             longitude: box.longitude,
           }}
-          pinColor={Number(box.id) === Number(selectedBoxId) ? "#14B8A6" : undefined}
+          pinColor={
+            Number(box.id) === Number(selectedBoxId) ? "#14B8A6" : undefined
+          }
           title={box.title}
           description={`${box.city} · ${(box.price_cents / 100).toFixed(
             2

@@ -342,6 +342,29 @@ function geocodePayloadToCityLabel(data) {
   return null;
 }
 
+async function geocodeCityToLatLon(query, { signal } = {}) {
+  const q = String(query || "").trim();
+  if (q.length < 2) return null;
+  const url =
+    "https://nominatim.openstreetmap.org/search" +
+    `?format=jsonv2&limit=1&addressdetails=1&accept-language=fr` +
+    `&q=${encodeURIComponent(q)}`;
+  const res = await fetch(url, {
+    method: "GET",
+    headers: {
+      Accept: "application/json",
+    },
+    signal,
+  });
+  if (!res.ok) return null;
+  const data = await res.json();
+  const first = Array.isArray(data) ? data[0] : null;
+  const lat = Number(first?.lat);
+  const lon = Number(first?.lon);
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+  return { lat, lon };
+}
+
 const AuthUiContext = createContext(null);
 
 /** Données / actions des écrans connectés — évite de définir les écrans dans App (sinon React Navigation remonte la carte à chaque render). */
@@ -1507,9 +1530,7 @@ function ExplorerScreen() {
             trails={trailsOnMap}
             selectedBoxId={selectedBoxId}
             onSelectBox={setSelectedBoxId}
-            onVisibleBoundsChange={
-              mapListSource === "viewport" ? setMapViewportBounds : undefined
-            }
+            onVisibleBoundsChange={setMapViewportBounds}
             followExternalCenter={
               !(mapListSource === "viewport" && selectedBoxId == null)
             }
@@ -1599,7 +1620,9 @@ function ExplorerScreen() {
       <Section title="Liste des box" icon="list-outline">
         <OutlineButton
           compact
-          label={showBoxFilters ? "Masquer filtres box" : "Afficher filtres box"}
+          label={
+            showBoxFilters ? "Masquer filtres box" : "Afficher filtres box"
+          }
           icon={showBoxFilters ? "chevron-up-outline" : "options-outline"}
           onPress={() => setShowBoxFilters((v) => !v)}
         />
@@ -1626,7 +1649,10 @@ function ExplorerScreen() {
                 </Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={[styles.roleChip, !mapShowBoxes && styles.roleChipActive]}
+                style={[
+                  styles.roleChip,
+                  !mapShowBoxes && styles.roleChipActive,
+                ]}
                 onPress={() => setMapShowBoxes(false)}
                 activeOpacity={0.85}
               >
@@ -1649,7 +1675,10 @@ function ExplorerScreen() {
                     return (
                       <TouchableOpacity
                         key={`map-crit-${label}`}
-                        style={[styles.roleChip, active && styles.roleChipActive]}
+                        style={[
+                          styles.roleChip,
+                          active && styles.roleChipActive,
+                        ]}
                         onPress={() =>
                           setMapBoxCriteriaTags((prev) =>
                             active
@@ -1692,7 +1721,8 @@ function ExplorerScreen() {
                     <Text
                       style={[
                         styles.roleChipText,
-                        mapBoxSelectionMode === "all" && styles.roleChipTextActive,
+                        mapBoxSelectionMode === "all" &&
+                          styles.roleChipTextActive,
                       ]}
                     >
                       Toutes
@@ -1761,7 +1791,11 @@ function ExplorerScreen() {
                             <View style={{ flex: 1, marginLeft: 10 }}>
                               <Text style={styles.cardTitle}>{box.title}</Text>
                               <Text style={styles.cardMeta}>
-                                {box.city} · {(Number(box.price_cents || 0) / 100).toFixed(2)} €
+                                {box.city} ·{" "}
+                                {(Number(box.price_cents || 0) / 100).toFixed(
+                                  2
+                                )}{" "}
+                                €
                               </Text>
                             </View>
                           </TouchableOpacity>
@@ -1822,7 +1856,8 @@ function ExplorerScreen() {
                       <TouchableOpacity
                         style={[
                           styles.roleChip,
-                          mapNearTrailsMode === "visible" && styles.roleChipActive,
+                          mapNearTrailsMode === "visible" &&
+                            styles.roleChipActive,
                         ]}
                         onPress={() => setMapNearTrailsMode("visible")}
                         activeOpacity={0.85}
@@ -1840,7 +1875,8 @@ function ExplorerScreen() {
                       <TouchableOpacity
                         style={[
                           styles.roleChip,
-                          mapNearTrailsMode === "picked" && styles.roleChipActive,
+                          mapNearTrailsMode === "picked" &&
+                            styles.roleChipActive,
                         ]}
                         onPress={() => setMapNearTrailsMode("picked")}
                         activeOpacity={0.85}
@@ -1887,7 +1923,9 @@ function ExplorerScreen() {
                                 color={theme.primary}
                               />
                               <View style={{ flex: 1, marginLeft: 10 }}>
-                                <Text style={styles.cardTitle}>{trail.name}</Text>
+                                <Text style={styles.cardTitle}>
+                                  {trail.name}
+                                </Text>
                                 <Text style={styles.cardMeta}>
                                   {trail.territory}
                                 </Text>
@@ -2021,7 +2059,11 @@ function ExplorerScreen() {
       >
         <OutlineButton
           compact
-          label={showTrailFilters ? "Masquer filtres traces" : "Afficher filtres traces"}
+          label={
+            showTrailFilters
+              ? "Masquer filtres traces"
+              : "Afficher filtres traces"
+          }
           icon={showTrailFilters ? "chevron-up-outline" : "options-outline"}
           onPress={() => setShowTrailFilters((v) => !v)}
         />
@@ -2030,7 +2072,10 @@ function ExplorerScreen() {
             <Text style={styles.fieldLabel}>Affichage des traces</Text>
             <View style={styles.roleRow}>
               <TouchableOpacity
-                style={[styles.roleChip, mapShowTrails && styles.roleChipActive]}
+                style={[
+                  styles.roleChip,
+                  mapShowTrails && styles.roleChipActive,
+                ]}
                 onPress={() => setMapShowTrails(true)}
                 activeOpacity={0.85}
               >
@@ -2044,7 +2089,10 @@ function ExplorerScreen() {
                 </Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={[styles.roleChip, !mapShowTrails && styles.roleChipActive]}
+                style={[
+                  styles.roleChip,
+                  !mapShowTrails && styles.roleChipActive,
+                ]}
                 onPress={() => setMapShowTrails(false)}
                 activeOpacity={0.85}
               >
@@ -2062,7 +2110,12 @@ function ExplorerScreen() {
             <View style={[styles.roleRow, { flexWrap: "wrap" }]}>
               {[
                 { id: "all", label: "Toutes" },
-                ...(user ? [{ id: "mine", label: "Les miennes" }, { id: "others", label: "Les autres" }] : []),
+                ...(user
+                  ? [
+                      { id: "mine", label: "Les miennes" },
+                      { id: "others", label: "Les autres" },
+                    ]
+                  : []),
                 { id: "picked", label: "Sélection…" },
               ].map((opt) => (
                 <TouchableOpacity
@@ -2143,7 +2196,9 @@ function ExplorerScreen() {
                         <View style={{ flex: 1, marginLeft: 10 }}>
                           <Text style={styles.cardTitle}>{trail.name}</Text>
                           <Text style={styles.cardMeta}>
-                            {trail.territory} · {DIFFICULTY_LABELS[trail.difficulty] || trail.difficulty}
+                            {trail.territory} ·{" "}
+                            {DIFFICULTY_LABELS[trail.difficulty] ||
+                              trail.difficulty}
                             {mine ? " · Mienne" : ""}
                           </Text>
                         </View>
@@ -2172,7 +2227,8 @@ function ExplorerScreen() {
                   <Text
                     style={[
                       styles.roleChipText,
-                      mapTrailDifficultyFilter === d && styles.roleChipTextActive,
+                      mapTrailDifficultyFilter === d &&
+                        styles.roleChipTextActive,
                     ]}
                   >
                     {d === "all" ? "Tous" : DIFFICULTY_LABELS[d]}
@@ -2311,11 +2367,7 @@ function ExplorerScreen() {
                     trails={trailsOnMap}
                     selectedBoxId={selectedBoxId}
                     onSelectBox={setSelectedBoxId}
-                    onVisibleBoundsChange={
-                      mapListSource === "viewport"
-                        ? setMapViewportBounds
-                        : undefined
-                    }
+                    onVisibleBoundsChange={setMapViewportBounds}
                     autoFitToData={mapListSource !== "viewport"}
                     followExternalCenter={
                       !(mapListSource === "viewport" && selectedBoxId == null)
@@ -2358,11 +2410,7 @@ function ExplorerScreen() {
                 trails={trailsOnMap}
                 selectedBoxId={selectedBoxId}
                 onSelectBox={setSelectedBoxId}
-                onVisibleBoundsChange={
-                  mapListSource === "viewport"
-                    ? setMapViewportBounds
-                    : undefined
-                }
+                onVisibleBoundsChange={setMapViewportBounds}
                 autoFitToData={mapListSource !== "viewport"}
                 followExternalCenter={
                   !(mapListSource === "viewport" && selectedBoxId == null)
@@ -3917,6 +3965,7 @@ function RavitoApp() {
   });
   const hostGeocodeSeqRef = useRef(0);
   const skipInitialHostGeocodeRef = useRef(true);
+  const explorerCityGeocodeSeqRef = useRef(0);
   const [hostBoxes, setHostBoxes] = useState([]);
   const [hostBookings, setHostBookings] = useState([]);
   const [athleteBookings, setAthleteBookings] = useState([]);
@@ -4016,9 +4065,13 @@ function RavitoApp() {
   const boxesForMap = useMemo(() => {
     if (!mapShowBoxes) return [];
     let list = boxes;
-    if (mapViewportBounds) {
+    if (mapListSource === "viewport" && mapViewportBounds) {
       list = list.filter((box) =>
-        pointInBounds(Number(box.latitude), Number(box.longitude), mapViewportBounds)
+        pointInBounds(
+          Number(box.latitude),
+          Number(box.longitude),
+          mapViewportBounds
+        )
       );
     }
     if (mapBoxCriteriaTags?.length > 0) {
@@ -4037,7 +4090,9 @@ function RavitoApp() {
       let proximityTrails = trailsForMap;
       if (mapNearTrailsMode === "picked") {
         const tset = new Set(
-          (mapNearTrailPickIds || []).map((x) => Number(x)).filter(Number.isFinite)
+          (mapNearTrailPickIds || [])
+            .map((x) => Number(x))
+            .filter(Number.isFinite)
         );
         proximityTrails = trailsForMap.filter((t) => tset.has(Number(t.id)));
       }
@@ -4052,6 +4107,7 @@ function RavitoApp() {
   }, [
     boxes,
     mapViewportBounds,
+    mapListSource,
     mapShowBoxes,
     mapBoxCriteriaTags,
     mapBoxSelectionMode,
@@ -4499,20 +4555,40 @@ function RavitoApp() {
 
   useEffect(() => {
     if (mapListSource !== "city") return;
+    const q = city.trim();
+    if (q.length < 2) return;
+    const seq = (explorerCityGeocodeSeqRef.current += 1);
+    const controller =
+      typeof AbortController !== "undefined" ? new AbortController() : null;
     const t = setTimeout(() => {
-      const q = city.trim();
-      if (q.length < 2) return;
       (async () => {
         try {
           const rows = await apiFetch(`/boxes?city=${encodeURIComponent(q)}`);
+          if (seq !== explorerCityGeocodeSeqRef.current) return;
           setBoxes(rows);
           setSelectedBoxId(rows.length > 0 ? rows[0].id : null);
         } catch (error) {
           userAlert("Erreur", error.message);
         }
+        try {
+          const result = await geocodeCityToLatLon(q, {
+            signal: controller?.signal,
+          });
+          if (seq !== explorerCityGeocodeSeqRef.current) return;
+          if (result) {
+            setMapLat(result.lat.toFixed(6));
+            setMapLon(result.lon.toFixed(6));
+            setMapExplorerRecenterNonce((x) => x + 1);
+          }
+        } catch (_e) {
+          // Si le géocodage externe échoue, on garde le centre actuel.
+        }
       })();
     }, 550);
-    return () => clearTimeout(t);
+    return () => {
+      clearTimeout(t);
+      controller?.abort?.();
+    };
   }, [city, mapListSource]);
 
   useEffect(() => {

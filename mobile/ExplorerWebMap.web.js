@@ -306,10 +306,7 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
     if (!map) return;
     const L = require("leaflet");
     const next = L.latLng(center[0], center[1]);
-    if (
-      recenterNonce > 0 &&
-      recenterNonce !== lastRecenterNonceRef.current
-    ) {
+    if (recenterNonce > 0 && recenterNonce !== lastRecenterNonceRef.current) {
       lastRecenterNonceRef.current = recenterNonce;
       map.setView(next, map.getZoom(), { animate: true });
       return;
@@ -422,15 +419,7 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
     } catch (_e) {
       /* ignore */
     }
-  }, [
-    boxes,
-    trails,
-    staticOrigin,
-    draftPoint,
-    pickerMode,
-    autoFitToData,
-    selectedBoxId,
-  ]);
+  }, [boxes, trails, staticOrigin, draftPoint, pickerMode, autoFitToData, selectedBoxId]);
 
   if (Platform.OS !== "web") {
     return null;
@@ -449,7 +438,9 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
         />
         <View style={styles.hint} pointerEvents="none">
           <Text style={styles.hintText}>
-            {pickerMode ? "Mode précis: zoom max + clic exact" : "OSM · zoom molette · glisser"}
+            {pickerMode
+              ? "Mode précis: zoom max + clic exact"
+              : "OSM · zoom molette · glisser"}
           </Text>
         </View>
       </View>
