@@ -412,7 +412,13 @@ function todayIsoDate() {
   )}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
-function buildBookingVigilances(box, bookingDate, startTime, endTime, specialRequest) {
+function buildBookingVigilances(
+  box,
+  bookingDate,
+  startTime,
+  endTime,
+  specialRequest
+) {
   const warnings = [];
   const blocking = [];
   if (timeToMinutes(endTime) <= timeToMinutes(startTime)) {
@@ -427,7 +433,10 @@ function buildBookingVigilances(box, bookingDate, startTime, endTime, specialReq
       "Tu n'as pas indiqué de demande spéciale (allergies, nombre de personnes, type de vélo, horaire d'arrivée, etc.). Plus l'hôte en sait, mieux c'est."
     );
   }
-  if (box?.availability_note && String(box.availability_note).trim().length > 4) {
+  if (
+    box?.availability_note &&
+    String(box.availability_note).trim().length > 4
+  ) {
     warnings.push(
       "Ce box a une note de disponibilité de l'hôte : vérifie que ton créneau et ton usage sont compatibles."
     );
@@ -1093,7 +1102,11 @@ function BookingConfirmModal({
         <View style={[styles.modalSheet, styles.bookingConfirmSheet]}>
           <View style={styles.modalSheetHeader}>
             <Text style={styles.modalSheetTitle}>Confirmer la réservation</Text>
-            <TouchableOpacity onPress={onClose} hitSlop={12} disabled={submitting}>
+            <TouchableOpacity
+              onPress={onClose}
+              hitSlop={12}
+              disabled={submitting}
+            >
               <Ionicons name="close" size={26} color={theme.ink} />
             </TouchableOpacity>
           </View>
@@ -1296,6 +1309,8 @@ function ExplorerScreen() {
     return t;
   }, [trails, mapTrailDifficultyFilter]);
   const { width: viewportWidth } = useWindowDimensions();
+  const [showBoxFilters, setShowBoxFilters] = useState(false);
+  const [showTrailFilters, setShowTrailFilters] = useState(false);
 
   useEffect(() => {
     actionsRef.current.loadTrails();
@@ -1454,408 +1469,11 @@ function ExplorerScreen() {
             </Text>
           </View>
         </View>
-        <Text style={styles.fieldLabel}>Box sur la carte</Text>
-        <View style={styles.roleRow}>
-          <TouchableOpacity
-            style={[styles.roleChip, mapShowBoxes && styles.roleChipActive]}
-            onPress={() => setMapShowBoxes(true)}
-            activeOpacity={0.85}
-          >
-            <Text
-              style={[
-                styles.roleChipText,
-                mapShowBoxes && styles.roleChipTextActive,
-              ]}
-            >
-              Afficher
-            </Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.roleChip, !mapShowBoxes && styles.roleChipActive]}
-            onPress={() => setMapShowBoxes(false)}
-            activeOpacity={0.85}
-          >
-            <Text
-              style={[
-                styles.roleChipText,
-                !mapShowBoxes && styles.roleChipTextActive,
-              ]}
-            >
-              Masquer
-            </Text>
-          </TouchableOpacity>
-        </View>
-        {mapShowBoxes ? (
-          <>
-            <Text style={styles.fieldLabel}>Critères des box (carte)</Text>
-            <Text style={styles.helperText}>
-              Sans sélection : tous les box chargés. Avec une ou plusieurs puces
-              : uniquement les box qui ont au moins un de ces critères.
-            </Text>
-            <View style={[styles.roleRow, { flexWrap: "wrap" }]}>
-              {HOST_CRITERIA_OPTIONS.map((label) => {
-                const active = mapBoxCriteriaTags.includes(label);
-                return (
-                  <TouchableOpacity
-                    key={`map-crit-${label}`}
-                    style={[styles.roleChip, active && styles.roleChipActive]}
-                    onPress={() =>
-                      setMapBoxCriteriaTags((prev) =>
-                        active
-                          ? prev.filter((x) => x !== label)
-                          : [...prev, label]
-                      )
-                    }
-                    activeOpacity={0.85}
-                  >
-                    <Text
-                      style={[
-                        styles.roleChipText,
-                        active && styles.roleChipTextActive,
-                      ]}
-                    >
-                      {label}
-                    </Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </View>
-            {mapBoxCriteriaTags.length > 0 ? (
-              <OutlineButton
-                label="Effacer les critères (carte)"
-                icon="close-circle-outline"
-                compact
-                onPress={() => setMapBoxCriteriaTags([])}
-              />
-            ) : null}
-            <Text style={styles.helperText}>
-              Sur la carte : {boxesOnMap.length} marqueur
-              {boxesOnMap.length !== 1 ? "s" : ""} · Liste :{" "}
-              {boxesForExplorerList.length} box (après filtres / tri)
-            </Text>
-          </>
-        ) : null}
-        <Text style={styles.fieldLabel}>Tracés sur la carte</Text>
-        <View style={styles.roleRow}>
-          <TouchableOpacity
-            style={[styles.roleChip, mapShowTrails && styles.roleChipActive]}
-            onPress={() => setMapShowTrails(true)}
-            activeOpacity={0.85}
-          >
-            <Text
-              style={[
-                styles.roleChipText,
-                mapShowTrails && styles.roleChipTextActive,
-              ]}
-            >
-              Afficher
-            </Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.roleChip, !mapShowTrails && styles.roleChipActive]}
-            onPress={() => setMapShowTrails(false)}
-            activeOpacity={0.85}
-          >
-            <Text
-              style={[
-                styles.roleChipText,
-                !mapShowTrails && styles.roleChipTextActive,
-              ]}
-            >
-              Masquer
-            </Text>
-          </TouchableOpacity>
-        </View>
-        {mapShowTrails ? (
-          <>
-            <Text style={styles.fieldLabel}>Portée des traces</Text>
-            <View style={[styles.roleRow, { flexWrap: "wrap" }]}>
-              <TouchableOpacity
-                style={[
-                  styles.roleChip,
-                  mapTrailsScope === "all" && styles.roleChipActive,
-                ]}
-                onPress={() => setMapTrailsScope("all")}
-                activeOpacity={0.85}
-              >
-                <Text
-                  style={[
-                    styles.roleChipText,
-                    mapTrailsScope === "all" && styles.roleChipTextActive,
-                  ]}
-                >
-                  Toutes
-                </Text>
-              </TouchableOpacity>
-              {user ? (
-                <>
-                  <TouchableOpacity
-                    style={[
-                      styles.roleChip,
-                      mapTrailsScope === "mine" && styles.roleChipActive,
-                    ]}
-                    onPress={() => setMapTrailsScope("mine")}
-                    activeOpacity={0.85}
-                  >
-                    <Text
-                      style={[
-                        styles.roleChipText,
-                        mapTrailsScope === "mine" && styles.roleChipTextActive,
-                      ]}
-                    >
-                      Les miennes
-                    </Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={[
-                      styles.roleChip,
-                      mapTrailsScope === "others" && styles.roleChipActive,
-                    ]}
-                    onPress={() => setMapTrailsScope("others")}
-                    activeOpacity={0.85}
-                  >
-                    <Text
-                      style={[
-                        styles.roleChipText,
-                        mapTrailsScope === "others" && styles.roleChipTextActive,
-                      ]}
-                    >
-                      Les autres
-                    </Text>
-                  </TouchableOpacity>
-                </>
-              ) : null}
-              <TouchableOpacity
-                style={[
-                  styles.roleChip,
-                  mapTrailsScope === "picked" && styles.roleChipActive,
-                ]}
-                onPress={() => setMapTrailsScope("picked")}
-                activeOpacity={0.85}
-              >
-                <Text
-                  style={[
-                    styles.roleChipText,
-                    mapTrailsScope === "picked" && styles.roleChipTextActive,
-                  ]}
-                >
-                  Sélection…
-                </Text>
-              </TouchableOpacity>
-            </View>
-            {mapTrailsScope === "picked" ? (
-              <>
-                <Text style={styles.helperText}>
-                  Choisis une ou plusieurs traces ci-dessous (liste selon la
-                  difficulté sélectionnée). Liste vide = aucune trace sur la
-                  carte.
-                </Text>
-                <View style={[styles.roleRow, { flexWrap: "wrap" }]}>
-                  <OutlineButton
-                    compact
-                    label="Mes traces (liste)"
-                    icon="person-outline"
-                    onPress={() => {
-                      if (!user?.id) return;
-                      const uid = Number(user.id);
-                      setMapTrailPickIds(
-                        trailsForPickList
-                          .filter((tr) => Number(tr.creator_user_id) === uid)
-                          .map((tr) => Number(tr.id))
-                      );
-                    }}
-                  />
-                  <OutlineButton
-                    compact
-                    label="Effacer sélection"
-                    icon="close-circle-outline"
-                    onPress={() => setMapTrailPickIds([])}
-                  />
-                </View>
-                <ScrollView
-                  style={styles.trailPickScroll}
-                  nestedScrollEnabled
-                  keyboardShouldPersistTaps="handled"
-                >
-                  {trailsForPickList.map((trail) => {
-                    const tid = Number(trail.id);
-                    const sel = mapTrailPickIds.includes(tid);
-                    const mine =
-                      user && Number(trail.creator_user_id) === Number(user.id);
-                    return (
-                      <TouchableOpacity
-                        key={`pick-tr-${trail.id}`}
-                        style={[
-                          styles.trailPickRow,
-                          sel && styles.trailPickRowActive,
-                        ]}
-                        onPress={() => {
-                          setMapTrailPickIds((prev) =>
-                            prev.includes(tid)
-                              ? prev.filter((x) => x !== tid)
-                              : [...prev, tid]
-                          );
-                        }}
-                        activeOpacity={0.85}
-                      >
-                        <Ionicons
-                          name={sel ? "checkbox" : "square-outline"}
-                          size={22}
-                          color={theme.primary}
-                        />
-                        <View style={{ flex: 1, marginLeft: 10 }}>
-                          <Text style={styles.cardTitle}>{trail.name}</Text>
-                          <Text style={styles.cardMeta}>
-                            {trail.territory} ·{" "}
-                            {DIFFICULTY_LABELS[trail.difficulty] ||
-                              trail.difficulty}
-                            {mine ? " · Mienne" : ""}
-                          </Text>
-                        </View>
-                      </TouchableOpacity>
-                    );
-                  })}
-                </ScrollView>
-              </>
-            ) : null}
-            <Text style={styles.fieldLabel}>Territoire / ville (contient)</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="Ex. Annecy, Chamonix… (min. 2 caractères)"
-              placeholderTextColor={theme.inkMuted}
-              value={mapTrailTerritoryQuery}
-              onChangeText={setMapTrailTerritoryQuery}
-            />
-            <Text style={styles.fieldLabel}>Autour d’un point GPS (optionnel)</Text>
-            <Text style={styles.helperText}>
-              Filtre les traces dont au moins un point du tracé est à moins du
-              rayon indiqué (km).
-            </Text>
-            <View style={styles.row}>
-              <TextInput
-                style={[styles.inputHalf, { marginRight: 4 }]}
-                placeholder="Lat."
-                placeholderTextColor={theme.inkMuted}
-                value={mapTrailFilterLat}
-                onChangeText={setMapTrailFilterLat}
-                keyboardType="decimal-pad"
-              />
-              <TextInput
-                style={[styles.inputHalf, { marginLeft: 4 }]}
-                placeholder="Lon."
-                placeholderTextColor={theme.inkMuted}
-                value={mapTrailFilterLon}
-                onChangeText={setMapTrailFilterLon}
-                keyboardType="decimal-pad"
-              />
-            </View>
-            <TextInput
-              style={styles.input}
-              placeholder="Rayon km (ex. 15) — laisser vide pour ignorer"
-              placeholderTextColor={theme.inkMuted}
-              value={mapTrailFilterRadiusKm}
-              onChangeText={setMapTrailFilterRadiusKm}
-              keyboardType="decimal-pad"
-            />
-            <Text style={styles.fieldLabel}>Difficulté (carte)</Text>
-            <View style={styles.roleRow}>
-              {["all", "easy", "medium", "hard"].map((d) => (
-                <TouchableOpacity
-                  key={d}
-                  style={[
-                    styles.roleChip,
-                    mapTrailDifficultyFilter === d && styles.roleChipActive,
-                  ]}
-                  onPress={() => setMapTrailDifficultyFilter(d)}
-                  activeOpacity={0.85}
-                >
-                  <Text
-                    style={[
-                      styles.roleChipText,
-                      mapTrailDifficultyFilter === d &&
-                        styles.roleChipTextActive,
-                    ]}
-                  >
-                    {d === "all" ? "Tous" : DIFFICULTY_LABELS[d]}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-            <Text style={styles.helperText}>
-              {trailsOnMap.length} tracé
-              {trailsOnMap.length !== 1 ? "s" : ""} sur la carte (sur{" "}
-              {trails.length} au total). Liste détaillée : section « Liste des
-              traces » sous les box.
-            </Text>
-            {mapShowBoxes ? (
-              <>
-                <Text style={styles.fieldLabel}>Box près du tracé GPX</Text>
-                <Text style={styles.helperText}>
-                  Sur la carte uniquement : garde les box à moins de X km d’au
-                  moins un point des tracés visibles (filtres ci-dessus).
-                </Text>
-                <View style={styles.roleRow}>
-                  <TouchableOpacity
-                    style={[
-                      styles.roleChip,
-                      !mapBoxesNearTrailsOnly && styles.roleChipActive,
-                    ]}
-                    onPress={() => setMapBoxesNearTrailsOnly(false)}
-                    activeOpacity={0.85}
-                  >
-                    <Text
-                      style={[
-                        styles.roleChipText,
-                        !mapBoxesNearTrailsOnly && styles.roleChipTextActive,
-                      ]}
-                    >
-                      Toutes (liste)
-                    </Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={[
-                      styles.roleChip,
-                      mapBoxesNearTrailsOnly && styles.roleChipActive,
-                    ]}
-                    onPress={() => setMapBoxesNearTrailsOnly(true)}
-                    activeOpacity={0.85}
-                  >
-                    <Text
-                      style={[
-                        styles.roleChipText,
-                        mapBoxesNearTrailsOnly && styles.roleChipTextActive,
-                      ]}
-                    >
-                      Près des tracés
-                    </Text>
-                  </TouchableOpacity>
-                </View>
-                {mapBoxesNearTrailsOnly ? (
-                  <>
-                    <Text style={styles.inputLabel}>
-                      Distance max. au tracé (km)
-                    </Text>
-                    <TextInput
-                      style={styles.input}
-                      placeholder="3"
-                      placeholderTextColor={theme.inkMuted}
-                      value={mapTrailProximityKm}
-                      onChangeText={setMapTrailProximityKm}
-                      keyboardType="decimal-pad"
-                    />
-                    {trailsOnMap.length === 0 ? (
-                      <Text style={styles.helperText}>
-                        Aucun tracé sur la carte avec les filtres actuels : le
-                        filtre « près des tracés » est ignoré jusqu’à ce qu’au
-                        moins une trace soit visible.
-                      </Text>
-                    ) : null}
-                  </>
-                ) : null}
-              </>
-            ) : null}
-          </>
-        ) : null}
+        <Text style={styles.helperText}>
+          Filtres et sélections déplacés dans « Liste des box » et « Liste des
+          traces » pour éviter de se perdre. Ici, tu gardes uniquement la source
+          de recherche et la carte.
+        </Text>
         {!webSplit ? (
           <NativeExplorerMap
             center={webMapCenter}
@@ -1952,6 +1570,135 @@ function ExplorerScreen() {
       ) : null}
 
       <Section title="Liste des box" icon="list-outline">
+        <OutlineButton
+          compact
+          label={showBoxFilters ? "Masquer filtres box" : "Afficher filtres box"}
+          icon={showBoxFilters ? "chevron-up-outline" : "options-outline"}
+          onPress={() => setShowBoxFilters((v) => !v)}
+        />
+        {showBoxFilters ? (
+          <>
+            <Text style={styles.fieldLabel}>Affichage des box</Text>
+            <View style={styles.roleRow}>
+              <TouchableOpacity
+                style={[styles.roleChip, mapShowBoxes && styles.roleChipActive]}
+                onPress={() => setMapShowBoxes(true)}
+                activeOpacity={0.85}
+              >
+                <Text
+                  style={[
+                    styles.roleChipText,
+                    mapShowBoxes && styles.roleChipTextActive,
+                  ]}
+                >
+                  Afficher
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.roleChip, !mapShowBoxes && styles.roleChipActive]}
+                onPress={() => setMapShowBoxes(false)}
+                activeOpacity={0.85}
+              >
+                <Text
+                  style={[
+                    styles.roleChipText,
+                    !mapShowBoxes && styles.roleChipTextActive,
+                  ]}
+                >
+                  Masquer
+                </Text>
+              </TouchableOpacity>
+            </View>
+            {mapShowBoxes ? (
+              <>
+                <Text style={styles.fieldLabel}>Critères des box</Text>
+                <View style={[styles.roleRow, { flexWrap: "wrap" }]}>
+                  {HOST_CRITERIA_OPTIONS.map((label) => {
+                    const active = mapBoxCriteriaTags.includes(label);
+                    return (
+                      <TouchableOpacity
+                        key={`map-crit-${label}`}
+                        style={[styles.roleChip, active && styles.roleChipActive]}
+                        onPress={() =>
+                          setMapBoxCriteriaTags((prev) =>
+                            active
+                              ? prev.filter((x) => x !== label)
+                              : [...prev, label]
+                          )
+                        }
+                        activeOpacity={0.85}
+                      >
+                        <Text
+                          style={[
+                            styles.roleChipText,
+                            active && styles.roleChipTextActive,
+                          ]}
+                        >
+                          {label}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+                {mapBoxCriteriaTags.length > 0 ? (
+                  <OutlineButton
+                    label="Effacer les critères"
+                    icon="close-circle-outline"
+                    compact
+                    onPress={() => setMapBoxCriteriaTags([])}
+                  />
+                ) : null}
+                <Text style={styles.fieldLabel}>Lien box ↔ traces</Text>
+                <View style={styles.roleRow}>
+                  <TouchableOpacity
+                    style={[
+                      styles.roleChip,
+                      !mapBoxesNearTrailsOnly && styles.roleChipActive,
+                    ]}
+                    onPress={() => setMapBoxesNearTrailsOnly(false)}
+                    activeOpacity={0.85}
+                  >
+                    <Text
+                      style={[
+                        styles.roleChipText,
+                        !mapBoxesNearTrailsOnly && styles.roleChipTextActive,
+                      ]}
+                    >
+                      Toutes (liste)
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[
+                      styles.roleChip,
+                      mapBoxesNearTrailsOnly && styles.roleChipActive,
+                    ]}
+                    onPress={() => setMapBoxesNearTrailsOnly(true)}
+                    activeOpacity={0.85}
+                  >
+                    <Text
+                      style={[
+                        styles.roleChipText,
+                        mapBoxesNearTrailsOnly && styles.roleChipTextActive,
+                      ]}
+                    >
+                      Près des tracés
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+                {mapBoxesNearTrailsOnly ? (
+                  <TextInput
+                    style={styles.input}
+                    placeholder="Distance max. au tracé (km)"
+                    placeholderTextColor={theme.inkMuted}
+                    value={mapTrailProximityKm}
+                    onChangeText={setMapTrailProximityKm}
+                    keyboardType="decimal-pad"
+                  />
+                ) : null}
+              </>
+            ) : null}
+          </>
+        ) : null}
         <Text style={styles.fieldLabel}>Trier la liste</Text>
         <View style={[styles.roleRow, { flexWrap: "wrap" }]}>
           {[
@@ -2042,9 +1789,201 @@ function ExplorerScreen() {
 
       <Section
         title="Liste des traces"
-        subtitle="Même ensemble que sur la carte (filtres « Tracés sur la carte » ci-dessus)."
+        subtitle="Même ensemble que sur la carte. Sélection et filtres ici."
         icon="navigate-outline"
       >
+        <OutlineButton
+          compact
+          label={showTrailFilters ? "Masquer filtres traces" : "Afficher filtres traces"}
+          icon={showTrailFilters ? "chevron-up-outline" : "options-outline"}
+          onPress={() => setShowTrailFilters((v) => !v)}
+        />
+        {showTrailFilters ? (
+          <>
+            <Text style={styles.fieldLabel}>Affichage des traces</Text>
+            <View style={styles.roleRow}>
+              <TouchableOpacity
+                style={[styles.roleChip, mapShowTrails && styles.roleChipActive]}
+                onPress={() => setMapShowTrails(true)}
+                activeOpacity={0.85}
+              >
+                <Text
+                  style={[
+                    styles.roleChipText,
+                    mapShowTrails && styles.roleChipTextActive,
+                  ]}
+                >
+                  Afficher
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.roleChip, !mapShowTrails && styles.roleChipActive]}
+                onPress={() => setMapShowTrails(false)}
+                activeOpacity={0.85}
+              >
+                <Text
+                  style={[
+                    styles.roleChipText,
+                    !mapShowTrails && styles.roleChipTextActive,
+                  ]}
+                >
+                  Masquer
+                </Text>
+              </TouchableOpacity>
+            </View>
+            <Text style={styles.fieldLabel}>Portée des traces</Text>
+            <View style={[styles.roleRow, { flexWrap: "wrap" }]}>
+              {[
+                { id: "all", label: "Toutes" },
+                ...(user ? [{ id: "mine", label: "Les miennes" }, { id: "others", label: "Les autres" }] : []),
+                { id: "picked", label: "Sélection…" },
+              ].map((opt) => (
+                <TouchableOpacity
+                  key={`trail-scope-${opt.id}`}
+                  style={[
+                    styles.roleChip,
+                    mapTrailsScope === opt.id && styles.roleChipActive,
+                  ]}
+                  onPress={() => setMapTrailsScope(opt.id)}
+                  activeOpacity={0.85}
+                >
+                  <Text
+                    style={[
+                      styles.roleChipText,
+                      mapTrailsScope === opt.id && styles.roleChipTextActive,
+                    ]}
+                  >
+                    {opt.label}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+            {mapTrailsScope === "picked" ? (
+              <>
+                <View style={[styles.roleRow, { flexWrap: "wrap" }]}>
+                  <OutlineButton
+                    compact
+                    label="Mes traces (liste)"
+                    icon="person-outline"
+                    onPress={() => {
+                      if (!user?.id) return;
+                      const uid = Number(user.id);
+                      setMapTrailPickIds(
+                        trailsForPickList
+                          .filter((tr) => Number(tr.creator_user_id) === uid)
+                          .map((tr) => Number(tr.id))
+                      );
+                    }}
+                  />
+                  <OutlineButton
+                    compact
+                    label="Effacer sélection"
+                    icon="close-circle-outline"
+                    onPress={() => setMapTrailPickIds([])}
+                  />
+                </View>
+                <ScrollView
+                  style={styles.trailPickScroll}
+                  nestedScrollEnabled
+                  keyboardShouldPersistTaps="handled"
+                >
+                  {trailsForPickList.map((trail) => {
+                    const tid = Number(trail.id);
+                    const sel = mapTrailPickIds.includes(tid);
+                    const mine =
+                      user && Number(trail.creator_user_id) === Number(user.id);
+                    return (
+                      <TouchableOpacity
+                        key={`pick-tr-${trail.id}`}
+                        style={[
+                          styles.trailPickRow,
+                          sel && styles.trailPickRowActive,
+                        ]}
+                        onPress={() => {
+                          setMapTrailPickIds((prev) =>
+                            prev.includes(tid)
+                              ? prev.filter((x) => x !== tid)
+                              : [...prev, tid]
+                          );
+                        }}
+                        activeOpacity={0.85}
+                      >
+                        <Ionicons
+                          name={sel ? "checkbox" : "square-outline"}
+                          size={22}
+                          color={theme.primary}
+                        />
+                        <View style={{ flex: 1, marginLeft: 10 }}>
+                          <Text style={styles.cardTitle}>{trail.name}</Text>
+                          <Text style={styles.cardMeta}>
+                            {trail.territory} · {DIFFICULTY_LABELS[trail.difficulty] || trail.difficulty}
+                            {mine ? " · Mienne" : ""}
+                          </Text>
+                        </View>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </ScrollView>
+              </>
+            ) : null}
+            <TextInput
+              style={styles.input}
+              placeholder="Territoire / ville (min. 2 caractères)"
+              placeholderTextColor={theme.inkMuted}
+              value={mapTrailTerritoryQuery}
+              onChangeText={setMapTrailTerritoryQuery}
+            />
+            <View style={styles.row}>
+              <TextInput
+                style={[styles.inputHalf, { marginRight: 4 }]}
+                placeholder="Lat."
+                placeholderTextColor={theme.inkMuted}
+                value={mapTrailFilterLat}
+                onChangeText={setMapTrailFilterLat}
+                keyboardType="decimal-pad"
+              />
+              <TextInput
+                style={[styles.inputHalf, { marginLeft: 4 }]}
+                placeholder="Lon."
+                placeholderTextColor={theme.inkMuted}
+                value={mapTrailFilterLon}
+                onChangeText={setMapTrailFilterLon}
+                keyboardType="decimal-pad"
+              />
+            </View>
+            <TextInput
+              style={styles.input}
+              placeholder="Rayon km autour du point GPS"
+              placeholderTextColor={theme.inkMuted}
+              value={mapTrailFilterRadiusKm}
+              onChangeText={setMapTrailFilterRadiusKm}
+              keyboardType="decimal-pad"
+            />
+            <Text style={styles.fieldLabel}>Difficulté</Text>
+            <View style={styles.roleRow}>
+              {["all", "easy", "medium", "hard"].map((d) => (
+                <TouchableOpacity
+                  key={d}
+                  style={[
+                    styles.roleChip,
+                    mapTrailDifficultyFilter === d && styles.roleChipActive,
+                  ]}
+                  onPress={() => setMapTrailDifficultyFilter(d)}
+                  activeOpacity={0.85}
+                >
+                  <Text
+                    style={[
+                      styles.roleChipText,
+                      mapTrailDifficultyFilter === d && styles.roleChipTextActive,
+                    ]}
+                  >
+                    {d === "all" ? "Tous" : DIFFICULTY_LABELS[d]}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </>
+        ) : null}
         <Text style={styles.fieldLabel}>Trier la liste</Text>
         <View style={[styles.roleRow, { flexWrap: "wrap" }]}>
           {[
@@ -3845,7 +3784,11 @@ function RavitoApp() {
     const uid = user?.id != null ? Number(user.id) : null;
     if (mapTrailsScope === "mine" && uid != null && Number.isFinite(uid)) {
       t = t.filter((tr) => Number(tr.creator_user_id) === uid);
-    } else if (mapTrailsScope === "others" && uid != null && Number.isFinite(uid)) {
+    } else if (
+      mapTrailsScope === "others" &&
+      uid != null &&
+      Number.isFinite(uid)
+    ) {
       t = t.filter((tr) => Number(tr.creator_user_id) !== uid);
     } else if (mapTrailsScope === "picked") {
       const set = new Set(
@@ -3963,26 +3906,22 @@ function RavitoApp() {
     switch (mapTrailListSort) {
       case "distance_desc":
         list.sort(
-          (a, b) =>
-            (Number(b.distance_km) || 0) - (Number(a.distance_km) || 0)
+          (a, b) => (Number(b.distance_km) || 0) - (Number(a.distance_km) || 0)
         );
         break;
       case "distance_asc":
         list.sort(
-          (a, b) =>
-            (Number(a.distance_km) || 0) - (Number(b.distance_km) || 0)
+          (a, b) => (Number(a.distance_km) || 0) - (Number(b.distance_km) || 0)
         );
         break;
       case "elevation_desc":
         list.sort(
-          (a, b) =>
-            (Number(b.elevation_m) || 0) - (Number(a.elevation_m) || 0)
+          (a, b) => (Number(b.elevation_m) || 0) - (Number(a.elevation_m) || 0)
         );
         break;
       case "elevation_asc":
         list.sort(
-          (a, b) =>
-            (Number(a.elevation_m) || 0) - (Number(b.elevation_m) || 0)
+          (a, b) => (Number(a.elevation_m) || 0) - (Number(b.elevation_m) || 0)
         );
         break;
       case "difficulty_easy":
@@ -3992,7 +3931,9 @@ function RavitoApp() {
         list.sort((a, b) => diffRank(b.difficulty) - diffRank(a.difficulty));
         break;
       default:
-        list.sort((a, b) => String(a.name || "").localeCompare(String(b.name || ""), "fr"));
+        list.sort((a, b) =>
+          String(a.name || "").localeCompare(String(b.name || ""), "fr")
+        );
         break;
     }
     return list;
@@ -5331,8 +5272,7 @@ function RavitoApp() {
                         )
                       }
                       box={
-                        boxes.find((b) => b.id === bookingConfirm.boxId) ||
-                        null
+                        boxes.find((b) => b.id === bookingConfirm.boxId) || null
                       }
                       bookingDate={bookingDate}
                       startTime={startTime}
