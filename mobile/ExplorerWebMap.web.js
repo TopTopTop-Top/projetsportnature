@@ -183,6 +183,7 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
   center,
   boxes,
   trails,
+  selectedBoxId,
   onSelectBox,
   onPickLocation,
   onVisibleBoundsChange,
@@ -203,6 +204,8 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
   const lastRecenterNonceRef = useRef(0);
   const onSelectBoxRef = useRef(onSelectBox);
   onSelectBoxRef.current = onSelectBox;
+  const selectedBoxIdRef = useRef(selectedBoxId);
+  selectedBoxIdRef.current = selectedBoxId;
   const onPickLocationRef = useRef(onPickLocation);
   onPickLocationRef.current = onPickLocation;
   const onVisibleBoundsChangeRef = useRef(onVisibleBoundsChange);
@@ -347,15 +350,31 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
       }
     });
 
+    let selectedLayer = null;
     boxes.forEach((box) => {
       try {
         const lat = Number(box.latitude);
         const lng = Number(box.longitude);
         if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
-        const m = L.marker([lat, lng]);
-        m.bindPopup(buildBoxPopupHtml(box));
-        m.on("click", () => onSelectBoxRef.current?.(box.id));
-        m.addTo(group);
+        const isSelected = Number(box.id) === Number(selectedBoxIdRef.current);
+        if (isSelected) {
+          const m = L.circleMarker([lat, lng], {
+            radius: 10,
+            color: "#0F766E",
+            weight: 3,
+            fillColor: "#14B8A6",
+            fillOpacity: 0.9,
+          });
+          m.bindPopup(buildBoxPopupHtml(box));
+          m.on("click", () => onSelectBoxRef.current?.(box.id));
+          m.addTo(group);
+          selectedLayer = m;
+        } else {
+          const m = L.marker([lat, lng]);
+          m.bindPopup(buildBoxPopupHtml(box));
+          m.on("click", () => onSelectBoxRef.current?.(box.id));
+          m.addTo(group);
+        }
       } catch (_e) {
         // Ignore a malformed host point instead of crashing the whole map.
       }
@@ -395,7 +414,23 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
     } catch (_e) {
       // Keep current viewport if bounds computation fails.
     }
-  }, [boxes, trails, staticOrigin, draftPoint, pickerMode, autoFitToData]);
+
+    try {
+      if (selectedLayer && map) {
+        selectedLayer.openPopup?.();
+      }
+    } catch (_e) {
+      /* ignore */
+    }
+  }, [
+    boxes,
+    trails,
+    staticOrigin,
+    draftPoint,
+    pickerMode,
+    autoFitToData,
+    selectedBoxId,
+  ]);
 
   if (Platform.OS !== "web") {
     return null;

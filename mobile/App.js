@@ -1505,6 +1505,7 @@ function ExplorerScreen() {
             center={webMapCenter}
             boxes={boxesOnMap}
             trails={trailsOnMap}
+            selectedBoxId={selectedBoxId}
             onSelectBox={setSelectedBoxId}
             onVisibleBoundsChange={
               mapListSource === "viewport" ? setMapViewportBounds : undefined
@@ -1747,6 +1748,8 @@ function ExplorerScreen() {
                                   ? prev.filter((x) => x !== bid)
                                   : [...prev, bid]
                               );
+                              setSelectedBoxId(box.id);
+                              setMapExplorerRecenterNonce((x) => x + 1);
                             }}
                             activeOpacity={0.85}
                           >
@@ -2306,6 +2309,7 @@ function ExplorerScreen() {
                     center={webMapCenter}
                     boxes={boxesOnMap}
                     trails={trailsOnMap}
+                    selectedBoxId={selectedBoxId}
                     onSelectBox={setSelectedBoxId}
                     onVisibleBoundsChange={
                       mapListSource === "viewport"
@@ -2352,6 +2356,7 @@ function ExplorerScreen() {
                 center={webMapCenter}
                 boxes={boxesOnMap}
                 trails={trailsOnMap}
+                selectedBoxId={selectedBoxId}
                 onSelectBox={setSelectedBoxId}
                 onVisibleBoundsChange={
                   mapListSource === "viewport"
@@ -4144,6 +4149,25 @@ function RavitoApp() {
   const webMapCenter = selectedBox
     ? [selectedBox.latitude, selectedBox.longitude]
     : [parseFloat(mapLat) || 45.8992, parseFloat(mapLon) || 6.1294];
+
+  useEffect(() => {
+    if (mapListSource === "nearby") {
+      const lat = parseFloat(mapLat);
+      const lon = parseFloat(mapLon);
+      if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
+      setMapExplorerRecenterNonce((x) => x + 1);
+      return;
+    }
+    if (mapListSource === "city") {
+      if (boxesForExplorerList.length > 0) {
+        setSelectedBoxId((prev) =>
+          prev != null && boxesForExplorerList.some((b) => b.id === prev)
+            ? prev
+            : boxesForExplorerList[0].id
+        );
+      }
+    }
+  }, [mapListSource, mapLat, mapLon, boxesForExplorerList]);
 
   const register = useCallback(async () => {
     const name = fullName.trim();
