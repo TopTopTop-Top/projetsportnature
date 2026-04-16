@@ -16,6 +16,7 @@ export default function NativeExplorerMap({
   selectedBoxId,
   onSelectBox,
   onVisibleBoundsChange,
+  onPanDrag,
   followExternalCenter = true,
   recenterNonce = 0,
 }) {
@@ -79,6 +80,7 @@ export default function NativeExplorerMap({
       style={styles.map}
       initialRegion={region}
       onRegionChangeComplete={reportBounds}
+      onPanDrag={typeof onPanDrag === "function" ? onPanDrag : undefined}
     >
       {trailPolylines.map((t) => (
         <Polyline

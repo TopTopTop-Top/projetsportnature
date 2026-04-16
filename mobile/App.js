@@ -365,6 +365,13 @@ async function geocodeCityToLatLon(query, { signal } = {}) {
   return { lat, lon };
 }
 
+function explorerListSourceLabelFr(source) {
+  if (source === "viewport") return "Zone visible";
+  if (source === "city") return "Par ville";
+  if (source === "nearby") return "Par GPS";
+  return "—";
+}
+
 const AuthUiContext = createContext(null);
 
 /** Données / actions des écrans connectés — évite de définir les écrans dans App (sinon React Navigation remonte la carte à chaque render). */
@@ -1339,6 +1346,10 @@ function ExplorerScreen() {
     setMapTrailProximityKm,
     setMapViewportBounds,
     mapExplorerRecenterNonce,
+    mapExplorerCameraFollowSearch,
+    setMapExplorerCameraFollowSearch,
+    mapExplorerLastSearchAt,
+    mapExplorerLastSearchSource,
     bookingDate,
     setBookingDate,
     startTime,
@@ -1391,7 +1402,10 @@ function ExplorerScreen() {
               styles.roleChip,
               mapListSource === "viewport" && styles.roleChipActive,
             ]}
-            onPress={() => setMapListSource("viewport")}
+            onPress={() => {
+              setMapExplorerCameraFollowSearch(true);
+              setMapListSource("viewport");
+            }}
             activeOpacity={0.85}
           >
             <Text
@@ -1408,7 +1422,10 @@ function ExplorerScreen() {
               styles.roleChip,
               mapListSource === "city" && styles.roleChipActive,
             ]}
-            onPress={() => setMapListSource("city")}
+            onPress={() => {
+              setMapExplorerCameraFollowSearch(true);
+              setMapListSource("city");
+            }}
             activeOpacity={0.85}
           >
             <Text
@@ -1425,7 +1442,10 @@ function ExplorerScreen() {
               styles.roleChip,
               mapListSource === "nearby" && styles.roleChipActive,
             ]}
-            onPress={() => setMapListSource("nearby")}
+            onPress={() => {
+              setMapExplorerCameraFollowSearch(true);
+              setMapListSource("nearby");
+            }}
             activeOpacity={0.85}
           >
             <Text
@@ -1456,6 +1476,7 @@ function ExplorerScreen() {
               value={mapLat}
               onChangeText={(v) => {
                 setMapLat(v);
+                setMapExplorerCameraFollowSearch(true);
                 setMapListSource("nearby");
               }}
               keyboardType="decimal-pad"
@@ -1467,6 +1488,7 @@ function ExplorerScreen() {
               value={mapLon}
               onChangeText={(v) => {
                 setMapLon(v);
+                setMapExplorerCameraFollowSearch(true);
                 setMapListSource("nearby");
               }}
               keyboardType="decimal-pad"
@@ -1482,6 +1504,7 @@ function ExplorerScreen() {
               value={city}
               onChangeText={(v) => {
                 setCity(v);
+                setMapExplorerCameraFollowSearch(true);
                 setMapListSource("city");
               }}
             />
@@ -1518,6 +1541,37 @@ function ExplorerScreen() {
             </Text>
           </View>
         </View>
+        <View style={styles.explorerSearchMeta}>
+          <Text style={styles.explorerSearchMetaText}>
+            Dernière liste :{" "}
+            {explorerListSourceLabelFr(mapExplorerLastSearchSource)} ·{" "}
+            {mapExplorerLastSearchAt != null
+              ? new Date(mapExplorerLastSearchAt).toLocaleTimeString("fr-FR", {
+                  hour: "2-digit",
+                  minute: "2-digit",
+                  second: "2-digit",
+                })
+              : "—"}
+          </Text>
+          {!mapExplorerCameraFollowSearch ? (
+            <>
+              <Text style={styles.explorerSearchMetaHint}>
+                Vue carte découplée (tu as déplacé la carte). La liste continue
+                de se mettre à jour ; touche « Recentrer » pour aligner la carte
+                sur la recherche.
+              </Text>
+              <OutlineButton
+                compact
+                stretch
+                label="Recentrer sur les résultats"
+                icon="locate-outline"
+                onPress={() =>
+                  actionsRef.current.recenterExplorerMapOnResults?.()
+                }
+              />
+            </>
+          ) : null}
+        </View>
         <Text style={styles.helperText}>
           Filtres et sélections déplacés dans « Liste des box » et « Liste des
           traces » pour éviter de se perdre. Ici, tu gardes uniquement la source
@@ -1531,7 +1585,11 @@ function ExplorerScreen() {
             selectedBoxId={selectedBoxId}
             onSelectBox={setSelectedBoxId}
             onVisibleBoundsChange={setMapViewportBounds}
+            onPanDrag={() =>
+              actionsRef.current.markExplorerMapUserGesture?.()
+            }
             followExternalCenter={
+              mapExplorerCameraFollowSearch &&
               !(mapListSource === "viewport" && selectedBoxId == null)
             }
             recenterNonce={mapExplorerRecenterNonce}
@@ -2368,8 +2426,15 @@ function ExplorerScreen() {
                     selectedBoxId={selectedBoxId}
                     onSelectBox={setSelectedBoxId}
                     onVisibleBoundsChange={setMapViewportBounds}
-                    autoFitToData={mapListSource !== "viewport"}
+                    onUserMapGesture={() =>
+                      actionsRef.current.markExplorerMapUserGesture?.()
+                    }
+                    autoFitToData={
+                      mapExplorerCameraFollowSearch &&
+                      mapListSource !== "viewport"
+                    }
                     followExternalCenter={
+                      mapExplorerCameraFollowSearch &&
                       !(mapListSource === "viewport" && selectedBoxId == null)
                     }
                     recenterNonce={mapExplorerRecenterNonce}
@@ -2411,8 +2476,15 @@ function ExplorerScreen() {
                 selectedBoxId={selectedBoxId}
                 onSelectBox={setSelectedBoxId}
                 onVisibleBoundsChange={setMapViewportBounds}
-                autoFitToData={mapListSource !== "viewport"}
+                onUserMapGesture={() =>
+                  actionsRef.current.markExplorerMapUserGesture?.()
+                }
+                autoFitToData={
+                  mapExplorerCameraFollowSearch &&
+                  mapListSource !== "viewport"
+                }
                 followExternalCenter={
+                  mapExplorerCameraFollowSearch &&
                   !(mapListSource === "viewport" && selectedBoxId == null)
                 }
                 recenterNonce={mapExplorerRecenterNonce}
@@ -3966,6 +4038,7 @@ function RavitoApp() {
   const hostGeocodeSeqRef = useRef(0);
   const skipInitialHostGeocodeRef = useRef(true);
   const explorerCityGeocodeSeqRef = useRef(0);
+  const explorerSearchSeqRef = useRef(0);
   const [hostBoxes, setHostBoxes] = useState([]);
   const [hostBookings, setHostBookings] = useState([]);
   const [athleteBookings, setAthleteBookings] = useState([]);
@@ -4007,8 +4080,19 @@ function RavitoApp() {
   const [mapViewportBounds, setMapViewportBounds] = useState(null);
   /** Incrémenté pour forcer un recentrage carte (ex. sync depuis Mes box). */
   const [mapExplorerRecenterNonce, setMapExplorerRecenterNonce] = useState(0);
+  /** Quand false : la carte ne suit plus la recherche (pan manuel) jusqu'à « Recentrer » ou changement de source. */
+  const [mapExplorerCameraFollowSearch, setMapExplorerCameraFollowSearch] =
+    useState(true);
+  const [mapExplorerLastSearchAt, setMapExplorerLastSearchAt] = useState(null);
+  const [mapExplorerLastSearchSource, setMapExplorerLastSearchSource] =
+    useState(null);
+  const mapExplorerCameraFollowRef = useRef(true);
   const [mapBoxesNearTrailsOnly, setMapBoxesNearTrailsOnly] = useState(false);
   const [mapTrailProximityKm, setMapTrailProximityKm] = useState("3");
+
+  useEffect(() => {
+    mapExplorerCameraFollowRef.current = mapExplorerCameraFollowSearch;
+  }, [mapExplorerCameraFollowSearch]);
 
   useEffect(() => {
     if (!user) {
@@ -4211,7 +4295,9 @@ function RavitoApp() {
       const lat = parseFloat(mapLat);
       const lon = parseFloat(mapLon);
       if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
-      setMapExplorerRecenterNonce((x) => x + 1);
+      if (mapExplorerCameraFollowRef.current) {
+        setMapExplorerRecenterNonce((x) => x + 1);
+      }
       return;
     }
     if (mapListSource === "city") {
@@ -4477,6 +4563,70 @@ function RavitoApp() {
     }
   };
 
+  const runExplorerSearch = useCallback(
+    async (params = {}) => {
+      const source = params.source ?? mapListSource;
+      const q = (params.cityQuery ?? city).trim();
+      const lat = parseFloat(params.latText ?? mapLat);
+      const lon = parseFloat(params.lonText ?? mapLon);
+      const bounds = params.bounds ?? mapViewportBounds;
+      const reqId = ++explorerSearchSeqRef.current;
+      try {
+        if (source === "nearby") {
+          if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
+          const rows = await apiFetch(
+            `/boxes/nearby?lat=${lat}&lon=${lon}&limit=35`
+          );
+          if (reqId !== explorerSearchSeqRef.current) return;
+          setBoxes(rows);
+          setSelectedBoxId(rows.length > 0 ? rows[0].id : null);
+          setMapExplorerLastSearchAt(Date.now());
+          setMapExplorerLastSearchSource(source);
+          return;
+        }
+        if (source === "viewport") {
+          if (!bounds) return;
+          const { south, north, west, east } = bounds;
+          if (
+            !Number.isFinite(south) ||
+            !Number.isFinite(north) ||
+            !Number.isFinite(west) ||
+            !Number.isFinite(east)
+          ) {
+            return;
+          }
+          const rows = await apiFetch(
+            `/boxes/bounds?south=${encodeURIComponent(
+              south
+            )}&west=${encodeURIComponent(west)}&north=${encodeURIComponent(
+              north
+            )}&east=${encodeURIComponent(east)}&limit=200`
+          );
+          if (reqId !== explorerSearchSeqRef.current) return;
+          setBoxes(rows);
+          setSelectedBoxId((prev) =>
+            prev != null && rows.some((b) => b.id === prev) ? prev : null
+          );
+          setMapExplorerLastSearchAt(Date.now());
+          setMapExplorerLastSearchSource(source);
+          return;
+        }
+        if (q.length < 2) return;
+        const rows = await apiFetch(`/boxes?city=${encodeURIComponent(q)}`);
+        if (reqId !== explorerSearchSeqRef.current) return;
+        setBoxes(rows);
+        setSelectedBoxId(rows.length > 0 ? rows[0].id : null);
+        setMapExplorerLastSearchAt(Date.now());
+        setMapExplorerLastSearchSource(source);
+        return;
+      } catch (error) {
+        if (reqId !== explorerSearchSeqRef.current) return;
+        userAlert("Erreur", error.message);
+      }
+    },
+    [mapListSource, city, mapLat, mapLon, mapViewportBounds]
+  );
+
   const loadNearbyBoxes = async () => {
     const lat = parseFloat(mapLat);
     const lon = parseFloat(mapLon);
@@ -4484,52 +4634,85 @@ function RavitoApp() {
       userAlert("Position", "Indique une latitude et une longitude valides.");
       return;
     }
-    try {
-      const rows = await apiFetch(
-        `/boxes/nearby?lat=${lat}&lon=${lon}&limit=35`
-      );
-      setBoxes(rows);
-      setSelectedBoxId(rows.length > 0 ? rows[0].id : null);
-    } catch (error) {
-      userAlert("Erreur", error.message);
-    }
+    await runExplorerSearch({
+      source: "nearby",
+      latText: String(lat),
+      lonText: String(lon),
+    });
   };
 
   const refetchExplorerBoxes = useCallback(async () => {
-    try {
-      if (mapListSource === "nearby") {
-        const lat = parseFloat(mapLat);
-        const lon = parseFloat(mapLon);
-        if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
-        const rows = await apiFetch(
-          `/boxes/nearby?lat=${lat}&lon=${lon}&limit=35`
-        );
-        setBoxes(rows);
-        setSelectedBoxId(rows.length > 0 ? rows[0].id : null);
-      } else if (mapListSource === "viewport" && mapViewportBounds) {
-        const { south, north, west, east } = mapViewportBounds;
-        const rows = await apiFetch(
-          `/boxes/bounds?south=${encodeURIComponent(
-            south
-          )}&west=${encodeURIComponent(west)}&north=${encodeURIComponent(
-            north
-          )}&east=${encodeURIComponent(east)}&limit=200`
-        );
-        setBoxes(rows);
-        setSelectedBoxId((prev) =>
-          prev != null && rows.some((b) => b.id === prev) ? prev : null
-        );
-      } else {
-        const q = city.trim();
-        if (q.length < 2) return;
-        const rows = await apiFetch(`/boxes?city=${encodeURIComponent(q)}`);
-        setBoxes(rows);
-        setSelectedBoxId(rows.length > 0 ? rows[0].id : null);
-      }
-    } catch (error) {
-      userAlert("Erreur", error.message);
+    await runExplorerSearch();
+  }, [runExplorerSearch]);
+
+  useEffect(() => {
+    if (mapListSource !== "city") return;
+    const q = city.trim();
+    if (q.length < 2) return;
+    const seq = (explorerCityGeocodeSeqRef.current += 1);
+    const controller =
+      typeof AbortController !== "undefined" ? new AbortController() : null;
+    const t = setTimeout(() => {
+      void runExplorerSearch({ source: "city", cityQuery: q });
+      (async () => {
+        try {
+          const result = await geocodeCityToLatLon(q, {
+            signal: controller?.signal,
+          });
+          if (seq !== explorerCityGeocodeSeqRef.current) return;
+          if (result) {
+            setMapLat(result.lat.toFixed(6));
+            setMapLon(result.lon.toFixed(6));
+            if (mapExplorerCameraFollowRef.current) {
+              setMapExplorerRecenterNonce((x) => x + 1);
+            }
+          }
+        } catch (_e) {
+          // Si le géocodage externe échoue, on garde le centre actuel.
+        }
+      })();
+    }, 550);
+    return () => {
+      clearTimeout(t);
+      controller?.abort?.();
+    };
+  }, [city, mapListSource, runExplorerSearch]);
+
+  useEffect(() => {
+    if (mapListSource !== "nearby") return;
+    const t = setTimeout(() => {
+      const lat = parseFloat(mapLat);
+      const lon = parseFloat(mapLon);
+      if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
+      void runExplorerSearch({
+        source: "nearby",
+        latText: String(lat),
+        lonText: String(lon),
+      });
+    }, 550);
+    return () => clearTimeout(t);
+  }, [mapLat, mapLon, mapListSource, runExplorerSearch]);
+
+  useEffect(() => {
+    if (mapListSource !== "viewport") return;
+    if (!mapViewportBounds) return;
+    const { south, north, west, east } = mapViewportBounds;
+    if (
+      !Number.isFinite(south) ||
+      !Number.isFinite(north) ||
+      !Number.isFinite(west) ||
+      !Number.isFinite(east)
+    ) {
+      return;
     }
-  }, [mapListSource, mapLat, mapLon, city, mapViewportBounds]);
+    const t = setTimeout(() => {
+      void runExplorerSearch({
+        source: "viewport",
+        bounds: mapViewportBounds,
+      });
+    }, 420);
+    return () => clearTimeout(t);
+  }, [mapViewportBounds, mapListSource, runExplorerSearch]);
 
   const syncExplorerMapFromHost = useCallback(() => {
     const lat = parseFloat(hostForm.latitude);
@@ -4552,99 +4735,6 @@ function RavitoApp() {
       userAlert("Erreur", error.message);
     }
   };
-
-  useEffect(() => {
-    if (mapListSource !== "city") return;
-    const q = city.trim();
-    if (q.length < 2) return;
-    const seq = (explorerCityGeocodeSeqRef.current += 1);
-    const controller =
-      typeof AbortController !== "undefined" ? new AbortController() : null;
-    const t = setTimeout(() => {
-      (async () => {
-        try {
-          const rows = await apiFetch(`/boxes?city=${encodeURIComponent(q)}`);
-          if (seq !== explorerCityGeocodeSeqRef.current) return;
-          setBoxes(rows);
-          setSelectedBoxId(rows.length > 0 ? rows[0].id : null);
-        } catch (error) {
-          userAlert("Erreur", error.message);
-        }
-        try {
-          const result = await geocodeCityToLatLon(q, {
-            signal: controller?.signal,
-          });
-          if (seq !== explorerCityGeocodeSeqRef.current) return;
-          if (result) {
-            setMapLat(result.lat.toFixed(6));
-            setMapLon(result.lon.toFixed(6));
-            setMapExplorerRecenterNonce((x) => x + 1);
-          }
-        } catch (_e) {
-          // Si le géocodage externe échoue, on garde le centre actuel.
-        }
-      })();
-    }, 550);
-    return () => {
-      clearTimeout(t);
-      controller?.abort?.();
-    };
-  }, [city, mapListSource]);
-
-  useEffect(() => {
-    if (mapListSource !== "nearby") return;
-    const t = setTimeout(() => {
-      const lat = parseFloat(mapLat);
-      const lon = parseFloat(mapLon);
-      if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
-      (async () => {
-        try {
-          const rows = await apiFetch(
-            `/boxes/nearby?lat=${lat}&lon=${lon}&limit=35`
-          );
-          setBoxes(rows);
-          setSelectedBoxId(rows.length > 0 ? rows[0].id : null);
-        } catch (error) {
-          userAlert("Erreur", error.message);
-        }
-      })();
-    }, 550);
-    return () => clearTimeout(t);
-  }, [mapLat, mapLon, mapListSource]);
-
-  useEffect(() => {
-    if (mapListSource !== "viewport") return;
-    if (!mapViewportBounds) return;
-    const { south, north, west, east } = mapViewportBounds;
-    if (
-      !Number.isFinite(south) ||
-      !Number.isFinite(north) ||
-      !Number.isFinite(west) ||
-      !Number.isFinite(east)
-    ) {
-      return;
-    }
-    const t = setTimeout(() => {
-      (async () => {
-        try {
-          const rows = await apiFetch(
-            `/boxes/bounds?south=${encodeURIComponent(
-              south
-            )}&west=${encodeURIComponent(west)}&north=${encodeURIComponent(
-              north
-            )}&east=${encodeURIComponent(east)}&limit=200`
-          );
-          setBoxes(rows);
-          setSelectedBoxId((prev) =>
-            prev != null && rows.some((b) => b.id === prev) ? prev : null
-          );
-        } catch (error) {
-          userAlert("Erreur", error.message);
-        }
-      })();
-    }, 420);
-    return () => clearTimeout(t);
-  }, [mapViewportBounds, mapListSource]);
 
   useEffect(() => {
     if (hostEditingBoxId == null) return;
@@ -5294,6 +5384,7 @@ function RavitoApp() {
         userAlert("Trace", "Tracé introuvable.");
         return;
       }
+      setMapExplorerCameraFollowSearch(true);
       let positions = [];
       try {
         if (trail.polyline_json) positions = JSON.parse(trail.polyline_json);
@@ -5355,6 +5446,8 @@ function RavitoApp() {
     submitReview,
     loadNearbyBoxes,
     refetchExplorerBoxes,
+    markExplorerMapUserGesture,
+    recenterExplorerMapOnResults,
     loadTrails,
     bookBox,
     decideHostBooking,
@@ -5450,6 +5543,10 @@ function RavitoApp() {
       mapViewportBounds,
       setMapViewportBounds,
       mapExplorerRecenterNonce,
+      mapExplorerCameraFollowSearch,
+      setMapExplorerCameraFollowSearch,
+      mapExplorerLastSearchAt,
+      mapExplorerLastSearchSource,
       bookingDate,
       setBookingDate,
       startTime,
@@ -5508,6 +5605,10 @@ function RavitoApp() {
       trailsForExplorerList,
       mapViewportBounds,
       mapExplorerRecenterNonce,
+      mapExplorerCameraFollowSearch,
+      setMapExplorerCameraFollowSearch,
+      mapExplorerLastSearchAt,
+      mapExplorerLastSearchSource,
       bookingDate,
       startTime,
       endTime,
@@ -6267,6 +6368,26 @@ const styles = StyleSheet.create({
     color: theme.inkMuted,
     fontSize: 13,
     lineHeight: 18,
+  },
+  explorerSearchMeta: {
+    marginTop: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: theme.border,
+    backgroundColor: theme.surfaceMuted,
+  },
+  explorerSearchMetaText: {
+    fontSize: 12,
+    color: theme.inkMuted,
+    lineHeight: 17,
+  },
+  explorerSearchMetaHint: {
+    marginTop: 6,
+    fontSize: 12,
+    color: theme.inkMuted,
+    lineHeight: 17,
   },
   infoBanner: {
     marginTop: 4,

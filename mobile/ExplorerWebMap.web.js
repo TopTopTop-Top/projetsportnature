@@ -187,6 +187,8 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
   onSelectBox,
   onPickLocation,
   onVisibleBoundsChange,
+  /** Appelé après un déplacement manuel (drag) — pour découpler la caméra de la recherche. */
+  onUserMapGesture,
   draftPoint,
   pickerMode = false,
   staticOrigin = "",
@@ -210,6 +212,8 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
   onPickLocationRef.current = onPickLocation;
   const onVisibleBoundsChangeRef = useRef(onVisibleBoundsChange);
   onVisibleBoundsChangeRef.current = onVisibleBoundsChange;
+  const onUserMapGestureRef = useRef(onUserMapGesture);
+  onUserMapGestureRef.current = onUserMapGesture;
 
   const mapStyle = useMemo(
     () =>
@@ -267,6 +271,10 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
     };
     map.on("moveend", emitBounds);
     map.on("zoomend", emitBounds);
+    map.on("dragend", () => {
+      const fn = onUserMapGestureRef.current;
+      if (typeof fn === "function") fn();
+    });
     setTimeout(emitBounds, 0);
 
     if (typeof onPickLocationRef.current === "function") {
