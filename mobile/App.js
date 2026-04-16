@@ -118,6 +118,36 @@ function minDistanceKmPointToTrail(trail, lat, lon) {
   return minD;
 }
 
+function pointInBounds(lat, lon, bounds) {
+  if (!bounds) return true;
+  return (
+    Number.isFinite(lat) &&
+    Number.isFinite(lon) &&
+    lat >= Number(bounds.south) &&
+    lat <= Number(bounds.north) &&
+    lon >= Number(bounds.west) &&
+    lon <= Number(bounds.east)
+  );
+}
+
+function trailTouchesBounds(trail, bounds) {
+  if (!bounds) return true;
+  let positions = [];
+  try {
+    if (trail.polyline_json) positions = JSON.parse(trail.polyline_json);
+  } catch {
+    positions = [];
+  }
+  if (!Array.isArray(positions) || positions.length === 0) return false;
+  for (const pt of positions) {
+    if (!Array.isArray(pt) || pt.length < 2) continue;
+    const lat = Number(pt[0]);
+    const lon = Number(pt[1]);
+    if (pointInBounds(lat, lon, bounds)) return true;
+  }
+  return false;
+}
+
 const theme = {
   bg: "#EEF4F0",
   surface: "#FFFFFF",
@@ -1259,14 +1289,10 @@ function ExplorerScreen() {
     setMapTrailsScope,
     mapTrailPickIds,
     setMapTrailPickIds,
-    mapTrailTerritoryQuery,
-    setMapTrailTerritoryQuery,
-    mapTrailFilterLat,
-    setMapTrailFilterLat,
-    mapTrailFilterLon,
-    setMapTrailFilterLon,
-    mapTrailFilterRadiusKm,
-    setMapTrailFilterRadiusKm,
+    mapBoxSelectionMode,
+    setMapBoxSelectionMode,
+    mapPickedBoxIds,
+    setMapPickedBoxIds,
     mapBoxSort,
     setMapBoxSort,
     mapTrailListSort,
@@ -1278,6 +1304,10 @@ function ExplorerScreen() {
     setMapShowBoxes,
     mapBoxCriteriaTags,
     setMapBoxCriteriaTags,
+    mapNearTrailsMode,
+    setMapNearTrailsMode,
+    mapNearTrailPickIds,
+    setMapNearTrailPickIds,
     mapListSource,
     setMapListSource,
     mapBoxesNearTrailsOnly,
@@ -1302,12 +1332,8 @@ function ExplorerScreen() {
   const trailsOnMap = Array.isArray(trailsForMap) ? trailsForMap : [];
   const boxesOnMap = Array.isArray(boxesForMap) ? boxesForMap : [];
   const trailsForPickList = useMemo(() => {
-    let t = Array.isArray(trails) ? trails : [];
-    if (mapTrailDifficultyFilter !== "all") {
-      t = t.filter((tr) => tr.difficulty === mapTrailDifficultyFilter);
-    }
-    return t;
-  }, [trails, mapTrailDifficultyFilter]);
+    return Array.isArray(trailsForMap) ? trailsForMap : [];
+  }, [trailsForMap]);
   const { width: viewportWidth } = useWindowDimensions();
   const [showBoxFilters, setShowBoxFilters] = useState(false);
   const [showTrailFilters, setShowTrailFilters] = useState(false);
@@ -1579,6 +1605,10 @@ function ExplorerScreen() {
         {showBoxFilters ? (
           <>
             <Text style={styles.fieldLabel}>Affichage des box</Text>
+            <Text style={styles.helperText}>
+              Précision automatique par zoom : la liste et la carte ne gardent
+              que les box dans la zone visible.
+            </Text>
             <View style={styles.roleRow}>
               <TouchableOpacity
                 style={[styles.roleChip, mapShowBoxes && styles.roleChipActive]}
@@ -1648,6 +1678,95 @@ function ExplorerScreen() {
                     onPress={() => setMapBoxCriteriaTags([])}
                   />
                 ) : null}
+                <Text style={styles.fieldLabel}>Sélection des box</Text>
+                <View style={styles.roleRow}>
+                  <TouchableOpacity
+                    style={[
+                      styles.roleChip,
+                      mapBoxSelectionMode === "all" && styles.roleChipActive,
+                    ]}
+                    onPress={() => setMapBoxSelectionMode("all")}
+                    activeOpacity={0.85}
+                  >
+                    <Text
+                      style={[
+                        styles.roleChipText,
+                        mapBoxSelectionMode === "all" && styles.roleChipTextActive,
+                      ]}
+                    >
+                      Toutes
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[
+                      styles.roleChip,
+                      mapBoxSelectionMode === "picked" && styles.roleChipActive,
+                    ]}
+                    onPress={() => setMapBoxSelectionMode("picked")}
+                    activeOpacity={0.85}
+                  >
+                    <Text
+                      style={[
+                        styles.roleChipText,
+                        mapBoxSelectionMode === "picked" &&
+                          styles.roleChipTextActive,
+                      ]}
+                    >
+                      Sélection…
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+                {mapBoxSelectionMode === "picked" ? (
+                  <>
+                    <View style={[styles.roleRow, { flexWrap: "wrap" }]}>
+                      <OutlineButton
+                        compact
+                        label="Effacer sélection box"
+                        icon="close-circle-outline"
+                        onPress={() => setMapPickedBoxIds([])}
+                      />
+                    </View>
+                    <ScrollView
+                      style={styles.trailPickScroll}
+                      nestedScrollEnabled
+                      keyboardShouldPersistTaps="handled"
+                    >
+                      {boxes.map((box) => {
+                        const bid = Number(box.id);
+                        const sel = mapPickedBoxIds.includes(bid);
+                        return (
+                          <TouchableOpacity
+                            key={`pick-box-${box.id}`}
+                            style={[
+                              styles.trailPickRow,
+                              sel && styles.trailPickRowActive,
+                            ]}
+                            onPress={() => {
+                              setMapPickedBoxIds((prev) =>
+                                prev.includes(bid)
+                                  ? prev.filter((x) => x !== bid)
+                                  : [...prev, bid]
+                              );
+                            }}
+                            activeOpacity={0.85}
+                          >
+                            <Ionicons
+                              name={sel ? "checkbox" : "square-outline"}
+                              size={22}
+                              color={theme.primary}
+                            />
+                            <View style={{ flex: 1, marginLeft: 10 }}>
+                              <Text style={styles.cardTitle}>{box.title}</Text>
+                              <Text style={styles.cardMeta}>
+                                {box.city} · {(Number(box.price_cents || 0) / 100).toFixed(2)} €
+                              </Text>
+                            </View>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </ScrollView>
+                  </>
+                ) : null}
                 <Text style={styles.fieldLabel}>Lien box ↔ traces</Text>
                 <View style={styles.roleRow}>
                   <TouchableOpacity
@@ -1686,14 +1805,96 @@ function ExplorerScreen() {
                   </TouchableOpacity>
                 </View>
                 {mapBoxesNearTrailsOnly ? (
-                  <TextInput
-                    style={styles.input}
-                    placeholder="Distance max. au tracé (km)"
-                    placeholderTextColor={theme.inkMuted}
-                    value={mapTrailProximityKm}
-                    onChangeText={setMapTrailProximityKm}
-                    keyboardType="decimal-pad"
-                  />
+                  <>
+                    <TextInput
+                      style={styles.input}
+                      placeholder="Distance max. au tracé (km)"
+                      placeholderTextColor={theme.inkMuted}
+                      value={mapTrailProximityKm}
+                      onChangeText={setMapTrailProximityKm}
+                      keyboardType="decimal-pad"
+                    />
+                    <Text style={styles.fieldLabel}>Tracés de référence</Text>
+                    <View style={styles.roleRow}>
+                      <TouchableOpacity
+                        style={[
+                          styles.roleChip,
+                          mapNearTrailsMode === "visible" && styles.roleChipActive,
+                        ]}
+                        onPress={() => setMapNearTrailsMode("visible")}
+                        activeOpacity={0.85}
+                      >
+                        <Text
+                          style={[
+                            styles.roleChipText,
+                            mapNearTrailsMode === "visible" &&
+                              styles.roleChipTextActive,
+                          ]}
+                        >
+                          Tracés visibles
+                        </Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={[
+                          styles.roleChip,
+                          mapNearTrailsMode === "picked" && styles.roleChipActive,
+                        ]}
+                        onPress={() => setMapNearTrailsMode("picked")}
+                        activeOpacity={0.85}
+                      >
+                        <Text
+                          style={[
+                            styles.roleChipText,
+                            mapNearTrailsMode === "picked" &&
+                              styles.roleChipTextActive,
+                          ]}
+                        >
+                          Tracés choisis
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
+                    {mapNearTrailsMode === "picked" ? (
+                      <ScrollView
+                        style={styles.trailPickScroll}
+                        nestedScrollEnabled
+                        keyboardShouldPersistTaps="handled"
+                      >
+                        {trailsForPickList.map((trail) => {
+                          const tid = Number(trail.id);
+                          const sel = mapNearTrailPickIds.includes(tid);
+                          return (
+                            <TouchableOpacity
+                              key={`near-pick-tr-${trail.id}`}
+                              style={[
+                                styles.trailPickRow,
+                                sel && styles.trailPickRowActive,
+                              ]}
+                              onPress={() => {
+                                setMapNearTrailPickIds((prev) =>
+                                  prev.includes(tid)
+                                    ? prev.filter((x) => x !== tid)
+                                    : [...prev, tid]
+                                );
+                              }}
+                              activeOpacity={0.85}
+                            >
+                              <Ionicons
+                                name={sel ? "checkbox" : "square-outline"}
+                                size={22}
+                                color={theme.primary}
+                              />
+                              <View style={{ flex: 1, marginLeft: 10 }}>
+                                <Text style={styles.cardTitle}>{trail.name}</Text>
+                                <Text style={styles.cardMeta}>
+                                  {trail.territory}
+                                </Text>
+                              </View>
+                            </TouchableOpacity>
+                          );
+                        })}
+                      </ScrollView>
+                    ) : null}
+                  </>
                 ) : null}
               </>
             ) : null}
@@ -1767,6 +1968,29 @@ function ExplorerScreen() {
                 icon="location-outline"
                 stretch
                 onPress={() => setSelectedBoxId(item.id)}
+              />
+              <OutlineButton
+                compact
+                stretch
+                label={
+                  mapPickedBoxIds.includes(Number(item.id))
+                    ? "Retirer de ma sélection"
+                    : "Ajouter à ma sélection"
+                }
+                icon={
+                  mapPickedBoxIds.includes(Number(item.id))
+                    ? "remove-circle-outline"
+                    : "add-circle-outline"
+                }
+                onPress={() => {
+                  const bid = Number(item.id);
+                  setMapPickedBoxIds((prev) =>
+                    prev.includes(bid)
+                      ? prev.filter((x) => x !== bid)
+                      : [...prev, bid]
+                  );
+                  setMapBoxSelectionMode("picked");
+                }}
               />
               {canBook ? (
                 <>
@@ -1926,39 +2150,10 @@ function ExplorerScreen() {
                 </ScrollView>
               </>
             ) : null}
-            <TextInput
-              style={styles.input}
-              placeholder="Territoire / ville (min. 2 caractères)"
-              placeholderTextColor={theme.inkMuted}
-              value={mapTrailTerritoryQuery}
-              onChangeText={setMapTrailTerritoryQuery}
-            />
-            <View style={styles.row}>
-              <TextInput
-                style={[styles.inputHalf, { marginRight: 4 }]}
-                placeholder="Lat."
-                placeholderTextColor={theme.inkMuted}
-                value={mapTrailFilterLat}
-                onChangeText={setMapTrailFilterLat}
-                keyboardType="decimal-pad"
-              />
-              <TextInput
-                style={[styles.inputHalf, { marginLeft: 4 }]}
-                placeholder="Lon."
-                placeholderTextColor={theme.inkMuted}
-                value={mapTrailFilterLon}
-                onChangeText={setMapTrailFilterLon}
-                keyboardType="decimal-pad"
-              />
-            </View>
-            <TextInput
-              style={styles.input}
-              placeholder="Rayon km autour du point GPS"
-              placeholderTextColor={theme.inkMuted}
-              value={mapTrailFilterRadiusKm}
-              onChangeText={setMapTrailFilterRadiusKm}
-              keyboardType="decimal-pad"
-            />
+            <Text style={styles.helperText}>
+              Précision automatique par zoom : plus tu zoomes, plus la liste des
+              traces se réduit à la zone visible de la carte.
+            </Text>
             <Text style={styles.fieldLabel}>Difficulté</Text>
             <View style={styles.roleRow}>
               {["all", "easy", "medium", "hard"].map((d) => (
@@ -3746,14 +3941,14 @@ function RavitoApp() {
     useState("all");
   const [mapTrailsScope, setMapTrailsScope] = useState("all");
   const [mapTrailPickIds, setMapTrailPickIds] = useState([]);
-  const [mapTrailTerritoryQuery, setMapTrailTerritoryQuery] = useState("");
-  const [mapTrailFilterLat, setMapTrailFilterLat] = useState("");
-  const [mapTrailFilterLon, setMapTrailFilterLon] = useState("");
-  const [mapTrailFilterRadiusKm, setMapTrailFilterRadiusKm] = useState("");
+  const [mapBoxSelectionMode, setMapBoxSelectionMode] = useState("all");
+  const [mapPickedBoxIds, setMapPickedBoxIds] = useState([]);
   const [mapBoxSort, setMapBoxSort] = useState("default");
   const [mapTrailListSort, setMapTrailListSort] = useState("default");
   const [mapShowBoxes, setMapShowBoxes] = useState(true);
   const [mapBoxCriteriaTags, setMapBoxCriteriaTags] = useState([]);
+  const [mapNearTrailsMode, setMapNearTrailsMode] = useState("visible");
+  const [mapNearTrailPickIds, setMapNearTrailPickIds] = useState([]);
   const [mapListSource, setMapListSource] = useState("viewport");
   const [mapViewportBounds, setMapViewportBounds] = useState(null);
   /** Incrémenté pour forcer un recentrage carte (ex. sync depuis Mes box). */
@@ -3799,24 +3994,8 @@ function RavitoApp() {
     if (mapTrailDifficultyFilter !== "all") {
       t = t.filter((tr) => tr.difficulty === mapTrailDifficultyFilter);
     }
-    const q = mapTrailTerritoryQuery.trim().toLowerCase();
-    if (q.length >= 2) {
-      t = t.filter((tr) =>
-        String(tr.territory || "")
-          .toLowerCase()
-          .includes(q)
-      );
-    }
-    const plat = parseFloat(mapTrailFilterLat);
-    const plon = parseFloat(mapTrailFilterLon);
-    const rKm = parseFloat(mapTrailFilterRadiusKm);
-    if (
-      Number.isFinite(plat) &&
-      Number.isFinite(plon) &&
-      Number.isFinite(rKm) &&
-      rKm > 0
-    ) {
-      t = t.filter((tr) => minDistanceKmPointToTrail(tr, plat, plon) <= rKm);
+    if (mapViewportBounds) {
+      t = t.filter((tr) => trailTouchesBounds(tr, mapViewportBounds));
     }
     return t;
   }, [
@@ -3825,35 +4004,56 @@ function RavitoApp() {
     mapTrailsScope,
     mapTrailPickIds,
     mapTrailDifficultyFilter,
-    mapTrailTerritoryQuery,
-    mapTrailFilterLat,
-    mapTrailFilterLon,
-    mapTrailFilterRadiusKm,
+    mapViewportBounds,
     user?.id,
   ]);
 
   const boxesForMap = useMemo(() => {
     if (!mapShowBoxes) return [];
     let list = boxes;
+    if (mapViewportBounds) {
+      list = list.filter((box) =>
+        pointInBounds(Number(box.latitude), Number(box.longitude), mapViewportBounds)
+      );
+    }
     if (mapBoxCriteriaTags?.length > 0) {
       list = list.filter((box) => {
         const tags = parseBoxCriteria(box);
         return mapBoxCriteriaTags.some((c) => tags.includes(c));
       });
     }
-    if (mapBoxesNearTrailsOnly && trailsForMap.length > 0) {
+    if (mapBoxSelectionMode === "picked") {
+      const picks = new Set(
+        (mapPickedBoxIds || []).map((x) => Number(x)).filter(Number.isFinite)
+      );
+      list = list.filter((b) => picks.has(Number(b.id)));
+    }
+    if (mapBoxesNearTrailsOnly) {
+      let proximityTrails = trailsForMap;
+      if (mapNearTrailsMode === "picked") {
+        const tset = new Set(
+          (mapNearTrailPickIds || []).map((x) => Number(x)).filter(Number.isFinite)
+        );
+        proximityTrails = trailsForMap.filter((t) => tset.has(Number(t.id)));
+      }
+      if (proximityTrails.length === 0) return [];
       const km = Math.max(0.1, parseFloat(mapTrailProximityKm) || 3);
       list = list.filter((box) => {
-        const d = minDistanceKmFromBoxToTrails(box, trailsForMap);
+        const d = minDistanceKmFromBoxToTrails(box, proximityTrails);
         return d <= km;
       });
     }
     return list;
   }, [
     boxes,
+    mapViewportBounds,
     mapShowBoxes,
     mapBoxCriteriaTags,
+    mapBoxSelectionMode,
+    mapPickedBoxIds,
     mapBoxesNearTrailsOnly,
+    mapNearTrailsMode,
+    mapNearTrailPickIds,
     mapTrailProximityKm,
     trailsForMap,
   ]);
@@ -5133,18 +5333,18 @@ function RavitoApp() {
       setMapTrailProximityKm,
       mapTrailPickIds,
       setMapTrailPickIds,
-      mapTrailTerritoryQuery,
-      setMapTrailTerritoryQuery,
-      mapTrailFilterLat,
-      setMapTrailFilterLat,
-      mapTrailFilterLon,
-      setMapTrailFilterLon,
-      mapTrailFilterRadiusKm,
-      setMapTrailFilterRadiusKm,
+      mapBoxSelectionMode,
+      setMapBoxSelectionMode,
+      mapPickedBoxIds,
+      setMapPickedBoxIds,
       mapBoxSort,
       setMapBoxSort,
       mapTrailListSort,
       setMapTrailListSort,
+      mapNearTrailsMode,
+      setMapNearTrailsMode,
+      mapNearTrailPickIds,
+      setMapNearTrailPickIds,
       boxesForExplorerList,
       trailsForExplorerList,
       mapViewportBounds,
@@ -5198,12 +5398,12 @@ function RavitoApp() {
       mapBoxesNearTrailsOnly,
       mapTrailProximityKm,
       mapTrailPickIds,
-      mapTrailTerritoryQuery,
-      mapTrailFilterLat,
-      mapTrailFilterLon,
-      mapTrailFilterRadiusKm,
+      mapBoxSelectionMode,
+      mapPickedBoxIds,
       mapBoxSort,
       mapTrailListSort,
+      mapNearTrailsMode,
+      mapNearTrailPickIds,
       boxesForExplorerList,
       trailsForExplorerList,
       mapViewportBounds,
