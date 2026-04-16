@@ -1256,7 +1256,10 @@ function ExplorerScreen() {
     setMapTrailFilterRadiusKm,
     mapBoxSort,
     setMapBoxSort,
+    mapTrailListSort,
+    setMapTrailListSort,
     boxesForExplorerList,
+    trailsForExplorerList,
     boxesForMap,
     mapShowBoxes,
     setMapShowBoxes,
@@ -1781,39 +1784,9 @@ function ExplorerScreen() {
             <Text style={styles.helperText}>
               {trailsOnMap.length} tracé
               {trailsOnMap.length !== 1 ? "s" : ""} sur la carte (sur{" "}
-              {trails.length} au total)
+              {trails.length} au total). Liste détaillée : section « Liste des
+              traces » sous les box.
             </Text>
-            <Text style={styles.fieldLabel}>Liste des traces affichées</Text>
-            <Text style={styles.helperText}>
-              Même ensemble que sur la carte (aperçu, max. 40).
-            </Text>
-            {trailsOnMap.length === 0 ? (
-              <Text style={styles.emptyText}>
-                Aucune trace avec ces critères.
-              </Text>
-            ) : (
-              trailsOnMap.slice(0, 40).map((trail) => {
-                const mine =
-                  user && Number(trail.creator_user_id) === Number(user.id);
-                return (
-                  <View key={`map-tr-list-${trail.id}`} style={styles.card}>
-                    <View style={styles.cardAccent} />
-                    <Text style={styles.cardTitle}>{trail.name}</Text>
-                    <Text style={styles.cardMeta}>
-                      {trail.territory} · {trail.distance_km} km ·{" "}
-                      {DIFFICULTY_LABELS[trail.difficulty] || trail.difficulty}
-                      {mine ? " · Mienne" : ""}
-                    </Text>
-                  </View>
-                );
-              })
-            )}
-            {trailsOnMap.length > 40 ? (
-              <Text style={styles.helperText}>
-                … et {trailsOnMap.length - 40} autre(s). Affine les filtres pour
-                raccourcir la liste.
-              </Text>
-            ) : null}
             {mapShowBoxes ? (
               <>
                 <Text style={styles.fieldLabel}>Box près du tracé GPX</Text>
@@ -2065,6 +2038,101 @@ function ExplorerScreen() {
             </View>
           )}
         />
+      </Section>
+
+      <Section
+        title="Liste des traces"
+        subtitle="Même ensemble que sur la carte (filtres « Tracés sur la carte » ci-dessus)."
+        icon="navigate-outline"
+      >
+        <Text style={styles.fieldLabel}>Trier la liste</Text>
+        <View style={[styles.roleRow, { flexWrap: "wrap" }]}>
+          {[
+            { id: "default", label: "Défaut" },
+            { id: "distance_desc", label: "Distance ↓" },
+            { id: "distance_asc", label: "Distance ↑" },
+            { id: "elevation_desc", label: "D+ ↓" },
+            { id: "elevation_asc", label: "D+ ↑" },
+            { id: "difficulty_easy", label: "Facile d’abord" },
+            { id: "difficulty_hard", label: "Difficile d’abord" },
+          ].map((opt) => (
+            <TouchableOpacity
+              key={`trail-sort-${opt.id}`}
+              style={[
+                styles.roleChip,
+                mapTrailListSort === opt.id && styles.roleChipActive,
+              ]}
+              onPress={() => setMapTrailListSort(opt.id)}
+              activeOpacity={0.85}
+            >
+              <Text
+                style={[
+                  styles.roleChipText,
+                  mapTrailListSort === opt.id && styles.roleChipTextActive,
+                ]}
+              >
+                {opt.label}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+        {!mapShowTrails ? (
+          <Text style={styles.emptyText}>
+            Active « Afficher » dans « Tracés sur la carte » pour voir les
+            tracés ici.
+          </Text>
+        ) : (
+          <FlatList
+            data={trailsForExplorerList}
+            scrollEnabled={false}
+            keyExtractor={(item) => `trail-li-${item.id}`}
+            renderItem={({ item: trail }) => {
+              const mine =
+                user && Number(trail.creator_user_id) === Number(user.id);
+              return (
+                <View style={styles.card}>
+                  <View style={styles.cardAccent} />
+                  <Text style={styles.cardTitle}>{trail.name}</Text>
+                  <Text style={styles.cardMeta}>
+                    {trail.territory} · {trail.distance_km} km · D+
+                    {trail.elevation_m ?? 0} m ·{" "}
+                    {DIFFICULTY_LABELS[trail.difficulty] || trail.difficulty}
+                    {mine ? " · Mienne" : ""}
+                  </Text>
+                  {trail.notes ? (
+                    <Text style={styles.cardAvailability} numberOfLines={2}>
+                      {trail.notes}
+                    </Text>
+                  ) : null}
+                  <OutlineButton
+                    label="Voir sur la carte"
+                    icon="location-outline"
+                    stretch
+                    onPress={() =>
+                      actionsRef.current.centerMapOnTrail(trail.id)
+                    }
+                  />
+                  <Text style={styles.helperText}>
+                    Recentre la carte sur le tracé (centre approximatif du GPX).
+                  </Text>
+                  <PrimaryButton
+                    compact
+                    label="Cette trace seule (filtre)"
+                    icon="filter-outline"
+                    onPress={() =>
+                      actionsRef.current.isolateTrailOnMap(trail.id)
+                    }
+                  />
+                </View>
+              );
+            }}
+            ListEmptyComponent={
+              <Text style={styles.emptyText}>
+                Aucune trace avec les filtres actuels.
+              </Text>
+            }
+          />
+        )}
       </Section>
     </>
   );
@@ -3744,6 +3812,7 @@ function RavitoApp() {
   const [mapTrailFilterLon, setMapTrailFilterLon] = useState("");
   const [mapTrailFilterRadiusKm, setMapTrailFilterRadiusKm] = useState("");
   const [mapBoxSort, setMapBoxSort] = useState("default");
+  const [mapTrailListSort, setMapTrailListSort] = useState("default");
   const [mapShowBoxes, setMapShowBoxes] = useState(true);
   const [mapBoxCriteriaTags, setMapBoxCriteriaTags] = useState([]);
   const [mapListSource, setMapListSource] = useState("viewport");
@@ -3882,6 +3951,52 @@ function RavitoApp() {
     }
     return list;
   }, [boxesForMap, mapBoxSort]);
+
+  const trailsForExplorerList = useMemo(() => {
+    const list = [...(trailsForMap || [])];
+    const diffRank = (d) => {
+      if (d === "easy") return 0;
+      if (d === "medium") return 1;
+      if (d === "hard") return 2;
+      return 3;
+    };
+    switch (mapTrailListSort) {
+      case "distance_desc":
+        list.sort(
+          (a, b) =>
+            (Number(b.distance_km) || 0) - (Number(a.distance_km) || 0)
+        );
+        break;
+      case "distance_asc":
+        list.sort(
+          (a, b) =>
+            (Number(a.distance_km) || 0) - (Number(b.distance_km) || 0)
+        );
+        break;
+      case "elevation_desc":
+        list.sort(
+          (a, b) =>
+            (Number(b.elevation_m) || 0) - (Number(a.elevation_m) || 0)
+        );
+        break;
+      case "elevation_asc":
+        list.sort(
+          (a, b) =>
+            (Number(a.elevation_m) || 0) - (Number(b.elevation_m) || 0)
+        );
+        break;
+      case "difficulty_easy":
+        list.sort((a, b) => diffRank(a.difficulty) - diffRank(b.difficulty));
+        break;
+      case "difficulty_hard":
+        list.sort((a, b) => diffRank(b.difficulty) - diffRank(a.difficulty));
+        break;
+      default:
+        list.sort((a, b) => String(a.name || "").localeCompare(String(b.name || ""), "fr"));
+        break;
+    }
+    return list;
+  }, [trailsForMap, mapTrailListSort]);
 
   const selectedBox = boxes.find((box) => box.id === selectedBoxId) || null;
 
@@ -4930,6 +5045,60 @@ function RavitoApp() {
     }));
   };
 
+  const centerMapOnTrail = useCallback(
+    (trailId) => {
+      const tid = Number(trailId);
+      const trail = trails.find((t) => Number(t.id) === tid);
+      if (!trail) {
+        userAlert("Trace", "Tracé introuvable.");
+        return;
+      }
+      let positions = [];
+      try {
+        if (trail.polyline_json) positions = JSON.parse(trail.polyline_json);
+      } catch {
+        positions = [];
+      }
+      if (!Array.isArray(positions) || positions.length === 0) {
+        userAlert("Trace", "Pas de géométrie GPS pour centrer la carte.");
+        return;
+      }
+      let sumLat = 0;
+      let sumLng = 0;
+      let n = 0;
+      for (const pt of positions) {
+        if (!Array.isArray(pt) || pt.length < 2) continue;
+        const plat = Number(pt[0]);
+        const plng = Number(pt[1]);
+        if (Number.isFinite(plat) && Number.isFinite(plng)) {
+          sumLat += plat;
+          sumLng += plng;
+          n += 1;
+        }
+      }
+      if (n === 0) {
+        userAlert("Trace", "Géométrie invalide.");
+        return;
+      }
+      setMapLat((sumLat / n).toFixed(5));
+      setMapLon((sumLng / n).toFixed(5));
+      setMapExplorerRecenterNonce((x) => x + 1);
+    },
+    [trails]
+  );
+
+  const isolateTrailOnMap = useCallback(
+    (trailId) => {
+      const tid = Number(trailId);
+      if (!Number.isFinite(tid)) return;
+      setMapShowTrails(true);
+      setMapTrailsScope("picked");
+      setMapTrailPickIds([tid]);
+      centerMapOnTrail(tid);
+    },
+    [centerMapOnTrail]
+  );
+
   const actionsRef = useRef({});
 
   actionsRef.current = {
@@ -4968,6 +5137,8 @@ function RavitoApp() {
     deleteTrail,
     deleteTrailsByIds,
     deleteAllMyTrails,
+    centerMapOnTrail,
+    isolateTrailOnMap,
     refreshSession,
     logout,
     updateMyRole,
@@ -5031,7 +5202,10 @@ function RavitoApp() {
       setMapTrailFilterRadiusKm,
       mapBoxSort,
       setMapBoxSort,
+      mapTrailListSort,
+      setMapTrailListSort,
       boxesForExplorerList,
+      trailsForExplorerList,
       mapViewportBounds,
       setMapViewportBounds,
       mapExplorerRecenterNonce,
@@ -5088,7 +5262,9 @@ function RavitoApp() {
       mapTrailFilterLon,
       mapTrailFilterRadiusKm,
       mapBoxSort,
+      mapTrailListSort,
       boxesForExplorerList,
+      trailsForExplorerList,
       mapViewportBounds,
       mapExplorerRecenterNonce,
       bookingDate,
