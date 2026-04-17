@@ -20,6 +20,7 @@ app.get("/", (_req, res) => {
     endpoints: [
       "/api/health",
       "/api/geocode/reverse",
+      "/api/geocode/search",
       "/api/auth/register",
       "/api/auth/login",
       "/api/auth/refresh",

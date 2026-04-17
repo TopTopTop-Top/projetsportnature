@@ -458,6 +458,44 @@ router.get("/geocode/reverse", async (req, res) => {
   }
 });
 
+/** Géocodage direct (ville / lieu → lat, lon) — proxy Nominatim (User-Agent, pas d’appel navigateur→OSM). */
+router.get("/geocode/search", async (req, res) => {
+  const q = String(req.query.q || "").trim();
+  if (q.length < 2) {
+    return res.status(400).json({ error: "Query too short" });
+  }
+  if (q.length > 160) {
+    return res.status(400).json({ error: "Query too long" });
+  }
+  try {
+    const url = new URL("https://nominatim.openstreetmap.org/search");
+    url.searchParams.set("format", "jsonv2");
+    url.searchParams.set("limit", "1");
+    url.searchParams.set("addressdetails", "1");
+    url.searchParams.set("accept-language", "fr");
+    url.searchParams.set("q", q);
+    const r = await fetch(url.toString(), {
+      headers: {
+        "User-Agent":
+          "RavitoBox/1.0 (https://github.com/TopTopTop-Top/projetsportnature)",
+      },
+    });
+    if (!r.ok) {
+      return res.status(502).json({ error: "Geocoding service error" });
+    }
+    const data = await r.json();
+    const first = Array.isArray(data) ? data[0] : null;
+    const lat = first != null ? parseFloat(first.lat) : NaN;
+    const lon = first != null ? parseFloat(first.lon) : NaN;
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+      return res.status(404).json({ error: "No results" });
+    }
+    return res.json({ lat, lon });
+  } catch (_e) {
+    return res.status(502).json({ error: "Geocoding failed" });
+  }
+});
+
 router.post("/auth/register", async (req, res) => {
   const parsed = createUserSchema.safeParse(req.body);
   if (!parsed.success) {

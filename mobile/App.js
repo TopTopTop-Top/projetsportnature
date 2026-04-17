@@ -342,27 +342,21 @@ function geocodePayloadToCityLabel(data) {
   return null;
 }
 
-async function geocodeCityToLatLon(query, { signal } = {}) {
+async function geocodeCityToLatLon(query, { signal, token } = {}) {
   const q = String(query || "").trim();
   if (q.length < 2) return null;
-  const url =
-    "https://nominatim.openstreetmap.org/search" +
-    `?format=jsonv2&limit=1&addressdetails=1&accept-language=fr` +
-    `&q=${encodeURIComponent(q)}`;
-  const res = await fetch(url, {
-    method: "GET",
-    headers: {
-      Accept: "application/json",
-    },
-    signal,
-  });
-  if (!res.ok) return null;
-  const data = await res.json();
-  const first = Array.isArray(data) ? data[0] : null;
-  const lat = Number(first?.lat);
-  const lon = Number(first?.lon);
-  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
-  return { lat, lon };
+  try {
+    const data = await apiFetch(
+      `/geocode/search?q=${encodeURIComponent(q)}`,
+      { signal, token }
+    );
+    const lat = Number(data?.lat);
+    const lon = Number(data?.lon);
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+    return { lat, lon };
+  } catch (_e) {
+    return null;
+  }
 }
 
 function explorerListSourceLabelFr(source) {
@@ -555,9 +549,10 @@ function difficultyBadgeStyle(level) {
   }
 }
 
-async function apiFetch(path, { method = "GET", body, token } = {}) {
+async function apiFetch(path, { method = "GET", body, token, signal } = {}) {
   const response = await fetch(`${API_BASE_URL}${path}`, {
     method,
+    signal,
     headers: {
       "Content-Type": "application/json",
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
@@ -4661,6 +4656,7 @@ function RavitoApp() {
         try {
           const result = await geocodeCityToLatLon(q, {
             signal: controller?.signal,
+            token,
           });
           if (seq !== explorerCityGeocodeSeqRef.current) return;
           if (result) {
@@ -4678,7 +4674,7 @@ function RavitoApp() {
       clearTimeout(t);
       controller?.abort?.();
     };
-  }, [city, mapListSource, runExplorerSearch]);
+  }, [city, mapListSource, runExplorerSearch, token]);
 
   useEffect(() => {
     if (mapListSource !== "nearby") return;

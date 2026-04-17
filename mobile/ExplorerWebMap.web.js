@@ -316,7 +316,10 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
     const next = L.latLng(center[0], center[1]);
     if (recenterNonce > 0 && recenterNonce !== lastRecenterNonceRef.current) {
       lastRecenterNonceRef.current = recenterNonce;
-      map.setView(next, map.getZoom(), { animate: true });
+      const z = pickerMode
+        ? 17
+        : Math.min(Math.max(map.getZoom(), 11), 16);
+      map.setView(next, z, { animate: true });
       return;
     }
     if (!followExternalCenter) return;
