@@ -4078,13 +4078,8 @@ function RavitoApp() {
   const [mapExplorerLastSearchAt, setMapExplorerLastSearchAt] = useState(null);
   const [mapExplorerLastSearchSource, setMapExplorerLastSearchSource] =
     useState(null);
-  const mapExplorerCameraFollowRef = useRef(true);
   const [mapBoxesNearTrailsOnly, setMapBoxesNearTrailsOnly] = useState(false);
   const [mapTrailProximityKm, setMapTrailProximityKm] = useState("3");
-
-  useEffect(() => {
-    mapExplorerCameraFollowRef.current = mapExplorerCameraFollowSearch;
-  }, [mapExplorerCameraFollowSearch]);
 
   useEffect(() => {
     if (!user) {
@@ -4306,15 +4301,6 @@ function RavitoApp() {
   ]);
 
   useEffect(() => {
-    if (mapListSource === "nearby") {
-      const lat = parseFloat(mapLat);
-      const lon = parseFloat(mapLon);
-      if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
-      if (mapExplorerCameraFollowRef.current) {
-        setMapExplorerRecenterNonce((x) => x + 1);
-      }
-      return;
-    }
     if (mapListSource === "city") {
       if (boxesForExplorerList.length > 0) {
         setSelectedBoxId((prev) =>
@@ -4326,7 +4312,7 @@ function RavitoApp() {
         setSelectedBoxId(null);
       }
     }
-  }, [mapListSource, mapLat, mapLon, boxesForExplorerList]);
+  }, [mapListSource, boxesForExplorerList]);
 
   const register = useCallback(async () => {
     const name = fullName.trim();
@@ -4680,9 +4666,8 @@ function RavitoApp() {
           if (result) {
             setMapLat(result.lat.toFixed(6));
             setMapLon(result.lon.toFixed(6));
-            if (mapExplorerCameraFollowRef.current) {
-              setMapExplorerRecenterNonce((x) => x + 1);
-            }
+            setMapExplorerCameraFollowSearch(true);
+            setMapExplorerRecenterNonce((x) => x + 1);
           }
         } catch (_e) {
           // Si le géocodage externe échoue, on garde le centre actuel.
@@ -4738,6 +4723,7 @@ function RavitoApp() {
       userAlert("Position", "Coordonnées GPS invalides.");
       return;
     }
+    setMapExplorerCameraFollowSearch(true);
     setMapLat(lat.toFixed(6));
     setMapLon(lng.toFixed(6));
     setMapListSource("viewport");
