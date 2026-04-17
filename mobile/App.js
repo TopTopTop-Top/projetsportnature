@@ -1585,9 +1585,7 @@ function ExplorerScreen() {
             selectedBoxId={selectedBoxId}
             onSelectBox={setSelectedBoxId}
             onVisibleBoundsChange={setMapViewportBounds}
-            onPanDrag={() =>
-              actionsRef.current.markExplorerMapUserGesture?.()
-            }
+            onPanDrag={() => actionsRef.current.markExplorerMapUserGesture?.()}
             followExternalCenter={
               mapExplorerCameraFollowSearch &&
               !(mapListSource === "viewport" && selectedBoxId == null)
@@ -2429,10 +2427,7 @@ function ExplorerScreen() {
                     onUserMapGesture={() =>
                       actionsRef.current.markExplorerMapUserGesture?.()
                     }
-                    autoFitToData={
-                      mapExplorerCameraFollowSearch &&
-                      mapListSource !== "viewport"
-                    }
+                    autoFitToData={false}
                     followExternalCenter={
                       mapExplorerCameraFollowSearch &&
                       !(mapListSource === "viewport" && selectedBoxId == null)
@@ -2479,10 +2474,7 @@ function ExplorerScreen() {
                 onUserMapGesture={() =>
                   actionsRef.current.markExplorerMapUserGesture?.()
                 }
-                autoFitToData={
-                  mapExplorerCameraFollowSearch &&
-                  mapListSource !== "viewport"
-                }
+                autoFitToData={false}
                 followExternalCenter={
                   mapExplorerCameraFollowSearch &&
                   !(mapListSource === "viewport" && selectedBoxId == null)
