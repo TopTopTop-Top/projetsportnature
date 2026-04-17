@@ -5456,6 +5456,15 @@ function RavitoApp() {
     [centerMapOnTrail]
   );
 
+  const markExplorerMapUserGesture = useCallback(() => {
+    setMapExplorerCameraFollowSearch(false);
+  }, []);
+
+  const recenterExplorerMapOnResults = useCallback(() => {
+    setMapExplorerCameraFollowSearch(true);
+    setMapExplorerRecenterNonce((n) => n + 1);
+  }, []);
+
   const actionsRef = useRef({});
 
   actionsRef.current = {
