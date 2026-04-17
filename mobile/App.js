@@ -4132,7 +4132,7 @@ function RavitoApp() {
     if (mapTrailDifficultyFilter !== "all") {
       t = t.filter((tr) => tr.difficulty === mapTrailDifficultyFilter);
     }
-    if (mapViewportBounds) {
+    if (mapListSource === "viewport" && mapViewportBounds) {
       t = t.filter((tr) => trailTouchesBounds(tr, mapViewportBounds));
     }
     return t;
@@ -4143,6 +4143,7 @@ function RavitoApp() {
     mapTrailPickIds,
     mapTrailDifficultyFilter,
     mapViewportBounds,
+    mapListSource,
     user?.id,
   ]);
 
@@ -4286,9 +4287,31 @@ function RavitoApp() {
 
   const selectedBox = boxes.find((box) => box.id === selectedBoxId) || null;
 
-  const webMapCenter = selectedBox
-    ? [selectedBox.latitude, selectedBox.longitude]
-    : [parseFloat(mapLat) || 45.8992, parseFloat(mapLon) || 6.1294];
+  /** En ville / GPS : centre = coordonnées de recherche (pas la box sélectionnée), pour éviter carte bloquée loin du point demandé. */
+  const webMapCenter = useMemo(() => {
+    const lat = parseFloat(mapLat);
+    const lon = parseFloat(mapLon);
+    const fallbackLat = Number.isFinite(lat) ? lat : 45.8992;
+    const fallbackLon = Number.isFinite(lon) ? lon : 6.1294;
+    if (mapListSource === "nearby" || mapListSource === "city") {
+      return [fallbackLat, fallbackLon];
+    }
+    if (selectedBox) {
+      const bl = Number(selectedBox.latitude);
+      const bLng = Number(selectedBox.longitude);
+      if (Number.isFinite(bl) && Number.isFinite(bLng)) {
+        return [bl, bLng];
+      }
+    }
+    return [fallbackLat, fallbackLon];
+  }, [
+    mapListSource,
+    mapLat,
+    mapLon,
+    selectedBox?.id,
+    selectedBox?.latitude,
+    selectedBox?.longitude,
+  ]);
 
   useEffect(() => {
     if (mapListSource === "nearby") {
@@ -4307,6 +4330,8 @@ function RavitoApp() {
             ? prev
             : boxesForExplorerList[0].id
         );
+      } else {
+        setSelectedBoxId(null);
       }
     }
   }, [mapListSource, mapLat, mapLon, boxesForExplorerList]);
