@@ -1379,6 +1379,15 @@ function ExplorerScreen() {
 
   const trailsOnMap = Array.isArray(trailsForMap) ? trailsForMap : [];
   const boxesOnMap = Array.isArray(boxesForMap) ? boxesForMap : [];
+  const safePickedBoxIds = useMemo(
+    () =>
+      Array.isArray(mapPickedBoxIds)
+        ? mapPickedBoxIds
+            .map((id) => Number(id))
+            .filter((id) => Number.isFinite(id))
+        : [],
+    [mapPickedBoxIds]
+  );
   const trailsForPickList = useMemo(() => {
     return Array.isArray(trailsForMap) ? trailsForMap : [];
   }, [trailsForMap]);
@@ -1835,7 +1844,7 @@ function ExplorerScreen() {
                     >
                       {boxes.map((box) => {
                         const bid = Number(box.id);
-                        const sel = mapPickedBoxIds.includes(bid);
+                        const sel = safePickedBoxIds.includes(bid);
                         return (
                           <TouchableOpacity
                             key={`pick-box-${box.id}`}
@@ -1844,13 +1853,15 @@ function ExplorerScreen() {
                               sel && styles.trailPickRowActive,
                             ]}
                             onPress={() => {
-                              setMapPickedBoxIds((prev) =>
-                                prev.includes(bid)
-                                  ? prev.filter((x) => x !== bid)
-                                  : [...prev, bid]
+                              setMapPickedBoxIds((prev) => {
+                                const base = Array.isArray(prev) ? prev : [];
+                                return base.includes(bid)
+                                  ? base.filter((x) => x !== bid)
+                                  : [...base, bid];
+                              });
+                              setSelectedBoxId(
+                                Number.isFinite(bid) ? bid : box.id
                               );
-                              setSelectedBoxId(box.id);
-                              setMapExplorerRecenterNonce((x) => x + 1);
                             }}
                             activeOpacity={0.85}
                           >
@@ -2085,22 +2096,23 @@ function ExplorerScreen() {
                 compact
                 stretch
                 label={
-                  mapPickedBoxIds.includes(Number(item.id))
+                  safePickedBoxIds.includes(Number(item.id))
                     ? "Retirer de ma sélection"
                     : "Ajouter à ma sélection"
                 }
                 icon={
-                  mapPickedBoxIds.includes(Number(item.id))
+                  safePickedBoxIds.includes(Number(item.id))
                     ? "remove-circle-outline"
                     : "add-circle-outline"
                 }
                 onPress={() => {
                   const bid = Number(item.id);
-                  setMapPickedBoxIds((prev) =>
-                    prev.includes(bid)
-                      ? prev.filter((x) => x !== bid)
-                      : [...prev, bid]
-                  );
+                  setMapPickedBoxIds((prev) => {
+                    const base = Array.isArray(prev) ? prev : [];
+                    return base.includes(bid)
+                      ? base.filter((x) => x !== bid)
+                      : [...base, bid];
+                  });
                   setMapBoxSelectionMode("picked");
                 }}
               />
@@ -2642,12 +2654,17 @@ function TrailsScreen() {
     borderWidth: 2,
     borderStyle: "dashed",
     borderColor: webDropHover ? theme.primary : theme.border,
-    borderRadius: 14,
-    paddingVertical: 18,
-    paddingHorizontal: 14,
+    borderRadius: 16,
+    paddingVertical: 20,
+    paddingHorizontal: 16,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: webDropHover ? "#ECFDF5" : theme.surfaceMuted,
+    minHeight: 118,
+    backgroundColor: webDropHover ? "#ECFDF5" : "#F7FAF9",
+    boxShadow: webDropHover
+      ? "0 10px 26px rgba(15, 118, 110, 0.18)"
+      : "0 6px 16px rgba(15, 23, 42, 0.08)",
+    transition: "all 140ms ease-out",
   };
 
   return (
@@ -2699,27 +2716,35 @@ function TrailsScreen() {
                   color={theme.primary}
                 />,
                 <Text style={styles.dropZoneText}>
-                  Glisse-dépose un fichier .gpx ici
+                  Glisse-depose ton fichier GPX ici
                 </Text>,
                 <Text style={styles.dropZoneHint}>
-                  ou choisis un fichier avec le bouton ci-dessous
+                  Depose le fichier ou utilise le bouton d'import juste dessous
                 </Text>
               )}
             </>
           ) : null}
-          <Text style={styles.helperText}>
-            Import GPX direct. Les filtres d’affichage sont juste en dessous et
-            pilotent aussi la carte.
-          </Text>
-          <SecondaryButton
-            label="Importer un GPX"
-            icon="cloud-upload-outline"
-            onPress={() =>
-              Platform.OS === "web"
-                ? webGpxInputRef.current?.click?.()
-                : actionsRef.current.uploadGpx()
-            }
-          />
+          <View style={styles.localGpxHintCard}>
+            <View style={styles.localGpxHintTitleRow}>
+              <Ionicons name="information-circle-outline" size={16} color={theme.primary} />
+              <Text style={[styles.localGpxHintTitle, { marginLeft: 6 }]}>
+                Import rapide
+              </Text>
+            </View>
+            <Text style={styles.localGpxHintText}>
+              Les filtres juste en dessous pilotent automatiquement cette liste
+              et la carte.
+            </Text>
+            <SecondaryButton
+              label="Importer un GPX"
+              icon="cloud-upload-outline"
+              onPress={() =>
+                Platform.OS === "web"
+                  ? webGpxInputRef.current?.click?.()
+                  : actionsRef.current.uploadGpx()
+              }
+            />
+          </View>
         </Section>
 
         <Section
@@ -6979,15 +7004,42 @@ const styles = StyleSheet.create({
     backgroundColor: theme.chipBg,
   },
   dropZoneText: {
-    marginTop: 8,
+    marginTop: 10,
     fontWeight: "700",
     color: theme.ink,
-    fontSize: 15,
+    fontSize: 16,
   },
   dropZoneHint: {
-    marginTop: 4,
-    fontSize: 12,
+    marginTop: 6,
+    fontSize: 13,
     color: theme.inkMuted,
+    textAlign: "center",
+    maxWidth: 360,
+    lineHeight: 18,
+  },
+  localGpxHintCard: {
+    marginTop: 12,
+    borderWidth: 1,
+    borderColor: theme.borderSoft,
+    backgroundColor: "#F8FBFA",
+    borderRadius: 14,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+  },
+  localGpxHintTitleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  localGpxHintTitle: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: theme.ink,
+    marginBottom: 8,
+  },
+  localGpxHintText: {
+    color: theme.inkMuted,
+    fontSize: 13,
+    lineHeight: 18,
   },
   forgotLinkWrap: {
     marginTop: 12,
