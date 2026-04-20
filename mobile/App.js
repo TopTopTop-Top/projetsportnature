@@ -549,6 +549,20 @@ function difficultyBadgeStyle(level) {
   }
 }
 
+function parseFieldErrorsFromApiError(errObj) {
+  if (!errObj || typeof errObj !== "object") return [];
+  const fieldErrors = errObj.fieldErrors;
+  if (!fieldErrors || typeof fieldErrors !== "object") return [];
+  const out = [];
+  for (const [field, msgs] of Object.entries(fieldErrors)) {
+    if (!Array.isArray(msgs) || msgs.length === 0) continue;
+    const first = String(msgs[0] || "").trim();
+    if (!first) continue;
+    out.push(`${field}: ${first}`);
+  }
+  return out;
+}
+
 async function apiFetch(path, { method = "GET", body, token, signal } = {}) {
   const response = await fetch(`${API_BASE_URL}${path}`, {
     method,
@@ -570,11 +584,16 @@ async function apiFetch(path, { method = "GET", body, token, signal } = {}) {
   }
   if (!response.ok) {
     const err = data.error;
+    const fieldMsgs = parseFieldErrorsFromApiError(err);
     const msg =
       typeof err === "string"
         ? err
+        : fieldMsgs.length > 0
+        ? fieldMsgs.join(" · ")
         : err && typeof err === "object"
         ? JSON.stringify(err)
+        : response.status === 404
+        ? `Endpoint API introuvable: ${method} ${path}`
         : "Erreur réseau ou serveur";
     throw new Error(msg);
   }
