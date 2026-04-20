@@ -13,6 +13,7 @@ export default function NativeExplorerMap({
   center,
   boxes,
   trails,
+  selectedTrailIds = [],
   selectedBoxId,
   onSelectBox,
   onVisibleBoundsChange,
@@ -44,6 +45,16 @@ export default function NativeExplorerMap({
     }
   }, [region, followExternalCenter, recenterNonce]);
 
+  const selectedTrailSet = useMemo(
+    () =>
+      new Set(
+        (selectedTrailIds || [])
+          .map((id) => Number(id))
+          .filter((id) => Number.isFinite(id))
+      ),
+    [selectedTrailIds]
+  );
+
   const trailPolylines = useMemo(() => {
     return trails
       .map((trail) => {
@@ -57,10 +68,14 @@ export default function NativeExplorerMap({
           latitude: lat,
           longitude: lng,
         }));
-        return { id: trail.id, coordinates };
+        return {
+          id: trail.id,
+          coordinates,
+          isSelected: selectedTrailSet.has(Number(trail.id)),
+        };
       })
       .filter((t) => t.coordinates.length > 1);
-  }, [trails]);
+  }, [trails, selectedTrailSet]);
 
   const reportBounds = (r) => {
     if (typeof onVisibleBoundsChange !== "function" || !r) return;
@@ -86,8 +101,8 @@ export default function NativeExplorerMap({
         <Polyline
           key={t.id}
           coordinates={t.coordinates}
-          strokeColor="#0F766E"
-          strokeWidth={4}
+          strokeColor={t.isSelected ? "#14B8A6" : "#0F766E"}
+          strokeWidth={t.isSelected ? 6 : 4}
         />
       ))}
       {boxes.map((box) => (

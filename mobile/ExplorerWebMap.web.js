@@ -183,6 +183,7 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
   center,
   boxes,
   trails,
+  selectedTrailIds = [],
   selectedBoxId,
   onSelectBox,
   onPickLocation,
@@ -200,6 +201,15 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
   /** Chaque incrément force un setView (ex. sync GPS depuis Mes box). */
   recenterNonce = 0,
 }) {
+  const selectedTrailSet = useMemo(
+    () =>
+      new Set(
+        (selectedTrailIds || [])
+          .map((id) => Number(id))
+          .filter((id) => Number.isFinite(id))
+      ),
+    [selectedTrailIds]
+  );
   const containerRef = useRef(null);
   const mapRef = useRef(null);
   const overlayRef = useRef(null);
@@ -316,9 +326,7 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
     const next = L.latLng(center[0], center[1]);
     if (recenterNonce > 0 && recenterNonce !== lastRecenterNonceRef.current) {
       lastRecenterNonceRef.current = recenterNonce;
-      const z = pickerMode
-        ? 17
-        : Math.min(Math.max(map.getZoom(), 11), 16);
+      const z = pickerMode ? 17 : Math.min(Math.max(map.getZoom(), 11), 16);
       map.setView(next, z, { animate: true });
       return;
     }
@@ -348,7 +356,13 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
             : [];
         }
         if (positions.length < 2) return;
-        const line = L.polyline(positions, TRAIL_STYLE);
+        const isSelected = selectedTrailSet.has(Number(trail.id));
+        const line = L.polyline(
+          positions,
+          isSelected
+            ? { color: "#14B8A6", weight: 6, opacity: 0.95 }
+            : TRAIL_STYLE
+        );
         if (staticOrigin) {
           line.bindPopup(buildTrailPopupHtml(trail, staticOrigin));
         }
@@ -430,7 +444,7 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
     } catch (_e) {
       /* ignore */
     }
-  }, [boxes, trails, staticOrigin, draftPoint, pickerMode, autoFitToData, selectedBoxId]);
+  }, [boxes, trails, staticOrigin, draftPoint, pickerMode, autoFitToData, selectedBoxId, selectedTrailSet]);
 
   if (Platform.OS !== "web") {
     return null;

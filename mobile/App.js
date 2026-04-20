@@ -1577,6 +1577,7 @@ function ExplorerScreen() {
             center={webMapCenter}
             boxes={boxesOnMap}
             trails={trailsOnMap}
+            selectedTrailIds={mapTrailPickIds}
             selectedBoxId={selectedBoxId}
             onSelectBox={setSelectedBoxId}
             onVisibleBoundsChange={setMapViewportBounds}
@@ -2416,6 +2417,7 @@ function ExplorerScreen() {
                     center={webMapCenter}
                     boxes={boxesOnMap}
                     trails={trailsOnMap}
+                    selectedTrailIds={mapTrailPickIds}
                     selectedBoxId={selectedBoxId}
                     onSelectBox={setSelectedBoxId}
                     onVisibleBoundsChange={setMapViewportBounds}
@@ -2463,6 +2465,7 @@ function ExplorerScreen() {
                 center={webMapCenter}
                 boxes={boxesOnMap}
                 trails={trailsOnMap}
+                selectedTrailIds={mapTrailPickIds}
                 selectedBoxId={selectedBoxId}
                 onSelectBox={setSelectedBoxId}
                 onVisibleBoundsChange={setMapViewportBounds}
@@ -2508,13 +2511,17 @@ function TrailsScreen() {
     trails,
     mapLat,
     mapLon,
-    trailDifficulty,
-    setTrailDifficulty,
     webDropHover,
     setWebDropHover,
-    trailListFilter,
-    setTrailListFilter,
     user,
+    mapShowTrails,
+    setMapShowTrails,
+    mapTrailDifficultyFilter,
+    setMapTrailDifficultyFilter,
+    mapTrailsScope,
+    setMapTrailsScope,
+    mapTrailPickIds,
+    setMapTrailPickIds,
     actionsRef,
   } = useAppMain();
 
@@ -2530,27 +2537,59 @@ function TrailsScreen() {
     return trails.filter((t) => Number(t.creator_user_id) === uid);
   }, [trails, user?.id]);
 
-  const communityTrails = useMemo(() => {
+  const tracesFiltered = useMemo(() => {
     const uid = user?.id != null ? Number(user.id) : null;
-    return trails
-      .filter((t) => uid == null || Number(t.creator_user_id) !== uid)
-      .filter(
-        (t) => trailListFilter === "all" || t.difficulty === trailListFilter
+    let list = trails;
+    if (mapTrailsScope === "mine" && uid != null) {
+      list = list.filter((t) => Number(t.creator_user_id) === uid);
+    } else if (mapTrailsScope === "others" && uid != null) {
+      list = list.filter((t) => Number(t.creator_user_id) !== uid);
+    } else if (mapTrailsScope === "picked") {
+      const set = new Set(
+        (mapTrailPickIds || [])
+          .map((id) => Number(id))
+          .filter((id) => Number.isFinite(id))
       );
-  }, [trails, user?.id, trailListFilter]);
-
-  const trailsMapList = useMemo(() => {
-    const out = [...myTrails];
-    const seen = new Set(out.map((t) => Number(t.id)));
-    for (const t of communityTrails) {
-      const id = Number(t.id);
-      if (!seen.has(id)) {
-        seen.add(id);
-        out.push(t);
-      }
+      list = list.filter((t) => set.has(Number(t.id)));
     }
-    return out;
-  }, [myTrails, communityTrails]);
+    if (mapTrailDifficultyFilter !== "all") {
+      list = list.filter((t) => t.difficulty === mapTrailDifficultyFilter);
+    }
+    return list;
+  }, [
+    trails,
+    user?.id,
+    mapTrailsScope,
+    mapTrailPickIds,
+    mapTrailDifficultyFilter,
+  ]);
+
+  const allSelectableTrails = useMemo(() => {
+    const uid = user?.id != null ? Number(user.id) : null;
+    if (mapTrailsScope === "mine" && uid != null) {
+      return trails.filter((t) => Number(t.creator_user_id) === uid);
+    }
+    if (mapTrailsScope === "others" && uid != null) {
+      return trails.filter((t) => Number(t.creator_user_id) !== uid);
+    }
+    return trails;
+  }, [trails, user?.id, mapTrailsScope]);
+
+  const trailsMapList = useMemo(
+    () => (mapShowTrails ? tracesFiltered : []),
+    [mapShowTrails, tracesFiltered]
+  );
+
+  const togglePickedTrail = useCallback(
+    (trailId) => {
+      const tid = Number(trailId);
+      if (!Number.isFinite(tid)) return;
+      setMapTrailPickIds((prev) =>
+        prev.includes(tid) ? prev.filter((id) => id !== tid) : [...prev, tid]
+      );
+    },
+    [setMapTrailPickIds]
+  );
 
   const webDropProps =
     Platform.OS === "web"
@@ -2649,32 +2688,9 @@ function TrailsScreen() {
               )}
             </>
           ) : null}
-          <Text style={styles.fieldLabel}>Difficulté à l’import GPX</Text>
-          <View style={styles.roleRow}>
-            {["easy", "medium", "hard"].map((level) => (
-              <TouchableOpacity
-                key={level}
-                style={[
-                  styles.roleChip,
-                  trailDifficulty === level && styles.roleChipActive,
-                ]}
-                onPress={() => setTrailDifficulty(level)}
-                activeOpacity={0.85}
-              >
-                <Text
-                  style={[
-                    styles.roleChipText,
-                    trailDifficulty === level && styles.roleChipTextActive,
-                  ]}
-                >
-                  {DIFFICULTY_LABELS[level]}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
           <Text style={styles.helperText}>
-            Cette difficulté est enregistrée avec le fichier GPX. Les filtres
-            d’affichage carte et liste sont ailleurs.
+            Import GPX direct. Les filtres d’affichage sont juste en dessous et
+            pilotent aussi la carte.
           </Text>
           <SecondaryButton
             label="Importer un GPX"
@@ -2688,8 +2704,132 @@ function TrailsScreen() {
         </Section>
 
         <Section
+          title="Filtres traces"
+          subtitle="Même logique que l’onglet Carte (partie traces)."
+          icon="options-outline"
+        >
+          <Text style={styles.fieldLabel}>
+            Affichage des traces sur la carte
+          </Text>
+          <View style={styles.roleRow}>
+            <TouchableOpacity
+              style={[styles.roleChip, mapShowTrails && styles.roleChipActive]}
+              onPress={() => setMapShowTrails(true)}
+              activeOpacity={0.85}
+            >
+              <Text
+                style={[
+                  styles.roleChipText,
+                  mapShowTrails && styles.roleChipTextActive,
+                ]}
+              >
+                Afficher
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.roleChip, !mapShowTrails && styles.roleChipActive]}
+              onPress={() => setMapShowTrails(false)}
+              activeOpacity={0.85}
+            >
+              <Text
+                style={[
+                  styles.roleChipText,
+                  !mapShowTrails && styles.roleChipTextActive,
+                ]}
+              >
+                Masquer
+              </Text>
+            </TouchableOpacity>
+          </View>
+
+          <Text style={styles.fieldLabel}>Source traces</Text>
+          <View style={[styles.roleRow, { flexWrap: "wrap" }]}>
+            {[
+              { id: "all", label: "Toutes" },
+              ...(user
+                ? [
+                    { id: "mine", label: "Les miennes" },
+                    { id: "others", label: "Les autres" },
+                  ]
+                : []),
+              { id: "picked", label: "Sélection..." },
+            ].map((opt) => (
+              <TouchableOpacity
+                key={`trail-scope-${opt.id}`}
+                style={[
+                  styles.roleChip,
+                  mapTrailsScope === opt.id && styles.roleChipActive,
+                ]}
+                onPress={() => setMapTrailsScope(opt.id)}
+                activeOpacity={0.85}
+              >
+                <Text
+                  style={[
+                    styles.roleChipText,
+                    mapTrailsScope === opt.id && styles.roleChipTextActive,
+                  ]}
+                >
+                  {opt.label}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+
+          <Text style={styles.fieldLabel}>Difficulté</Text>
+          <View style={styles.roleRow}>
+            {["all", "easy", "medium", "hard"].map((d) => (
+              <TouchableOpacity
+                key={`trail-diff-${d}`}
+                style={[
+                  styles.roleChip,
+                  mapTrailDifficultyFilter === d && styles.roleChipActive,
+                ]}
+                onPress={() => setMapTrailDifficultyFilter(d)}
+                activeOpacity={0.85}
+              >
+                <Text
+                  style={[
+                    styles.roleChipText,
+                    mapTrailDifficultyFilter === d && styles.roleChipTextActive,
+                  ]}
+                >
+                  {d === "all" ? "Tous" : DIFFICULTY_LABELS[d]}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+
+          {mapTrailsScope === "picked" ? (
+            <>
+              <Text style={styles.fieldLabel}>Traces sélectionnées</Text>
+              {allSelectableTrails.map((trail) => {
+                const tid = Number(trail.id);
+                const isPicked = mapTrailPickIds.includes(tid);
+                return (
+                  <TouchableOpacity
+                    key={`trace-pick-${trail.id}`}
+                    style={styles.card}
+                    onPress={() => togglePickedTrail(tid)}
+                    activeOpacity={0.85}
+                  >
+                    <View style={styles.cardAccent} />
+                    <Text style={styles.cardTitle}>{trail.name}</Text>
+                    <Text style={styles.cardMeta}>
+                      {trail.territory} · {trail.distance_km} km
+                    </Text>
+                    <Text style={styles.cardAvailability}>
+                      {isPicked ? "Sélectionnée" : "Non sélectionnée"}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </>
+          ) : null}
+        </Section>
+
+        <Section
           title="Carte des traces"
-          subtitle="Visualisation rapide de tes traces + communauté."
+          subtitle="La sélection hors carte s'affiche ici en surbrillance."
           icon="map-outline"
         >
           {Platform.OS === "web" ? (
@@ -2700,6 +2840,7 @@ function TrailsScreen() {
               ]}
               boxes={[]}
               trails={trailsMapList}
+              selectedTrailIds={mapTrailPickIds}
               selectedBoxId={null}
               onSelectBox={() => {}}
               followExternalCenter={false}
@@ -2714,6 +2855,7 @@ function TrailsScreen() {
               ]}
               boxes={[]}
               trails={trailsMapList}
+              selectedTrailIds={mapTrailPickIds}
               selectedBoxId={null}
               onSelectBox={() => {}}
               followExternalCenter={false}
@@ -2722,144 +2864,94 @@ function TrailsScreen() {
         </Section>
 
         <Section
-          title="Mes traces"
-          subtitle="Traces que tu as importées : suppression une par une, plusieurs à la fois, ou tout effacer."
-          icon="person-outline"
+          title="Liste des traces"
+          subtitle="Sélectionne une ou plusieurs traces : surbrillance carte + affichage selon filtres."
+          icon="list-outline"
         >
-          {!user ? (
-            <Text style={styles.emptyText}>
-              Connecte-toi pour voir et gérer tes propres traces.
-            </Text>
-          ) : myTrails.length === 0 ? (
-            <Text style={styles.emptyText}>
-              Tu n’as pas encore de trace à ton nom. Importe un GPX ci-dessus.
-            </Text>
-          ) : (
-            <>
-              <View style={{ marginBottom: 12, gap: 10 }}>
-                <Text style={styles.fieldLabel}>Suppression</Text>
-                <Text style={styles.helperText}>
-                  Glisse une trace vers la gauche pour afficher l’action
-                  supprimer.
-                </Text>
-                <OutlineButton
-                  danger
-                  stretch
-                  label="Supprimer toutes mes traces"
-                  icon="trash-outline"
-                  onPress={() => actionsRef.current.deleteAllMyTrails()}
-                />
-              </View>
-              {myTrails.map((trail) => {
-                const b = difficultyBadgeStyle(trail.difficulty);
-                return (
-                  <SwipeActionRow
-                    key={`my-trail-${trail.id}`}
-                    onDelete={() =>
-                      actionsRef.current.deleteTrail(trail.id, trail.name)
-                    }
-                    deleteLabel="Supprimer"
-                  >
-                    <View style={styles.card}>
-                      <View style={styles.cardAccent} />
-                      <Text style={styles.cardTitle}>{trail.name}</Text>
-                      <Text style={styles.cardMeta}>
-                        {trail.territory} · {trail.distance_km} km · D+{" "}
-                        {trail.elevation_m} m
-                      </Text>
-                      <View
-                        style={[
-                          styles.badge,
-                          { backgroundColor: b.bg, borderColor: b.border },
-                        ]}
-                      >
-                        <Text style={[styles.badgeText, { color: b.fg }]}>
-                          {DIFFICULTY_LABELS[trail.difficulty] ||
-                            trail.difficulty}
-                        </Text>
-                      </View>
-                      {absoluteUploadUrl(trail.gpx_url) ? (
-                        <OutlineButton
-                          stretch
-                          label="Ouvrir / télécharger GPX"
-                          icon="download-outline"
-                          onPress={() =>
-                            Linking.openURL(absoluteUploadUrl(trail.gpx_url))
-                          }
-                        />
-                      ) : null}
-                    </View>
-                  </SwipeActionRow>
-                );
-              })}
-            </>
-          )}
-        </Section>
-
-        <Section
-          title="Autres traces (communauté)"
-          subtitle="Traces des autres utilisateurs. Filtre par difficulté."
-          icon="navigate-outline"
-        >
-          <Text style={styles.fieldLabel}>Filtrer la liste</Text>
-          <View style={styles.roleRow}>
-            {["all", "easy", "medium", "hard"].map((level) => (
-              <TouchableOpacity
-                key={level}
-                style={[
-                  styles.roleChip,
-                  trailListFilter === level && styles.roleChipActive,
-                ]}
-                onPress={() => setTrailListFilter(level)}
-                activeOpacity={0.85}
-              >
-                <Text
-                  style={[
-                    styles.roleChipText,
-                    trailListFilter === level && styles.roleChipTextActive,
-                  ]}
-                >
-                  {level === "all" ? "Tous" : DIFFICULTY_LABELS[level]}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-          {communityTrails.map((trail) => {
+          {user && myTrails.length > 0 ? (
+            <View style={{ marginBottom: 12 }}>
+              <OutlineButton
+                danger
+                stretch
+                label="Supprimer toutes mes traces"
+                icon="trash-outline"
+                onPress={() => actionsRef.current.deleteAllMyTrails()}
+              />
+            </View>
+          ) : null}
+          {tracesFiltered.map((trail) => {
+            const isMine =
+              user?.id != null &&
+              Number(trail.creator_user_id) === Number(user.id);
+            const tid = Number(trail.id);
+            const isPicked = mapTrailPickIds.includes(tid);
             const b = difficultyBadgeStyle(trail.difficulty);
             return (
-              <View key={`co-trail-${trail.id}`} style={styles.card}>
-                <View style={styles.cardAccent} />
-                <Text style={styles.cardTitle}>{trail.name}</Text>
-                <Text style={styles.cardMeta}>
-                  {trail.territory} · {trail.distance_km} km · D+{" "}
-                  {trail.elevation_m} m
-                </Text>
+              <SwipeActionRow
+                key={`trail-list-${trail.id}`}
+                onDelete={
+                  isMine
+                    ? () => actionsRef.current.deleteTrail(trail.id, trail.name)
+                    : undefined
+                }
+                deleteLabel="Supprimer"
+              >
                 <View
                   style={[
-                    styles.badge,
-                    { backgroundColor: b.bg, borderColor: b.border },
+                    styles.card,
+                    isPicked
+                      ? { borderColor: theme.primary, borderWidth: 2 }
+                      : null,
                   ]}
                 >
-                  <Text style={[styles.badgeText, { color: b.fg }]}>
-                    {DIFFICULTY_LABELS[trail.difficulty] || trail.difficulty}
+                  <View style={styles.cardAccent} />
+                  <Text style={styles.cardTitle}>{trail.name}</Text>
+                  <Text style={styles.cardMeta}>
+                    {trail.territory} · {trail.distance_km} km · D+{" "}
+                    {trail.elevation_m} m{isMine ? " · Mienne" : ""}
                   </Text>
-                </View>
-                {absoluteUploadUrl(trail.gpx_url) ? (
+                  <View
+                    style={[
+                      styles.badge,
+                      { backgroundColor: b.bg, borderColor: b.border },
+                    ]}
+                  >
+                    <Text style={[styles.badgeText, { color: b.fg }]}>
+                      {DIFFICULTY_LABELS[trail.difficulty] || trail.difficulty}
+                    </Text>
+                  </View>
                   <OutlineButton
                     stretch
-                    label="Ouvrir / télécharger GPX"
-                    icon="download-outline"
-                    onPress={() =>
-                      Linking.openURL(absoluteUploadUrl(trail.gpx_url))
+                    label={
+                      isPicked ? "Retirer de la sélection" : "Sélectionner"
                     }
+                    icon={
+                      isPicked
+                        ? "checkmark-circle-outline"
+                        : "add-circle-outline"
+                    }
+                    onPress={() => {
+                      setMapTrailsScope("picked");
+                      togglePickedTrail(tid);
+                    }}
                   />
-                ) : null}
-              </View>
+                  {absoluteUploadUrl(trail.gpx_url) ? (
+                    <OutlineButton
+                      stretch
+                      label="Ouvrir / télécharger GPX"
+                      icon="download-outline"
+                      onPress={() =>
+                        Linking.openURL(absoluteUploadUrl(trail.gpx_url))
+                      }
+                    />
+                  ) : null}
+                </View>
+              </SwipeActionRow>
             );
           })}
-          {communityTrails.length === 0 ? (
+          {tracesFiltered.length === 0 ? (
             <Text style={styles.emptyText}>
-              Aucune autre trace avec ce filtre.
+              Aucune trace avec les filtres actuels.
             </Text>
           ) : null}
         </Section>
@@ -2885,6 +2977,24 @@ function HostScreen() {
   const hostLat = Number(hostForm.latitude) || 45.8992;
   const hostLon = Number(hostForm.longitude) || 6.1294;
   const [hostMapSelectedBoxId, setHostMapSelectedBoxId] = useState(null);
+  const [hostMapShowBoxes, setHostMapShowBoxes] = useState(true);
+  const [hostMapSelectionMode, setHostMapSelectionMode] = useState("all");
+  const [hostPickedBoxIds, setHostPickedBoxIds] = useState([]);
+
+  const toggleHostPickedBox = useCallback((boxId) => {
+    const bid = Number(boxId);
+    if (!Number.isFinite(bid)) return;
+    setHostPickedBoxIds((prev) =>
+      prev.includes(bid) ? prev.filter((id) => id !== bid) : [...prev, bid]
+    );
+  }, []);
+
+  const hostBoxesForMap = useMemo(() => {
+    if (!hostMapShowBoxes) return [];
+    if (hostMapSelectionMode !== "picked") return hostBoxes;
+    const set = new Set(hostPickedBoxIds.map((id) => Number(id)));
+    return hostBoxes.filter((b) => set.has(Number(b.id)));
+  }, [hostMapShowBoxes, hostMapSelectionMode, hostPickedBoxIds, hostBoxes]);
 
   useEffect(() => {
     if (!canHostLocal || !isFocused) return;
@@ -2896,6 +3006,17 @@ function HostScreen() {
     if (hostEditingBoxId == null) return;
     scrollRef.current?.scrollTo?.({ y: 0, animated: true });
   }, [hostEditingBoxId]);
+
+  useEffect(() => {
+    setHostPickedBoxIds((prev) =>
+      prev.filter((id) => hostBoxes.some((b) => Number(b.id) === Number(id)))
+    );
+    setHostMapSelectedBoxId((prev) =>
+      prev != null && hostBoxes.some((b) => Number(b.id) === Number(prev))
+        ? prev
+        : null
+    );
+  }, [hostBoxes]);
 
   return (
     <SafeAreaView style={styles.screen} edges={["left", "right"]}>
@@ -3201,6 +3322,81 @@ function HostScreen() {
             subtitle="Glisse une ligne vers la gauche pour modifier ou supprimer."
             icon="layers-outline"
           >
+            <Text style={styles.fieldLabel}>Affichage carte</Text>
+            <View style={styles.roleRow}>
+              <TouchableOpacity
+                style={[
+                  styles.roleChip,
+                  hostMapShowBoxes && styles.roleChipActive,
+                ]}
+                onPress={() => setHostMapShowBoxes(true)}
+                activeOpacity={0.85}
+              >
+                <Text
+                  style={[
+                    styles.roleChipText,
+                    hostMapShowBoxes && styles.roleChipTextActive,
+                  ]}
+                >
+                  Afficher
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[
+                  styles.roleChip,
+                  !hostMapShowBoxes && styles.roleChipActive,
+                ]}
+                onPress={() => setHostMapShowBoxes(false)}
+                activeOpacity={0.85}
+              >
+                <Text
+                  style={[
+                    styles.roleChipText,
+                    !hostMapShowBoxes && styles.roleChipTextActive,
+                  ]}
+                >
+                  Masquer
+                </Text>
+              </TouchableOpacity>
+            </View>
+            <Text style={styles.fieldLabel}>Source boxes sur carte</Text>
+            <View style={styles.roleRow}>
+              <TouchableOpacity
+                style={[
+                  styles.roleChip,
+                  hostMapSelectionMode === "all" && styles.roleChipActive,
+                ]}
+                onPress={() => setHostMapSelectionMode("all")}
+                activeOpacity={0.85}
+              >
+                <Text
+                  style={[
+                    styles.roleChipText,
+                    hostMapSelectionMode === "all" && styles.roleChipTextActive,
+                  ]}
+                >
+                  Toutes
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[
+                  styles.roleChip,
+                  hostMapSelectionMode === "picked" && styles.roleChipActive,
+                ]}
+                onPress={() => setHostMapSelectionMode("picked")}
+                activeOpacity={0.85}
+              >
+                <Text
+                  style={[
+                    styles.roleChipText,
+                    hostMapSelectionMode === "picked" &&
+                      styles.roleChipTextActive,
+                  ]}
+                >
+                  Sélection...
+                </Text>
+              </TouchableOpacity>
+            </View>
             {hostBoxes.length > 0 ? (
               Platform.OS === "web" ? (
                 <ExplorerWebMap
@@ -3222,20 +3418,30 @@ function HostScreen() {
                         ]
                       : [hostLat, hostLon]
                   }
-                  boxes={hostBoxes}
+                  boxes={hostBoxesForMap}
                   trails={[]}
                   selectedBoxId={hostMapSelectedBoxId}
-                  onSelectBox={setHostMapSelectedBoxId}
+                  onSelectBox={(id) => {
+                    setHostMapSelectedBoxId(id);
+                    if (hostMapSelectionMode === "picked") {
+                      toggleHostPickedBox(id);
+                    }
+                  }}
                   autoFitToData
                   followExternalCenter={false}
                 />
               ) : (
                 <NativeExplorerMap
                   center={[hostLat, hostLon]}
-                  boxes={hostBoxes}
+                  boxes={hostBoxesForMap}
                   trails={[]}
                   selectedBoxId={hostMapSelectedBoxId}
-                  onSelectBox={setHostMapSelectedBoxId}
+                  onSelectBox={(id) => {
+                    setHostMapSelectedBoxId(id);
+                    if (hostMapSelectionMode === "picked") {
+                      toggleHostPickedBox(id);
+                    }
+                  }}
                   followExternalCenter={false}
                 />
               )
@@ -3296,6 +3502,25 @@ function HostScreen() {
                       {box.availability_note}
                     </Text>
                   ) : null}
+                  <OutlineButton
+                    compact
+                    stretch
+                    label={
+                      hostPickedBoxIds.includes(Number(box.id))
+                        ? "Retirer de la sélection"
+                        : "Sélectionner sur la carte"
+                    }
+                    icon={
+                      hostPickedBoxIds.includes(Number(box.id))
+                        ? "checkmark-circle-outline"
+                        : "add-circle-outline"
+                    }
+                    onPress={() => {
+                      setHostMapSelectionMode("picked");
+                      setHostMapSelectedBoxId(box.id);
+                      toggleHostPickedBox(box.id);
+                    }}
+                  />
                 </View>
               </SwipeActionRow>
             ))}
