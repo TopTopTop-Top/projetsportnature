@@ -2530,6 +2530,15 @@ function TrailsScreen() {
     return trails.filter((t) => Number(t.creator_user_id) === uid);
   }, [trails, user?.id]);
 
+  const communityTrails = useMemo(() => {
+    const uid = user?.id != null ? Number(user.id) : null;
+    return trails
+      .filter((t) => uid == null || Number(t.creator_user_id) !== uid)
+      .filter(
+        (t) => trailListFilter === "all" || t.difficulty === trailListFilter
+      );
+  }, [trails, user?.id, trailListFilter]);
+
   const trailsMapList = useMemo(() => {
     const out = [...myTrails];
     const seen = new Set(out.map((t) => Number(t.id)));
@@ -2542,15 +2551,6 @@ function TrailsScreen() {
     }
     return out;
   }, [myTrails, communityTrails]);
-
-  const communityTrails = useMemo(() => {
-    const uid = user?.id != null ? Number(user.id) : null;
-    return trails
-      .filter((t) => uid == null || Number(t.creator_user_id) !== uid)
-      .filter(
-        (t) => trailListFilter === "all" || t.difficulty === trailListFilter
-      );
-  }, [trails, user?.id, trailListFilter]);
 
   const webDropProps =
     Platform.OS === "web"
