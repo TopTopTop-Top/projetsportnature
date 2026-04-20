@@ -155,6 +155,14 @@ async function migrate() {
       `ALTER TABLE boxes ADD COLUMN IF NOT EXISTS archived_at TIMESTAMPTZ`
     );
     await client.query(
+      `ALTER TABLE boxes ADD COLUMN IF NOT EXISTS access_code TEXT`
+    );
+    await client.query(
+      `UPDATE boxes
+       SET access_code = LPAD(FLOOR(100000 + RANDOM() * 900000)::text, 6, '0')
+       WHERE access_code IS NULL OR TRIM(access_code) = ''`
+    );
+    await client.query(
       `ALTER TABLE bookings ADD COLUMN IF NOT EXISTS change_request_json TEXT`
     );
     await client.query(

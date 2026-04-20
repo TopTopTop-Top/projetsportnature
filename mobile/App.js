@@ -346,10 +346,10 @@ async function geocodeCityToLatLon(query, { signal, token } = {}) {
   const q = String(query || "").trim();
   if (q.length < 2) return null;
   try {
-    const data = await apiFetch(
-      `/geocode/search?q=${encodeURIComponent(q)}`,
-      { signal, token }
-    );
+    const data = await apiFetch(`/geocode/search?q=${encodeURIComponent(q)}`, {
+      signal,
+      token,
+    });
     const lat = Number(data?.lat);
     const lon = Number(data?.lon);
     if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
@@ -2506,6 +2506,8 @@ function ExplorerScreen() {
 function TrailsScreen() {
   const {
     trails,
+    mapLat,
+    mapLon,
     trailDifficulty,
     setTrailDifficulty,
     webDropHover,
@@ -2527,6 +2529,19 @@ function TrailsScreen() {
     const uid = Number(user.id);
     return trails.filter((t) => Number(t.creator_user_id) === uid);
   }, [trails, user?.id]);
+
+  const trailsMapList = useMemo(() => {
+    const out = [...myTrails];
+    const seen = new Set(out.map((t) => Number(t.id)));
+    for (const t of communityTrails) {
+      const id = Number(t.id);
+      if (!seen.has(id)) {
+        seen.add(id);
+        out.push(t);
+      }
+    }
+    return out;
+  }, [myTrails, communityTrails]);
 
   const communityTrails = useMemo(() => {
     const uid = user?.id != null ? Number(user.id) : null;
@@ -2558,13 +2573,24 @@ function TrailsScreen() {
             e.preventDefault?.();
             e.stopPropagation?.();
             setWebDropHover(false);
-            const ne = e.nativeEvent;
-            const dt = ne?.dataTransfer ?? e.dataTransfer;
+            const dt = e?.dataTransfer ?? e?.nativeEvent?.dataTransfer;
             const f = dt?.files?.[0];
             actionsRef.current.uploadGpxWebFile(f);
           },
         }
       : {};
+  const webDropZoneStyle = {
+    marginTop: 10,
+    borderWidth: 2,
+    borderStyle: "dashed",
+    borderColor: webDropHover ? theme.primary : theme.border,
+    borderRadius: 14,
+    paddingVertical: 18,
+    paddingHorizontal: 14,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: webDropHover ? "#ECFDF5" : theme.surfaceMuted,
+  };
 
   return (
     <SafeAreaView style={styles.screen} edges={["left", "right"]}>
@@ -2603,22 +2629,24 @@ function TrailsScreen() {
                   if (f) actionsRef.current.uploadGpxWebFile(f);
                 },
               })}
-              <View
-                style={[styles.dropZone, webDropHover && styles.dropZoneActive]}
-                {...webDropProps}
-              >
+              {React.createElement(
+                "div",
+                {
+                  style: webDropZoneStyle,
+                  ...webDropProps,
+                },
                 <Ionicons
                   name="cloud-upload-outline"
                   size={28}
                   color={theme.primary}
-                />
+                />,
                 <Text style={styles.dropZoneText}>
                   Glisse-dépose un fichier .gpx ici
-                </Text>
+                </Text>,
                 <Text style={styles.dropZoneHint}>
                   ou choisis un fichier avec le bouton ci-dessous
                 </Text>
-              </View>
+              )}
             </>
           ) : null}
           <Text style={styles.fieldLabel}>Difficulté à l’import GPX</Text>
@@ -2648,11 +2676,6 @@ function TrailsScreen() {
             Cette difficulté est enregistrée avec le fichier GPX. Les filtres
             d’affichage carte et liste sont ailleurs.
           </Text>
-          <PrimaryButton
-            label="Charger les traces"
-            icon="download-outline"
-            onPress={() => actionsRef.current.loadTrails()}
-          />
           <SecondaryButton
             label="Importer un GPX"
             icon="cloud-upload-outline"
@@ -2662,6 +2685,40 @@ function TrailsScreen() {
                 : actionsRef.current.uploadGpx()
             }
           />
+        </Section>
+
+        <Section
+          title="Carte des traces"
+          subtitle="Visualisation rapide de tes traces + communauté."
+          icon="map-outline"
+        >
+          {Platform.OS === "web" ? (
+            <ExplorerWebMap
+              center={[
+                parseFloat(mapLat) || 45.8992,
+                parseFloat(mapLon) || 6.1294,
+              ]}
+              boxes={[]}
+              trails={trailsMapList}
+              selectedBoxId={null}
+              onSelectBox={() => {}}
+              followExternalCenter={false}
+              autoFitToData
+              staticOrigin={API_STATIC_ORIGIN}
+            />
+          ) : (
+            <NativeExplorerMap
+              center={[
+                parseFloat(mapLat) || 45.8992,
+                parseFloat(mapLon) || 6.1294,
+              ]}
+              boxes={[]}
+              trails={trailsMapList}
+              selectedBoxId={null}
+              onSelectBox={() => {}}
+              followExternalCenter={false}
+            />
+          )}
         </Section>
 
         <Section
@@ -2827,6 +2884,7 @@ function HostScreen() {
   const scrollRef = useRef(null);
   const hostLat = Number(hostForm.latitude) || 45.8992;
   const hostLon = Number(hostForm.longitude) || 6.1294;
+  const [hostMapSelectedBoxId, setHostMapSelectedBoxId] = useState(null);
 
   useEffect(() => {
     if (!canHostLocal || !isFocused) return;
@@ -3032,6 +3090,16 @@ function HostScreen() {
                 }
                 keyboardType="number-pad"
               />
+              <Text style={styles.fieldLabel}>Code d'accès de ton box</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="Ex: 458912 (modifiable par l'hôte)"
+                placeholderTextColor={theme.inkMuted}
+                value={hostForm.accessCode}
+                onChangeText={(v) =>
+                  setHostForm((s) => ({ ...s, accessCode: v }))
+                }
+              />
               <Text style={styles.fieldLabel}>Capacité totale (litres)</Text>
               <TextInput
                 style={styles.input}
@@ -3134,6 +3202,45 @@ function HostScreen() {
             icon="layers-outline"
           >
             {hostBoxes.length > 0 ? (
+              Platform.OS === "web" ? (
+                <ExplorerWebMap
+                  center={
+                    hostMapSelectedBoxId != null
+                      ? [
+                          Number(
+                            hostBoxes.find(
+                              (b) =>
+                                Number(b.id) === Number(hostMapSelectedBoxId)
+                            )?.latitude
+                          ) || hostLat,
+                          Number(
+                            hostBoxes.find(
+                              (b) =>
+                                Number(b.id) === Number(hostMapSelectedBoxId)
+                            )?.longitude
+                          ) || hostLon,
+                        ]
+                      : [hostLat, hostLon]
+                  }
+                  boxes={hostBoxes}
+                  trails={[]}
+                  selectedBoxId={hostMapSelectedBoxId}
+                  onSelectBox={setHostMapSelectedBoxId}
+                  autoFitToData
+                  followExternalCenter={false}
+                />
+              ) : (
+                <NativeExplorerMap
+                  center={[hostLat, hostLon]}
+                  boxes={hostBoxes}
+                  trails={[]}
+                  selectedBoxId={hostMapSelectedBoxId}
+                  onSelectBox={setHostMapSelectedBoxId}
+                  followExternalCenter={false}
+                />
+              )
+            ) : null}
+            {hostBoxes.length > 0 ? (
               <View style={{ marginBottom: 12, gap: 10 }}>
                 <Text style={styles.helperText}>
                   Swipe vers la gauche pour afficher les actions de chaque box.
@@ -3162,6 +3269,9 @@ function HostScreen() {
                   <Text style={styles.cardTitle}>{box.title}</Text>
                   <Text style={styles.cardMeta}>
                     {box.city} · {(box.price_cents / 100).toFixed(2)} €
+                  </Text>
+                  <Text style={styles.cardDetailLine}>
+                    Code d'accès : {box.access_code || "(non défini)"}
                   </Text>
                   <Text style={styles.cardDetailLine}>
                     {box.capacity_liters ?? "?"} L · Eau : {boxWaterLabel(box)}
@@ -3592,7 +3702,9 @@ function ReservationsScreen() {
                       {b.start_time}-{b.end_time}
                     </Text>
                     <Text style={styles.cardDetailLine}>
-                      Statut: {bookingApprovalLabel(approval)} · gain hôte{" "}
+                      Statut: {bookingApprovalLabel(approval)} · prix{" "}
+                      {(Number(b.amount_cents || 0) / 100).toFixed(2)} € · gain
+                      hôte{" "}
                       {(Number(b.host_earnings_cents || 0) / 100).toFixed(2)} €
                     </Text>
                     {b.special_request ? (
@@ -4013,6 +4125,7 @@ function RavitoApp() {
     longitude: "6.1294",
     city: "Annecy",
     priceCents: "700",
+    accessCode: "",
     capacityLiters: "20",
     hasWater: true,
     criteriaTags: [],
@@ -4979,6 +5092,7 @@ function RavitoApp() {
       longitude: Number(hostForm.longitude),
       city: hostForm.city,
       priceCents: Number(hostForm.priceCents),
+      accessCode: hostForm.accessCode?.trim() || undefined,
       capacityLiters: Number(hostForm.capacityLiters),
       hasWater: Boolean(hostForm.hasWater),
       availabilityNote: hostForm.availabilityNote?.trim() || undefined,
@@ -5008,6 +5122,7 @@ function RavitoApp() {
           longitude: "6.1294",
           city: "Annecy",
           priceCents: "700",
+          accessCode: "",
           capacityLiters: "20",
           hasWater: true,
           criteriaTags: [],
@@ -5038,6 +5153,7 @@ function RavitoApp() {
       longitude: String(Number(box.longitude)),
       city: box.city || "",
       priceCents: String(box.price_cents ?? 700),
+      accessCode: String(box.access_code || ""),
       capacityLiters: String(box.capacity_liters ?? 20),
       hasWater: box.has_water === 1 || box.has_water === true,
       criteriaTags: parseBoxCriteria(box),
@@ -5056,6 +5172,7 @@ function RavitoApp() {
       longitude: "6.1294",
       city: "Annecy",
       priceCents: "700",
+      accessCode: "",
       capacityLiters: "20",
       hasWater: true,
       criteriaTags: [],

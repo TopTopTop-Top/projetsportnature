@@ -53,6 +53,7 @@ const createBoxSchema = z.object({
   priceCents: z.number().int().nonnegative(),
   capacityLiters: z.number().int().positive().optional(),
   hasWater: z.boolean().optional(),
+  accessCode: z.string().trim().min(4).max(32).optional(),
   availabilityNote: z.string().max(2000).optional(),
   criteriaTags: z.array(z.string().min(1).max(50)).max(20).optional(),
   criteriaNote: z.string().max(2000).optional(),
@@ -67,6 +68,7 @@ const createHostBoxSchema = z.object({
   priceCents: z.number().int().nonnegative(),
   capacityLiters: z.number().int().positive().optional(),
   hasWater: z.boolean().optional(),
+  accessCode: z.string().trim().min(4).max(32).optional(),
   availabilityNote: z.string().max(2000).optional(),
   criteriaTags: z.array(z.string().min(1).max(50)).max(20).optional(),
   criteriaNote: z.string().max(2000).optional(),
@@ -283,6 +285,7 @@ function buildBoxChangedFields(beforeBox, afterBox) {
     { key: "description", label: "Description" },
     { key: "city", label: "Ville" },
     { key: "price_cents", label: "Prix" },
+    { key: "access_code", label: "Code d'accès" },
     { key: "capacity_liters", label: "Capacité" },
     { key: "has_water", label: "Eau disponible" },
     { key: "availability_note", label: "Disponibilités" },
@@ -696,8 +699,8 @@ router.post("/boxes", requireAuth, async (req, res) => {
 
   const input = parsed.data;
   const { rows } = await pool.query(
-    `INSERT INTO boxes (host_user_id, title, description, latitude, longitude, city, price_cents, capacity_liters, has_water, availability_note, criteria_json, criteria_note)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+    `INSERT INTO boxes (host_user_id, title, description, latitude, longitude, city, price_cents, capacity_liters, has_water, access_code, availability_note, criteria_json, criteria_note)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
      RETURNING *`,
     [
       input.hostUserId,
@@ -709,6 +712,7 @@ router.post("/boxes", requireAuth, async (req, res) => {
       input.priceCents,
       input.capacityLiters ?? 20,
       input.hasWater ? 1 : 0,
+      input.accessCode?.trim() || generateAccessCode(),
       input.availabilityNote?.trim() || null,
       input.criteriaTags?.length ? JSON.stringify(input.criteriaTags) : null,
       input.criteriaNote?.trim() || null,
@@ -735,8 +739,8 @@ router.post("/host/boxes", requireAuth, async (req, res) => {
 
   const input = parsed.data;
   const { rows } = await pool.query(
-    `INSERT INTO boxes (host_user_id, title, description, latitude, longitude, city, price_cents, capacity_liters, has_water, availability_note, criteria_json, criteria_note)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+    `INSERT INTO boxes (host_user_id, title, description, latitude, longitude, city, price_cents, capacity_liters, has_water, access_code, availability_note, criteria_json, criteria_note)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
      RETURNING *`,
     [
       req.auth.sub,
@@ -748,6 +752,7 @@ router.post("/host/boxes", requireAuth, async (req, res) => {
       input.priceCents,
       input.capacityLiters ?? 20,
       input.hasWater ? 1 : 0,
+      input.accessCode?.trim() || generateAccessCode(),
       input.availabilityNote?.trim() || null,
       input.criteriaTags?.length ? JSON.stringify(input.criteriaTags) : null,
       input.criteriaNote?.trim() || null,
@@ -790,12 +795,13 @@ router.patch("/host/boxes/:id", requireAuth, async (req, res) => {
        longitude = $4,
        city = $5,
        price_cents = $6,
-       capacity_liters = $7,
-       has_water = $8,
-       availability_note = $9,
-       criteria_json = $10,
-       criteria_note = $11
-     WHERE id = $12 AND host_user_id = $13 AND is_active = 1
+       access_code = $7,
+       capacity_liters = $8,
+       has_water = $9,
+       availability_note = $10,
+       criteria_json = $11,
+       criteria_note = $12
+     WHERE id = $13 AND host_user_id = $14 AND is_active = 1
      RETURNING *`,
     [
       input.title,
@@ -804,6 +810,7 @@ router.patch("/host/boxes/:id", requireAuth, async (req, res) => {
       input.longitude,
       input.city,
       input.priceCents,
+      input.accessCode?.trim() || beforeBox.access_code || generateAccessCode(),
       input.capacityLiters ?? 20,
       input.hasWater ? 1 : 0,
       input.availabilityNote?.trim() || null,
@@ -814,6 +821,19 @@ router.patch("/host/boxes/:id", requireAuth, async (req, res) => {
     ]
   );
   const updated = rows[0];
+  if (
+    normalizeComparable(beforeBox.access_code) !==
+    normalizeComparable(updated.access_code)
+  ) {
+    await pool.query(
+      `UPDATE bookings
+       SET access_code = $1
+       WHERE box_id = $2
+         AND status <> 'cancelled'
+         AND status <> 'completed'`,
+      [updated.access_code, boxId]
+    );
+  }
   const changedFields = buildBoxChangedFields(beforeBox, updated);
   const changeLabels =
     changedFields.length > 0
@@ -843,6 +863,7 @@ router.patch("/host/boxes/:id", requireAuth, async (req, res) => {
           title: beforeBox.title,
           city: beforeBox.city,
           priceCents: beforeBox.price_cents,
+          accessCode: beforeBox.access_code,
           capacityLiters: beforeBox.capacity_liters,
           hasWater: beforeBox.has_water,
           availabilityNote: beforeBox.availability_note,
@@ -852,6 +873,7 @@ router.patch("/host/boxes/:id", requireAuth, async (req, res) => {
           title: updated.title,
           city: updated.city,
           priceCents: updated.price_cents,
+          accessCode: updated.access_code,
           capacityLiters: updated.capacity_liters,
           hasWater: updated.has_water,
           availabilityNote: updated.availability_note,
@@ -1124,7 +1146,7 @@ router.post("/bookings", requireAuth, async (req, res) => {
   const input = parsed.data;
   const athleteUserId = req.auth.sub;
   const { rows: boxRows } = await pool.query(
-    `SELECT id, price_cents FROM boxes WHERE id = $1 AND is_active = 1`,
+    `SELECT id, price_cents, access_code FROM boxes WHERE id = $1 AND is_active = 1`,
     [input.boxId]
   );
   const box = boxRows[0];
@@ -1150,7 +1172,9 @@ router.post("/bookings", requireAuth, async (req, res) => {
   const amountCents = box.price_cents;
   const { platformFeeCents, hostEarningsCents } =
     computeCommission(amountCents);
-  const accessCode = generateAccessCode();
+  const accessCode =
+    (typeof box.access_code === "string" && box.access_code.trim()) ||
+    generateAccessCode();
 
   const { rows } = await pool.query(
     `INSERT INTO bookings (
