@@ -902,14 +902,6 @@ router.get("/boxes/bounds", async (req, res) => {
       .status(400)
       .json({ error: "Bounds crossing antimeridian not supported" });
   }
-  const latSpan = north - south;
-  const lonSpan = east - west;
-  const maxSpan = 12;
-  if (latSpan > maxSpan || lonSpan > maxSpan) {
-    return res.status(400).json({
-      error: `Viewport too large (max ${maxSpan}° per axis). Zoom in.`,
-    });
-  }
   const lim = limit ?? 200;
   const { rows } = await pool.query(
     `SELECT b.*,

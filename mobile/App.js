@@ -3177,12 +3177,17 @@ function HostScreen() {
                   </Text>
                 </View>
               ) : null}
-              {hostReverseGeocode.status === "error" &&
-              hostReverseGeocode.message ? (
+              {hostReverseGeocode.message ? (
                 <Text
                   style={[
                     styles.helperText,
-                    { color: "#B91C1C", marginBottom: 8 },
+                    {
+                      color:
+                        hostReverseGeocode.status === "error"
+                          ? "#B91C1C"
+                          : "#92400E",
+                      marginBottom: 8,
+                    },
                   ]}
                 >
                   {hostReverseGeocode.message}
@@ -5111,20 +5116,17 @@ function RavitoApp() {
             });
           } else {
             setHostReverseGeocode({
-              status: "error",
+              status: "warn",
               message:
                 "Le service n’a pas renvoyé de nom de lieu pour ce point. Saisis la ville à la main.",
             });
           }
         } catch (error) {
           if (seq !== hostGeocodeSeqRef.current) return;
-          const msg =
-            typeof error?.message === "string"
-              ? error.message.slice(0, 200)
-              : "Erreur réseau ou serveur";
           setHostReverseGeocode({
-            status: "error",
-            message: `${msg}. Vérifie que l’API déploie bien GET /api/geocode/reverse.`,
+            status: "warn",
+            message:
+              "Service de géocodage indisponible pour le moment. Saisis la ville à la main.",
           });
         }
       })();
