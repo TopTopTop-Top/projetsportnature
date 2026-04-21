@@ -394,6 +394,31 @@ async function geocodeCityToLatLon(query, { signal, token } = {}) {
   }
 }
 
+async function reverseGeocodeFromNominatim(lat, lon, { signal } = {}) {
+  const plat = Number(lat);
+  const plon = Number(lon);
+  if (!Number.isFinite(plat) || !Number.isFinite(plon)) return null;
+  try {
+    const url = new URL("https://nominatim.openstreetmap.org/reverse");
+    url.searchParams.set("lat", String(plat));
+    url.searchParams.set("lon", String(plon));
+    url.searchParams.set("format", "json");
+    url.searchParams.set("addressdetails", "1");
+    url.searchParams.set("accept-language", "fr");
+    const r = await fetch(url.toString(), {
+      signal,
+      headers: {
+        "User-Agent":
+          "RavitoBox/1.0 (https://github.com/TopTopTop-Top/projetsportnature)",
+      },
+    });
+    if (!r.ok) return null;
+    return await r.json();
+  } catch (_e) {
+    return null;
+  }
+}
+
 function explorerListSourceLabelFr(source) {
   if (source === "viewport") return "Zone visible";
   if (source === "city") return "Par ville";
@@ -5507,6 +5532,16 @@ function RavitoApp() {
       const rows = await apiFetch("/host/refunds", { token });
       setHostRefunds(Array.isArray(rows) ? rows : []);
     } catch (error) {
+      const msg = String(error?.message || "");
+      const missingRoute =
+        /Endpoint API introuvable/i.test(msg) ||
+        /Cannot GET\s+\/api\/host\/refunds/i.test(msg) ||
+        /Not Found/i.test(msg);
+      if (missingRoute) {
+        // Compat old backend: keep Host tab usable even if refunds endpoint is absent.
+        setHostRefunds([]);
+        return;
+      }
       userAlert("Erreur", error.message);
     }
   };
@@ -5870,11 +5905,19 @@ function RavitoApp() {
           }
         } catch (error) {
           if (seq !== hostGeocodeSeqRef.current) return;
-          setHostReverseGeocode({
-            status: "warn",
-            message:
-              "Service de géocodage indisponible pour le moment. Saisis la ville à la main.",
-          });
+          const fallback = await reverseGeocodeFromNominatim(lat, lng);
+          if (seq !== hostGeocodeSeqRef.current) return;
+          const fallbackLabel = geocodePayloadToCityLabel(fallback);
+          if (fallbackLabel) {
+            setHostForm((s) => ({ ...s, city: fallbackLabel }));
+            setHostReverseGeocode({ status: "ok", message: "" });
+          } else {
+            setHostReverseGeocode({
+              status: "warn",
+              message:
+                "Service de géocodage indisponible pour le moment. Saisis la ville à la main.",
+            });
+          }
         }
       })();
     }, 380);
