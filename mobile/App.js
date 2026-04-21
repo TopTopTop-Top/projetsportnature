@@ -1452,6 +1452,22 @@ function ExplorerScreen() {
     },
     [setMapTrailsScope, setMapTrailPickIds, setSelectedTrailId]
   );
+  const focusExplorerBox = useCallback(
+    (boxId) => {
+      const bid = Number(boxId);
+      if (!Number.isFinite(bid)) return;
+      setSelectedBoxId(bid);
+    },
+    [setSelectedBoxId]
+  );
+  const focusExplorerTrail = useCallback(
+    (trailId) => {
+      const tid = Number(trailId);
+      if (!Number.isFinite(tid)) return;
+      setSelectedTrailId(tid);
+    },
+    [setSelectedTrailId]
+  );
   const { width: viewportWidth } = useWindowDimensions();
   const [showBoxFilters, setShowBoxFilters] = useState(false);
   const [showTrailFilters, setShowTrailFilters] = useState(false);
@@ -1678,8 +1694,8 @@ function ExplorerScreen() {
             trails={trailsOnMap}
             selectedTrailIds={mapTrailPickIds}
             selectedBoxId={selectedBoxId}
-            onSelectBox={toggleExplorerPickedBox}
-            onSelectTrail={toggleExplorerPickedTrail}
+            onSelectBox={focusExplorerBox}
+            onSelectTrail={focusExplorerTrail}
             onVisibleBoundsChange={setMapViewportBounds}
             onPanDrag={() => actionsRef.current.markExplorerMapUserGesture?.()}
             followExternalCenter={
@@ -2629,8 +2645,8 @@ function ExplorerScreen() {
                     trails={trailsOnMap}
                     selectedTrailIds={mapTrailPickIds}
                     selectedBoxId={selectedBoxId}
-                    onSelectBox={toggleExplorerPickedBox}
-                    onSelectTrail={toggleExplorerPickedTrail}
+                    onSelectBox={focusExplorerBox}
+                    onSelectTrail={focusExplorerTrail}
                     onVisibleBoundsChange={setMapViewportBounds}
                     onUserMapGesture={() =>
                       actionsRef.current.markExplorerMapUserGesture?.()
@@ -2678,8 +2694,8 @@ function ExplorerScreen() {
                 trails={trailsOnMap}
                 selectedTrailIds={mapTrailPickIds}
                 selectedBoxId={selectedBoxId}
-                onSelectBox={toggleExplorerPickedBox}
-                onSelectTrail={toggleExplorerPickedTrail}
+                onSelectBox={focusExplorerBox}
+                onSelectTrail={focusExplorerTrail}
                 onVisibleBoundsChange={setMapViewportBounds}
                 onUserMapGesture={() =>
                   actionsRef.current.markExplorerMapUserGesture?.()
@@ -3086,10 +3102,7 @@ function TrailsScreen() {
               selectedTrailIds={mapTrailPickIds}
               selectedBoxId={null}
               onSelectBox={() => {}}
-              onSelectTrail={(id) => {
-                setMapTrailsScope("picked");
-                togglePickedTrail(id);
-              }}
+              onSelectTrail={(id) => setSelectedTrailId(id)}
               followExternalCenter={false}
               autoFitToData
               staticOrigin={API_STATIC_ORIGIN}
@@ -3105,10 +3118,7 @@ function TrailsScreen() {
               selectedTrailIds={mapTrailPickIds}
               selectedBoxId={null}
               onSelectBox={() => {}}
-              onSelectTrail={(id) => {
-                setMapTrailsScope("picked");
-                togglePickedTrail(id);
-              }}
+              onSelectTrail={(id) => setSelectedTrailId(id)}
               followExternalCenter={false}
             />
           )}
@@ -3738,8 +3748,6 @@ function HostScreen() {
                   selectedBoxId={hostMapSelectedBoxId}
                   onSelectBox={(id) => {
                     setHostMapSelectedBoxId(id);
-                    setHostMapSelectionMode("picked");
-                    toggleHostPickedBox(id);
                   }}
                   autoFitToData
                   followExternalCenter={false}
@@ -3752,8 +3760,6 @@ function HostScreen() {
                   selectedBoxId={hostMapSelectedBoxId}
                   onSelectBox={(id) => {
                     setHostMapSelectedBoxId(id);
-                    setHostMapSelectionMode("picked");
-                    toggleHostPickedBox(id);
                   }}
                   followExternalCenter={false}
                 />
