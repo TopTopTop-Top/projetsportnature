@@ -438,7 +438,8 @@ function normalizeCityLabel(addr = {}, displayName = "") {
   return { city: city || null, placeLabel: placeLabel || null };
 }
 
-const GEOCODE_FETCH_MS = 12000;
+/** Nominatim peut dépasser 60s depuis certains hébergeurs ; Photon/BDC sont en général plus rapides. */
+const GEOCODE_FETCH_MS = 22000;
 const NOMINATIM_UA =
   "RavitoBox/1.0 (https://github.com/TopTopTop-Top/projetsportnature)";
 
@@ -449,6 +450,47 @@ function geocodeAbortSignal() {
   const c = new AbortController();
   setTimeout(() => c.abort(), GEOCODE_FETCH_MS);
   return c.signal;
+}
+
+/** @returns {Promise<{ city: string|null, placeLabel: string|null, displayName: string|null, postcode: string|null }|null>} */
+async function reverseGeocodePhoton(lat, lon) {
+  try {
+    const url = new URL("https://photon.komoot.io/reverse");
+    url.searchParams.set("lat", String(lat));
+    url.searchParams.set("lon", String(lon));
+    url.searchParams.set("lang", "fr");
+    const r = await fetch(url.toString(), { signal: geocodeAbortSignal() });
+    if (!r.ok) return null;
+    const data = await r.json();
+    const feat = Array.isArray(data.features) ? data.features[0] : null;
+    const p = feat?.properties;
+    if (!p || typeof p !== "object") return null;
+    const city =
+      (typeof p.city === "string" && p.city.trim()) ||
+      (typeof p.town === "string" && p.town.trim()) ||
+      (typeof p.village === "string" && p.village.trim()) ||
+      (typeof p.district === "string" && p.district.trim()) ||
+      (typeof p.locality === "string" && p.locality.trim()) ||
+      (typeof p.county === "string" && p.county.trim()) ||
+      null;
+    const placeLabel =
+      city ||
+      (typeof p.name === "string" && p.name.trim()) ||
+      null;
+    if (!placeLabel && !city) return null;
+    const displayName = [p.name, p.street, city, p.postcode, p.country]
+      .filter((x) => typeof x === "string" && x.trim())
+      .join(", ");
+    return {
+      city: city || null,
+      placeLabel: placeLabel || city || null,
+      displayName: displayName || null,
+      postcode:
+        (typeof p.postcode === "string" && p.postcode.trim()) || null,
+    };
+  } catch (_e) {
+    return null;
+  }
 }
 
 /** @returns {Promise<{ city: string|null, placeLabel: string|null, displayName: string|null, postcode: string|null }|null>} */
@@ -518,7 +560,7 @@ async function reverseGeocodeBigDataCloud(lat, lon) {
   }
 }
 
-/** Géocodage inverse (Nominatim puis BigDataCloud) — uniquement côté serveur. */
+/** Géocodage inverse (Photon + BigDataCloud en parallèle, puis Nominatim) — uniquement côté serveur. */
 router.get("/geocode/reverse", async (req, res) => {
   const lat = parseFloat(req.query.lat);
   const lon = parseFloat(req.query.lon);
@@ -528,13 +570,19 @@ router.get("/geocode/reverse", async (req, res) => {
   if (lat < -90 || lat > 90 || lon < -180 || lon > 180) {
     return res.status(400).json({ error: "Coordinates out of range" });
   }
+  const [fromPhoton, fromBdc] = await Promise.all([
+    reverseGeocodePhoton(lat, lon),
+    reverseGeocodeBigDataCloud(lat, lon),
+  ]);
+  if (fromPhoton) {
+    return res.json({ ...fromPhoton, provider: "photon" });
+  }
+  if (fromBdc) {
+    return res.json({ ...fromBdc, provider: "bigdatacloud" });
+  }
   const fromNominatim = await reverseGeocodeNominatim(lat, lon);
   if (fromNominatim) {
     return res.json({ ...fromNominatim, provider: "nominatim" });
-  }
-  const fromBdc = await reverseGeocodeBigDataCloud(lat, lon);
-  if (fromBdc) {
-    return res.json({ ...fromBdc, provider: "bigdatacloud" });
   }
   return res.status(502).json({ error: "Geocoding service error" });
 });
