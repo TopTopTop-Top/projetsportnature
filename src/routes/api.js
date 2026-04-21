@@ -403,7 +403,30 @@ router.get("/health", (_req, res) => {
   res.json({ ok: true, service: "ravitobox-api", db: "postgresql" });
 });
 
-/** Géocodage inverse (Nominatim OSM) — ville depuis lat/lon pour publication box. */
+function normalizeCityLabel(addr = {}, displayName = "") {
+  const city =
+    addr.city ||
+    addr.town ||
+    addr.village ||
+    addr.municipality ||
+    addr.locality ||
+    addr.suburb ||
+    addr.city_district ||
+    addr.hamlet ||
+    addr.neighbourhood ||
+    addr.quarter ||
+    addr.county ||
+    addr.state_district ||
+    null;
+  let placeLabel = city;
+  if (!placeLabel && typeof displayName === "string") {
+    const first = displayName.split(",")[0]?.trim();
+    if (first) placeLabel = first;
+  }
+  return { city: city || null, placeLabel: placeLabel || null };
+}
+
+/** Géocodage inverse (Nominatim + fallback BigDataCloud) — ville depuis lat/lon pour publication box. */
 router.get("/geocode/reverse", async (req, res) => {
   const lat = parseFloat(req.query.lat);
   const lon = parseFloat(req.query.lon);
@@ -426,42 +449,59 @@ router.get("/geocode/reverse", async (req, res) => {
           "RavitoBox/1.0 (https://github.com/TopTopTop-Top/projetsportnature)",
       },
     });
-    if (!r.ok) {
+    if (r.ok) {
+      const data = await r.json();
+      const addr = data.address || {};
+      const normalized = normalizeCityLabel(addr, data.display_name);
+      return res.json({
+        city: normalized.city,
+        placeLabel: normalized.placeLabel,
+        displayName: data.display_name || null,
+        postcode: addr.postcode || null,
+        provider: "nominatim",
+      });
+    }
+  } catch (_e) {
+    // fallback below
+  }
+
+  try {
+    const fallbackUrl = new URL(
+      "https://api.bigdatacloud.net/data/reverse-geocode-client"
+    );
+    fallbackUrl.searchParams.set("latitude", String(lat));
+    fallbackUrl.searchParams.set("longitude", String(lon));
+    fallbackUrl.searchParams.set("localityLanguage", "fr");
+    const fallbackResp = await fetch(fallbackUrl.toString());
+    if (!fallbackResp.ok) {
       return res.status(502).json({ error: "Geocoding service error" });
     }
-    const data = await r.json();
-    const addr = data.address || {};
+    const data = await fallbackResp.json();
     const city =
-      addr.city ||
-      addr.town ||
-      addr.village ||
-      addr.municipality ||
-      addr.locality ||
-      addr.suburb ||
-      addr.city_district ||
-      addr.hamlet ||
-      addr.neighbourhood ||
-      addr.quarter ||
-      addr.county ||
-      addr.state_district ||
+      data.city ||
+      data.locality ||
+      data.principalSubdivision ||
+      data.localityInfo?.administrative?.[2]?.name ||
       null;
-    let placeLabel = city;
-    if (!placeLabel && typeof data.display_name === "string") {
-      const first = data.display_name.split(",")[0]?.trim();
-      if (first) placeLabel = first;
-    }
+    const placeLabel =
+      city ||
+      data.locality ||
+      data.principalSubdivision ||
+      data.countryName ||
+      null;
     return res.json({
-      city,
+      city: city || null,
       placeLabel: placeLabel || null,
-      displayName: data.display_name || null,
-      postcode: addr.postcode || null,
+      displayName: data.locality || data.city || data.countryName || null,
+      postcode: data.postcode || null,
+      provider: "bigdatacloud",
     });
   } catch (_e) {
     return res.status(502).json({ error: "Geocoding failed" });
   }
 });
 
-/** Géocodage direct (ville / lieu → lat, lon) — proxy Nominatim (User-Agent, pas d’appel navigateur→OSM). */
+/** Géocodage direct (ville / lieu → lat, lon) — proxy avec fallback provider. */
 router.get("/geocode/search", async (req, res) => {
   const q = String(req.query.q || "").trim();
   if (q.length < 2) {
@@ -483,17 +523,37 @@ router.get("/geocode/search", async (req, res) => {
           "RavitoBox/1.0 (https://github.com/TopTopTop-Top/projetsportnature)",
       },
     });
-    if (!r.ok) {
+    if (r.ok) {
+      const data = await r.json();
+      const first = Array.isArray(data) ? data[0] : null;
+      const lat = first != null ? parseFloat(first.lat) : NaN;
+      const lon = first != null ? parseFloat(first.lon) : NaN;
+      if (Number.isFinite(lat) && Number.isFinite(lon)) {
+        return res.json({ lat, lon, provider: "nominatim" });
+      }
+    }
+  } catch (_e) {
+    // fallback below
+  }
+
+  try {
+    const fallbackUrl = new URL(
+      "https://geocode.maps.co/search"
+    );
+    fallbackUrl.searchParams.set("q", q);
+    fallbackUrl.searchParams.set("limit", "1");
+    const fallbackResp = await fetch(fallbackUrl.toString());
+    if (!fallbackResp.ok) {
       return res.status(502).json({ error: "Geocoding service error" });
     }
-    const data = await r.json();
+    const data = await fallbackResp.json();
     const first = Array.isArray(data) ? data[0] : null;
     const lat = first != null ? parseFloat(first.lat) : NaN;
     const lon = first != null ? parseFloat(first.lon) : NaN;
     if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
       return res.status(404).json({ error: "No results" });
     }
-    return res.json({ lat, lon });
+    return res.json({ lat, lon, provider: "mapsco" });
   } catch (_e) {
     return res.status(502).json({ error: "Geocoding failed" });
   }

@@ -1333,6 +1333,8 @@ function ExplorerScreen() {
     setMapTrailsScope,
     mapTrailPickIds,
     setMapTrailPickIds,
+    selectedTrailId,
+    setSelectedTrailId,
     mapBoxSelectionMode,
     setMapBoxSelectionMode,
     mapPickedBoxIds,
@@ -1391,6 +1393,65 @@ function ExplorerScreen() {
   const trailsForPickList = useMemo(() => {
     return Array.isArray(trailsForMap) ? trailsForMap : [];
   }, [trailsForMap]);
+  const selectedTrail = useMemo(
+    () =>
+      trails.find((trail) => Number(trail.id) === Number(selectedTrailId)) ||
+      null,
+    [trails, selectedTrailId]
+  );
+  const prioritizedExplorerBoxes = useMemo(() => {
+    if (selectedBoxId == null) return boxesForExplorerList;
+    const sid = Number(selectedBoxId);
+    const list = Array.isArray(boxesForExplorerList)
+      ? [...boxesForExplorerList]
+      : [];
+    list.sort((a, b) => {
+      const aSel = Number(a.id) === sid ? 1 : 0;
+      const bSel = Number(b.id) === sid ? 1 : 0;
+      return bSel - aSel;
+    });
+    return list;
+  }, [boxesForExplorerList, selectedBoxId]);
+  const prioritizedExplorerTrails = useMemo(() => {
+    if (selectedTrailId == null) return trailsForExplorerList;
+    const sid = Number(selectedTrailId);
+    const list = Array.isArray(trailsForExplorerList)
+      ? [...trailsForExplorerList]
+      : [];
+    list.sort((a, b) => {
+      const aSel = Number(a.id) === sid ? 1 : 0;
+      const bSel = Number(b.id) === sid ? 1 : 0;
+      return bSel - aSel;
+    });
+    return list;
+  }, [trailsForExplorerList, selectedTrailId]);
+  const toggleExplorerPickedBox = useCallback(
+    (boxId) => {
+      const bid = Number(boxId);
+      if (!Number.isFinite(bid)) return;
+      setSelectedBoxId(bid);
+      setMapBoxSelectionMode("picked");
+      setMapPickedBoxIds((prev) => {
+        const base = Array.isArray(prev) ? prev : [];
+        return base.includes(bid)
+          ? base.filter((id) => id !== bid)
+          : [...base, bid];
+      });
+    },
+    [setMapBoxSelectionMode, setMapPickedBoxIds, setSelectedBoxId]
+  );
+  const toggleExplorerPickedTrail = useCallback(
+    (trailId) => {
+      const tid = Number(trailId);
+      if (!Number.isFinite(tid)) return;
+      setSelectedTrailId(tid);
+      setMapTrailsScope("picked");
+      setMapTrailPickIds((prev) =>
+        prev.includes(tid) ? prev.filter((id) => id !== tid) : [...prev, tid]
+      );
+    },
+    [setMapTrailsScope, setMapTrailPickIds, setSelectedTrailId]
+  );
   const { width: viewportWidth } = useWindowDimensions();
   const [showBoxFilters, setShowBoxFilters] = useState(false);
   const [showTrailFilters, setShowTrailFilters] = useState(false);
@@ -1517,7 +1578,7 @@ function ExplorerScreen() {
               keyboardType="decimal-pad"
             />
           </>
-        ) : (
+        ) : mapListSource === "city" ? (
           <>
             <Text style={styles.inputLabel}>Ville</Text>
             <TextInput
@@ -1532,7 +1593,7 @@ function ExplorerScreen() {
               }}
             />
           </>
-        )}
+        ) : null}
         <View style={styles.statBanner}>
           <View style={styles.statBannerIcon}>
             <Ionicons name="cube-outline" size={22} color={theme.primary} />
@@ -1600,6 +1661,16 @@ function ExplorerScreen() {
           traces » pour éviter de se perdre. Ici, tu gardes uniquement la source
           de recherche et la carte.
         </Text>
+        <View style={styles.explorerSelectionSummary}>
+          <Text style={styles.explorerSelectionSummaryText}>
+            Sélection active : {safePickedBoxIds.length} box ·{" "}
+            {mapTrailPickIds.length} trace
+            {mapTrailPickIds.length > 1 ? "s" : ""}
+          </Text>
+          <Text style={styles.explorerSelectionSummaryHint}>
+            Clic carte ou liste : même sélection synchronisée.
+          </Text>
+        </View>
         {!webSplit ? (
           <NativeExplorerMap
             center={webMapCenter}
@@ -1607,7 +1678,8 @@ function ExplorerScreen() {
             trails={trailsOnMap}
             selectedTrailIds={mapTrailPickIds}
             selectedBoxId={selectedBoxId}
-            onSelectBox={setSelectedBoxId}
+            onSelectBox={toggleExplorerPickedBox}
+            onSelectTrail={toggleExplorerPickedTrail}
             onVisibleBoundsChange={setMapViewportBounds}
             onPanDrag={() => actionsRef.current.markExplorerMapUserGesture?.()}
             followExternalCenter={
@@ -1665,6 +1737,32 @@ function ExplorerScreen() {
                 Compte hôte : la réservation est faite par les athlètes.
               </Text>
             )}
+          </View>
+        ) : null}
+        {selectedTrail ? (
+          <View style={styles.selectedHostCard}>
+            <Text style={styles.selectedLabel}>Trace sélectionnée</Text>
+            <Text style={styles.cardTitle}>{selectedTrail.name}</Text>
+            <Text style={styles.cardMeta}>
+              {selectedTrail.territory} · {selectedTrail.distance_km} km · D+
+              {selectedTrail.elevation_m ?? 0} m ·{" "}
+              {DIFFICULTY_LABELS[selectedTrail.difficulty] ||
+                selectedTrail.difficulty}
+            </Text>
+            {selectedTrail.notes ? (
+              <Text style={styles.cardAvailability} numberOfLines={3}>
+                {selectedTrail.notes}
+              </Text>
+            ) : null}
+            <OutlineButton
+              compact
+              stretch
+              label="Voir uniquement cette trace"
+              icon="filter-outline"
+              onPress={() =>
+                actionsRef.current.isolateTrailOnMap(selectedTrail.id)
+              }
+            />
           </View>
         ) : null}
       </Section>
@@ -1853,13 +1951,7 @@ function ExplorerScreen() {
                               sel && styles.trailPickRowActive,
                             ]}
                             onPress={() => {
-                              setMapPickedBoxIds((prev) => {
-                                const base = Array.isArray(prev) ? prev : [];
-                                return base.includes(bid)
-                                  ? base.filter((x) => x !== bid)
-                                  : [...base, bid];
-                              });
-                              setSelectedBoxId(
+                              toggleExplorerPickedBox(
                                 Number.isFinite(bid) ? bid : box.id
                               );
                             }}
@@ -2053,13 +2145,55 @@ function ExplorerScreen() {
           ))}
         </View>
         <FlatList
-          data={boxesForExplorerList}
+          data={prioritizedExplorerBoxes}
           scrollEnabled={false}
           keyExtractor={(item) => `${item.id}`}
           renderItem={({ item }) => (
-            <View style={styles.card}>
+            <View
+              style={[
+                styles.card,
+                Number(selectedBoxId) === Number(item.id)
+                  ? { borderColor: theme.primary, borderWidth: 2 }
+                  : null,
+              ]}
+            >
               <View style={styles.cardAccent} />
               <Text style={styles.cardTitle}>{item.title}</Text>
+              <View
+                style={[
+                  styles.selectionPill,
+                  safePickedBoxIds.includes(Number(item.id))
+                    ? styles.selectionPillActive
+                    : styles.selectionPillIdle,
+                  Platform.OS === "web"
+                    ? {
+                        transitionProperty:
+                          "transform, box-shadow, background-color",
+                        transitionDuration: "160ms",
+                        transitionTimingFunction: "ease-out",
+                        transform: safePickedBoxIds.includes(Number(item.id))
+                          ? "translateY(-1px)"
+                          : "translateY(0px)",
+                        boxShadow: safePickedBoxIds.includes(Number(item.id))
+                          ? "0 6px 12px rgba(20, 184, 166, 0.22)"
+                          : "none",
+                      }
+                    : null,
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.selectionPillText,
+                    safePickedBoxIds.includes(Number(item.id))
+                      ? styles.selectionPillTextActive
+                      : styles.selectionPillTextIdle,
+                  ]}
+                >
+                  {safePickedBoxIds.includes(Number(item.id))
+                    ? "Sélectionnée"
+                    : "Non sélectionnée"}
+                </Text>
+              </View>
               <Text style={styles.cardMeta}>
                 {item.city} · {(item.price_cents / 100).toFixed(2)} €
                 {item.distance_km != null &&
@@ -2097,8 +2231,8 @@ function ExplorerScreen() {
                 stretch
                 label={
                   safePickedBoxIds.includes(Number(item.id))
-                    ? "Retirer de ma sélection"
-                    : "Ajouter à ma sélection"
+                    ? "Retirer de la sélection"
+                    : "Ajouter à la sélection"
                 }
                 icon={
                   safePickedBoxIds.includes(Number(item.id))
@@ -2107,13 +2241,7 @@ function ExplorerScreen() {
                 }
                 onPress={() => {
                   const bid = Number(item.id);
-                  setMapPickedBoxIds((prev) => {
-                    const base = Array.isArray(prev) ? prev : [];
-                    return base.includes(bid)
-                      ? base.filter((x) => x !== bid)
-                      : [...base, bid];
-                  });
-                  setMapBoxSelectionMode("picked");
+                  toggleExplorerPickedBox(bid);
                 }}
               />
               {canBook ? (
@@ -2263,11 +2391,7 @@ function ExplorerScreen() {
                           sel && styles.trailPickRowActive,
                         ]}
                         onPress={() => {
-                          setMapTrailPickIds((prev) =>
-                            prev.includes(tid)
-                              ? prev.filter((x) => x !== tid)
-                              : [...prev, tid]
-                          );
+                          toggleExplorerPickedTrail(tid);
                         }}
                         activeOpacity={0.85}
                       >
@@ -2359,16 +2483,58 @@ function ExplorerScreen() {
           </Text>
         ) : (
           <FlatList
-            data={trailsForExplorerList}
+            data={prioritizedExplorerTrails}
             scrollEnabled={false}
             keyExtractor={(item) => `trail-li-${item.id}`}
             renderItem={({ item: trail }) => {
               const mine =
                 user && Number(trail.creator_user_id) === Number(user.id);
+              const tid = Number(trail.id);
+              const isPicked = mapTrailPickIds.includes(tid);
               return (
-                <View style={styles.card}>
+                <View
+                  style={[
+                    styles.card,
+                    isPicked || Number(selectedTrailId) === tid
+                      ? { borderColor: theme.primary, borderWidth: 2 }
+                      : null,
+                  ]}
+                >
                   <View style={styles.cardAccent} />
                   <Text style={styles.cardTitle}>{trail.name}</Text>
+                  <View
+                    style={[
+                      styles.selectionPill,
+                      isPicked
+                        ? styles.selectionPillActive
+                        : styles.selectionPillIdle,
+                      Platform.OS === "web"
+                        ? {
+                            transitionProperty:
+                              "transform, box-shadow, background-color",
+                            transitionDuration: "160ms",
+                            transitionTimingFunction: "ease-out",
+                            transform: isPicked
+                              ? "translateY(-1px)"
+                              : "translateY(0px)",
+                            boxShadow: isPicked
+                              ? "0 6px 12px rgba(20, 184, 166, 0.22)"
+                              : "none",
+                          }
+                        : null,
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.selectionPillText,
+                        isPicked
+                          ? styles.selectionPillTextActive
+                          : styles.selectionPillTextIdle,
+                      ]}
+                    >
+                      {isPicked ? "Sélectionnée" : "Non sélectionnée"}
+                    </Text>
+                  </View>
                   <Text style={styles.cardMeta}>
                     {trail.territory} · {trail.distance_km} km · D+
                     {trail.elevation_m ?? 0} m ·{" "}
@@ -2398,6 +2564,19 @@ function ExplorerScreen() {
                     onPress={() =>
                       actionsRef.current.isolateTrailOnMap(trail.id)
                     }
+                  />
+                  <OutlineButton
+                    compact
+                    stretch
+                    label={
+                      isPicked
+                        ? "Retirer de la sélection"
+                        : "Ajouter à la sélection"
+                    }
+                    icon={
+                      isPicked ? "remove-circle-outline" : "add-circle-outline"
+                    }
+                    onPress={() => toggleExplorerPickedTrail(tid)}
                   />
                 </View>
               );
@@ -2450,7 +2629,8 @@ function ExplorerScreen() {
                     trails={trailsOnMap}
                     selectedTrailIds={mapTrailPickIds}
                     selectedBoxId={selectedBoxId}
-                    onSelectBox={setSelectedBoxId}
+                    onSelectBox={toggleExplorerPickedBox}
+                    onSelectTrail={toggleExplorerPickedTrail}
                     onVisibleBoundsChange={setMapViewportBounds}
                     onUserMapGesture={() =>
                       actionsRef.current.markExplorerMapUserGesture?.()
@@ -2498,7 +2678,8 @@ function ExplorerScreen() {
                 trails={trailsOnMap}
                 selectedTrailIds={mapTrailPickIds}
                 selectedBoxId={selectedBoxId}
-                onSelectBox={setSelectedBoxId}
+                onSelectBox={toggleExplorerPickedBox}
+                onSelectTrail={toggleExplorerPickedTrail}
                 onVisibleBoundsChange={setMapViewportBounds}
                 onUserMapGesture={() =>
                   actionsRef.current.markExplorerMapUserGesture?.()
@@ -2553,6 +2734,8 @@ function TrailsScreen() {
     setMapTrailsScope,
     mapTrailPickIds,
     setMapTrailPickIds,
+    selectedTrailId,
+    setSelectedTrailId,
     actionsRef,
   } = useAppMain();
 
@@ -2605,6 +2788,17 @@ function TrailsScreen() {
     }
     return trails;
   }, [trails, user?.id, mapTrailsScope]);
+  const prioritizedTracesFiltered = useMemo(() => {
+    if (selectedTrailId == null) return tracesFiltered;
+    const sid = Number(selectedTrailId);
+    const list = Array.isArray(tracesFiltered) ? [...tracesFiltered] : [];
+    list.sort((a, b) => {
+      const aSel = Number(a.id) === sid ? 1 : 0;
+      const bSel = Number(b.id) === sid ? 1 : 0;
+      return bSel - aSel;
+    });
+    return list;
+  }, [tracesFiltered, selectedTrailId]);
 
   const trailsMapList = useMemo(
     () => (mapShowTrails ? tracesFiltered : []),
@@ -2615,11 +2809,12 @@ function TrailsScreen() {
     (trailId) => {
       const tid = Number(trailId);
       if (!Number.isFinite(tid)) return;
+      setSelectedTrailId(tid);
       setMapTrailPickIds((prev) =>
         prev.includes(tid) ? prev.filter((id) => id !== tid) : [...prev, tid]
       );
     },
-    [setMapTrailPickIds]
+    [setMapTrailPickIds, setSelectedTrailId]
   );
 
   const webDropProps =
@@ -2726,7 +2921,11 @@ function TrailsScreen() {
           ) : null}
           <View style={styles.localGpxHintCard}>
             <View style={styles.localGpxHintTitleRow}>
-              <Ionicons name="information-circle-outline" size={16} color={theme.primary} />
+              <Ionicons
+                name="information-circle-outline"
+                size={16}
+                color={theme.primary}
+              />
               <Text style={[styles.localGpxHintTitle, { marginLeft: 6 }]}>
                 Import rapide
               </Text>
@@ -2796,7 +2995,7 @@ function TrailsScreen() {
                     { id: "others", label: "Les autres" },
                   ]
                 : []),
-              { id: "picked", label: "Sélection..." },
+              { id: "picked", label: "Sélection…" },
             ].map((opt) => (
               <TouchableOpacity
                 key={`trail-scope-${opt.id}`}
@@ -2887,6 +3086,10 @@ function TrailsScreen() {
               selectedTrailIds={mapTrailPickIds}
               selectedBoxId={null}
               onSelectBox={() => {}}
+              onSelectTrail={(id) => {
+                setMapTrailsScope("picked");
+                togglePickedTrail(id);
+              }}
               followExternalCenter={false}
               autoFitToData
               staticOrigin={API_STATIC_ORIGIN}
@@ -2902,6 +3105,10 @@ function TrailsScreen() {
               selectedTrailIds={mapTrailPickIds}
               selectedBoxId={null}
               onSelectBox={() => {}}
+              onSelectTrail={(id) => {
+                setMapTrailsScope("picked");
+                togglePickedTrail(id);
+              }}
               followExternalCenter={false}
             />
           )}
@@ -2923,7 +3130,7 @@ function TrailsScreen() {
               />
             </View>
           ) : null}
-          {tracesFiltered.map((trail) => {
+          {prioritizedTracesFiltered.map((trail) => {
             const isMine =
               user?.id != null &&
               Number(trail.creator_user_id) === Number(user.id);
@@ -2943,13 +3150,46 @@ function TrailsScreen() {
                 <View
                   style={[
                     styles.card,
-                    isPicked
+                    isPicked || Number(selectedTrailId) === tid
                       ? { borderColor: theme.primary, borderWidth: 2 }
                       : null,
                   ]}
                 >
                   <View style={styles.cardAccent} />
                   <Text style={styles.cardTitle}>{trail.name}</Text>
+                  <View
+                    style={[
+                      styles.selectionPill,
+                      isPicked
+                        ? styles.selectionPillActive
+                        : styles.selectionPillIdle,
+                      Platform.OS === "web"
+                        ? {
+                            transitionProperty:
+                              "transform, box-shadow, background-color",
+                            transitionDuration: "160ms",
+                            transitionTimingFunction: "ease-out",
+                            transform: isPicked
+                              ? "translateY(-1px)"
+                              : "translateY(0px)",
+                            boxShadow: isPicked
+                              ? "0 6px 12px rgba(20, 184, 166, 0.22)"
+                              : "none",
+                          }
+                        : null,
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.selectionPillText,
+                        isPicked
+                          ? styles.selectionPillTextActive
+                          : styles.selectionPillTextIdle,
+                      ]}
+                    >
+                      {isPicked ? "Sélectionnée" : "Non sélectionnée"}
+                    </Text>
+                  </View>
                   <Text style={styles.cardMeta}>
                     {trail.territory} · {trail.distance_km} km · D+{" "}
                     {trail.elevation_m} m{isMine ? " · Mienne" : ""}
@@ -2967,12 +3207,12 @@ function TrailsScreen() {
                   <OutlineButton
                     stretch
                     label={
-                      isPicked ? "Retirer de la sélection" : "Sélectionner"
+                      isPicked
+                        ? "Retirer de la sélection"
+                        : "Ajouter à la sélection"
                     }
                     icon={
-                      isPicked
-                        ? "checkmark-circle-outline"
-                        : "add-circle-outline"
+                      isPicked ? "remove-circle-outline" : "add-circle-outline"
                     }
                     onPress={() => {
                       setMapTrailsScope("picked");
@@ -3032,6 +3272,12 @@ function HostScreen() {
       prev.includes(bid) ? prev.filter((id) => id !== bid) : [...prev, bid]
     );
   }, []);
+  const selectedHostMapBox = useMemo(
+    () =>
+      hostBoxes.find((b) => Number(b.id) === Number(hostMapSelectedBoxId)) ||
+      null,
+    [hostBoxes, hostMapSelectedBoxId]
+  );
 
   const hostBoxesForMap = useMemo(() => {
     if (!hostMapShowBoxes) return [];
@@ -3039,6 +3285,17 @@ function HostScreen() {
     const set = new Set(hostPickedBoxIds.map((id) => Number(id)));
     return hostBoxes.filter((b) => set.has(Number(b.id)));
   }, [hostMapShowBoxes, hostMapSelectionMode, hostPickedBoxIds, hostBoxes]);
+  const prioritizedHostBoxes = useMemo(() => {
+    if (hostMapSelectedBoxId == null) return hostBoxes;
+    const sid = Number(hostMapSelectedBoxId);
+    const list = Array.isArray(hostBoxes) ? [...hostBoxes] : [];
+    list.sort((a, b) => {
+      const aSel = Number(a.id) === sid ? 1 : 0;
+      const bSel = Number(b.id) === sid ? 1 : 0;
+      return bSel - aSel;
+    });
+    return list;
+  }, [hostBoxes, hostMapSelectedBoxId]);
 
   useEffect(() => {
     if (!canHostLocal || !isFocused) return;
@@ -3442,9 +3699,18 @@ function HostScreen() {
                       styles.roleChipTextActive,
                   ]}
                 >
-                  Sélection...
+                  Sélection…
                 </Text>
               </TouchableOpacity>
+            </View>
+            <View style={styles.explorerSelectionSummary}>
+              <Text style={styles.explorerSelectionSummaryText}>
+                Sélection active : {hostPickedBoxIds.length} box
+                {hostPickedBoxIds.length > 1 ? "s" : ""}
+              </Text>
+              <Text style={styles.explorerSelectionSummaryHint}>
+                Clic carte ou liste : même sélection synchronisée.
+              </Text>
             </View>
             {hostBoxes.length > 0 ? (
               Platform.OS === "web" ? (
@@ -3472,9 +3738,8 @@ function HostScreen() {
                   selectedBoxId={hostMapSelectedBoxId}
                   onSelectBox={(id) => {
                     setHostMapSelectedBoxId(id);
-                    if (hostMapSelectionMode === "picked") {
-                      toggleHostPickedBox(id);
-                    }
+                    setHostMapSelectionMode("picked");
+                    toggleHostPickedBox(id);
                   }}
                   autoFitToData
                   followExternalCenter={false}
@@ -3487,13 +3752,29 @@ function HostScreen() {
                   selectedBoxId={hostMapSelectedBoxId}
                   onSelectBox={(id) => {
                     setHostMapSelectedBoxId(id);
-                    if (hostMapSelectionMode === "picked") {
-                      toggleHostPickedBox(id);
-                    }
+                    setHostMapSelectionMode("picked");
+                    toggleHostPickedBox(id);
                   }}
                   followExternalCenter={false}
                 />
               )
+            ) : null}
+            {selectedHostMapBox ? (
+              <View style={styles.selectedHostCard}>
+                <Text style={styles.selectedLabel}>Box sélectionnée</Text>
+                <Text style={styles.cardTitle}>{selectedHostMapBox.title}</Text>
+                <Text style={styles.cardMeta}>
+                  {selectedHostMapBox.city} ·{" "}
+                  {(Number(selectedHostMapBox.price_cents || 0) / 100).toFixed(
+                    2
+                  )}{" "}
+                  €
+                </Text>
+                <Text style={styles.cardDetailLine}>
+                  Code d'accès :{" "}
+                  {selectedHostMapBox.access_code || "(non défini)"}
+                </Text>
+              </View>
             ) : null}
             {hostBoxes.length > 0 ? (
               <View style={{ marginBottom: 12, gap: 10 }}>
@@ -3509,7 +3790,7 @@ function HostScreen() {
                 />
               </View>
             ) : null}
-            {hostBoxes.map((box) => (
+            {prioritizedHostBoxes.map((box) => (
               <SwipeActionRow
                 key={`host-box-${box.id}`}
                 onEdit={() => actionsRef.current.startEditingHostBox(box)}
@@ -3522,6 +3803,41 @@ function HostScreen() {
                 <View style={styles.card}>
                   <View style={styles.cardAccent} />
                   <Text style={styles.cardTitle}>{box.title}</Text>
+                  <View
+                    style={[
+                      styles.selectionPill,
+                      hostPickedBoxIds.includes(Number(box.id))
+                        ? styles.selectionPillActive
+                        : styles.selectionPillIdle,
+                      Platform.OS === "web"
+                        ? {
+                            transitionProperty:
+                              "transform, box-shadow, background-color",
+                            transitionDuration: "160ms",
+                            transitionTimingFunction: "ease-out",
+                            transform: hostPickedBoxIds.includes(Number(box.id))
+                              ? "translateY(-1px)"
+                              : "translateY(0px)",
+                            boxShadow: hostPickedBoxIds.includes(Number(box.id))
+                              ? "0 6px 12px rgba(20, 184, 166, 0.22)"
+                              : "none",
+                          }
+                        : null,
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.selectionPillText,
+                        hostPickedBoxIds.includes(Number(box.id))
+                          ? styles.selectionPillTextActive
+                          : styles.selectionPillTextIdle,
+                      ]}
+                    >
+                      {hostPickedBoxIds.includes(Number(box.id))
+                        ? "Sélectionnée"
+                        : "Non sélectionnée"}
+                    </Text>
+                  </View>
                   <Text style={styles.cardMeta}>
                     {box.city} · {(box.price_cents / 100).toFixed(2)} €
                   </Text>
@@ -3557,11 +3873,11 @@ function HostScreen() {
                     label={
                       hostPickedBoxIds.includes(Number(box.id))
                         ? "Retirer de la sélection"
-                        : "Sélectionner sur la carte"
+                        : "Ajouter à la sélection"
                     }
                     icon={
                       hostPickedBoxIds.includes(Number(box.id))
-                        ? "checkmark-circle-outline"
+                        ? "remove-circle-outline"
                         : "add-circle-outline"
                     }
                     onPress={() => {
@@ -4391,6 +4707,7 @@ function RavitoApp() {
   const [city, setCity] = useState("Annecy");
   const [trailDifficulty, setTrailDifficulty] = useState("medium");
   const [selectedBoxId, setSelectedBoxId] = useState(null);
+  const [selectedTrailId, setSelectedTrailId] = useState(null);
   const [hostForm, setHostForm] = useState({
     title: "",
     description: "",
@@ -4655,6 +4972,19 @@ function RavitoApp() {
   }, [trailsForMap, mapTrailListSort]);
 
   const selectedBox = boxes.find((box) => box.id === selectedBoxId) || null;
+  const selectedTrail =
+    trails.find((trail) => Number(trail.id) === Number(selectedTrailId)) ||
+    null;
+
+  useEffect(() => {
+    if (selectedTrailId == null) return;
+    const exists = trails.some(
+      (trail) => Number(trail.id) === Number(selectedTrailId)
+    );
+    if (!exists) {
+      setSelectedTrailId(null);
+    }
+  }, [trails, selectedTrailId]);
 
   /** En ville / GPS : centre = coordonnées de recherche (pas la box sélectionnée), pour éviter carte bloquée loin du point demandé. */
   const webMapCenter = useMemo(() => {
@@ -5771,6 +6101,7 @@ function RavitoApp() {
         userAlert("Trace", "Tracé introuvable.");
         return;
       }
+      setSelectedTrailId(tid);
       setMapExplorerCameraFollowSearch(true);
       let positions = [];
       try {
@@ -5813,6 +6144,7 @@ function RavitoApp() {
       setMapShowTrails(true);
       setMapTrailsScope("picked");
       setMapTrailPickIds([tid]);
+      setSelectedTrailId(tid);
       centerMapOnTrail(tid);
     },
     [centerMapOnTrail]
@@ -5953,9 +6285,12 @@ function RavitoApp() {
       setSpecialRequest,
       selectedBoxId,
       setSelectedBoxId,
+      selectedTrailId,
+      setSelectedTrailId,
       canHost,
       canBook,
       selectedBox,
+      selectedTrail,
       webMapCenter,
       openUserReviews,
       closeUserReviews,
@@ -6010,9 +6345,11 @@ function RavitoApp() {
       endTime,
       specialRequest,
       selectedBoxId,
+      selectedTrailId,
       canHost,
       canBook,
       selectedBox,
+      selectedTrail,
       webMapCenter,
       openUserReviews,
       closeUserReviews,
@@ -6785,6 +7122,26 @@ const styles = StyleSheet.create({
     color: theme.inkMuted,
     lineHeight: 17,
   },
+  explorerSelectionSummary: {
+    marginTop: 10,
+    marginBottom: 2,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: theme.borderSoft,
+    backgroundColor: "#F7FAF9",
+  },
+  explorerSelectionSummaryText: {
+    fontSize: 12,
+    color: theme.ink,
+    fontWeight: "700",
+  },
+  explorerSelectionSummaryHint: {
+    marginTop: 4,
+    fontSize: 12,
+    color: theme.inkMuted,
+  },
   infoBanner: {
     marginTop: 4,
     flexDirection: "row",
@@ -6927,6 +7284,33 @@ const styles = StyleSheet.create({
   badgeText: {
     fontWeight: "700",
     fontSize: 12,
+  },
+  selectionPill: {
+    alignSelf: "flex-start",
+    marginLeft: 8,
+    marginBottom: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 999,
+    borderWidth: 1,
+  },
+  selectionPillActive: {
+    backgroundColor: "#ECFDF5",
+    borderColor: "#5EEAD4",
+  },
+  selectionPillIdle: {
+    backgroundColor: theme.surfaceMuted,
+    borderColor: theme.borderSoft,
+  },
+  selectionPillText: {
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  selectionPillTextActive: {
+    color: "#0F766E",
+  },
+  selectionPillTextIdle: {
+    color: theme.inkMuted,
   },
   emptyText: {
     color: theme.inkMuted,

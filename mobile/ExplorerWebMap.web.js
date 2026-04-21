@@ -186,6 +186,7 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
   selectedTrailIds = [],
   selectedBoxId,
   onSelectBox,
+  onSelectTrail,
   onPickLocation,
   onVisibleBoundsChange,
   /** Appelé après un déplacement manuel (drag) — pour découpler la caméra de la recherche. */
@@ -216,6 +217,8 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
   const lastRecenterNonceRef = useRef(0);
   const onSelectBoxRef = useRef(onSelectBox);
   onSelectBoxRef.current = onSelectBox;
+  const onSelectTrailRef = useRef(onSelectTrail);
+  onSelectTrailRef.current = onSelectTrail;
   const selectedBoxIdRef = useRef(selectedBoxId);
   selectedBoxIdRef.current = selectedBoxId;
   const onPickLocationRef = useRef(onPickLocation);
@@ -363,9 +366,7 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
             ? { color: "#14B8A6", weight: 6, opacity: 0.95 }
             : TRAIL_STYLE
         );
-        if (staticOrigin) {
-          line.bindPopup(buildTrailPopupHtml(trail, staticOrigin));
-        }
+        line.on("click", () => onSelectTrailRef.current?.(trail.id));
         line.addTo(group);
       } catch (_e) {
         // Ignore a malformed trail instead of crashing the whole map.
@@ -387,13 +388,11 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
             fillColor: "#14B8A6",
             fillOpacity: 0.9,
           });
-          m.bindPopup(buildBoxPopupHtml(box));
           m.on("click", () => onSelectBoxRef.current?.(box.id));
           m.addTo(group);
           selectedLayer = m;
         } else {
           const m = L.marker([lat, lng]);
-          m.bindPopup(buildBoxPopupHtml(box));
           m.on("click", () => onSelectBoxRef.current?.(box.id));
           m.addTo(group);
         }
@@ -437,13 +436,6 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
       // Keep current viewport if bounds computation fails.
     }
 
-    try {
-      if (selectedLayer && map) {
-        selectedLayer.openPopup?.();
-      }
-    } catch (_e) {
-      /* ignore */
-    }
   }, [boxes, trails, staticOrigin, draftPoint, pickerMode, autoFitToData, selectedBoxId, selectedTrailSet]);
 
   if (Platform.OS !== "web") {

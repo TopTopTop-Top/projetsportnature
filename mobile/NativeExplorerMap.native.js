@@ -2,13 +2,6 @@ import React, { useEffect, useMemo, useRef } from "react";
 import { StyleSheet } from "react-native";
 import MapView, { Marker, Polyline } from "react-native-maps";
 
-function boxHostRatingSnippet(box) {
-  const n = Number(box.host_review_count || 0);
-  const avg = Number(box.host_avg_score || 0);
-  if (!n) return "Hôte : pas encore d'avis";
-  return `Hôte ${avg.toFixed(1)}/5 (${n} avis)`;
-}
-
 export default function NativeExplorerMap({
   center,
   boxes,
@@ -16,6 +9,7 @@ export default function NativeExplorerMap({
   selectedTrailIds = [],
   selectedBoxId,
   onSelectBox,
+  onSelectTrail,
   onVisibleBoundsChange,
   onPanDrag,
   followExternalCenter = true,
@@ -103,6 +97,8 @@ export default function NativeExplorerMap({
           coordinates={t.coordinates}
           strokeColor={t.isSelected ? "#14B8A6" : "#0F766E"}
           strokeWidth={t.isSelected ? 6 : 4}
+          tappable
+          onPress={() => onSelectTrail?.(t.id)}
         />
       ))}
       {boxes.map((box) => (
@@ -115,10 +111,6 @@ export default function NativeExplorerMap({
           pinColor={
             Number(box.id) === Number(selectedBoxId) ? "#14B8A6" : undefined
           }
-          title={box.title}
-          description={`${box.city} · ${(box.price_cents / 100).toFixed(
-            2
-          )} € · ${boxHostRatingSnippet(box)}`}
           onPress={() => onSelectBox(box.id)}
         />
       ))}
