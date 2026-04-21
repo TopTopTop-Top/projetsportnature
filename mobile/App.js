@@ -6911,6 +6911,23 @@ function RavitoApp() {
     }
   };
 
+  const updateTrail = async (trailId, body) => {
+    if (!token) return false;
+    try {
+      await apiFetch(`/trails/${trailId}`, {
+        method: "PATCH",
+        token,
+        body,
+      });
+      userAlert("OK", "Trace mise à jour.");
+      await loadTrails();
+      return true;
+    } catch (error) {
+      userAlert("Erreur", error.message);
+      return false;
+    }
+  };
+
   const deleteTrailsByIds = async (ids) => {
     if (!token) return;
     const unique = [...new Set((ids || []).filter(Boolean))];
