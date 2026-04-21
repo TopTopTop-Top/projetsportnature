@@ -438,16 +438,21 @@ function normalizeCityLabel(addr = {}, displayName = "") {
   return { city: city || null, placeLabel: placeLabel || null };
 }
 
-/** Géocodage inverse (Nominatim + fallback BigDataCloud) — ville depuis lat/lon pour publication box. */
-router.get("/geocode/reverse", async (req, res) => {
-  const lat = parseFloat(req.query.lat);
-  const lon = parseFloat(req.query.lon);
-  if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
-    return res.status(400).json({ error: "Invalid lat or lon" });
+const GEOCODE_FETCH_MS = 12000;
+const NOMINATIM_UA =
+  "RavitoBox/1.0 (https://github.com/TopTopTop-Top/projetsportnature)";
+
+function geocodeAbortSignal() {
+  if (typeof AbortSignal !== "undefined" && AbortSignal.timeout) {
+    return AbortSignal.timeout(GEOCODE_FETCH_MS);
   }
-  if (lat < -90 || lat > 90 || lon < -180 || lon > 180) {
-    return res.status(400).json({ error: "Coordinates out of range" });
-  }
+  const c = new AbortController();
+  setTimeout(() => c.abort(), GEOCODE_FETCH_MS);
+  return c.signal;
+}
+
+/** @returns {Promise<{ city: string|null, placeLabel: string|null, displayName: string|null, postcode: string|null }|null>} */
+async function reverseGeocodeNominatim(lat, lon) {
   try {
     const url = new URL("https://nominatim.openstreetmap.org/reverse");
     url.searchParams.set("lat", String(lat));
@@ -456,27 +461,27 @@ router.get("/geocode/reverse", async (req, res) => {
     url.searchParams.set("addressdetails", "1");
     url.searchParams.set("accept-language", "fr");
     const r = await fetch(url.toString(), {
-      headers: {
-        "User-Agent":
-          "RavitoBox/1.0 (https://github.com/TopTopTop-Top/projetsportnature)",
-      },
+      signal: geocodeAbortSignal(),
+      headers: { "User-Agent": NOMINATIM_UA },
     });
-    if (r.ok) {
-      const data = await r.json();
-      const addr = data.address || {};
-      const normalized = normalizeCityLabel(addr, data.display_name);
-      return res.json({
-        city: normalized.city,
-        placeLabel: normalized.placeLabel,
-        displayName: data.display_name || null,
-        postcode: addr.postcode || null,
-        provider: "nominatim",
-      });
-    }
+    if (!r.ok) return null;
+    const data = await r.json();
+    const addr = data.address || {};
+    const normalized = normalizeCityLabel(addr, data.display_name);
+    if (!normalized.placeLabel && !normalized.city) return null;
+    return {
+      city: normalized.city,
+      placeLabel: normalized.placeLabel,
+      displayName: data.display_name || null,
+      postcode: addr.postcode || null,
+    };
   } catch (_e) {
-    // fallback below
+    return null;
   }
+}
 
+/** @returns {Promise<{ city: string|null, placeLabel: string|null, displayName: string|null, postcode: string|null }|null>} */
+async function reverseGeocodeBigDataCloud(lat, lon) {
   try {
     const fallbackUrl = new URL(
       "https://api.bigdatacloud.net/data/reverse-geocode-client"
@@ -484,10 +489,10 @@ router.get("/geocode/reverse", async (req, res) => {
     fallbackUrl.searchParams.set("latitude", String(lat));
     fallbackUrl.searchParams.set("longitude", String(lon));
     fallbackUrl.searchParams.set("localityLanguage", "fr");
-    const fallbackResp = await fetch(fallbackUrl.toString());
-    if (!fallbackResp.ok) {
-      return res.status(502).json({ error: "Geocoding service error" });
-    }
+    const fallbackResp = await fetch(fallbackUrl.toString(), {
+      signal: geocodeAbortSignal(),
+    });
+    if (!fallbackResp.ok) return null;
     const data = await fallbackResp.json();
     const city =
       data.city ||
@@ -501,16 +506,37 @@ router.get("/geocode/reverse", async (req, res) => {
       data.principalSubdivision ||
       data.countryName ||
       null;
-    return res.json({
+    if (!placeLabel && !city) return null;
+    return {
       city: city || null,
       placeLabel: placeLabel || null,
       displayName: data.locality || data.city || data.countryName || null,
       postcode: data.postcode || null,
-      provider: "bigdatacloud",
-    });
+    };
   } catch (_e) {
-    return res.status(502).json({ error: "Geocoding failed" });
+    return null;
   }
+}
+
+/** Géocodage inverse (Nominatim puis BigDataCloud) — uniquement côté serveur. */
+router.get("/geocode/reverse", async (req, res) => {
+  const lat = parseFloat(req.query.lat);
+  const lon = parseFloat(req.query.lon);
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+    return res.status(400).json({ error: "Invalid lat or lon" });
+  }
+  if (lat < -90 || lat > 90 || lon < -180 || lon > 180) {
+    return res.status(400).json({ error: "Coordinates out of range" });
+  }
+  const fromNominatim = await reverseGeocodeNominatim(lat, lon);
+  if (fromNominatim) {
+    return res.json({ ...fromNominatim, provider: "nominatim" });
+  }
+  const fromBdc = await reverseGeocodeBigDataCloud(lat, lon);
+  if (fromBdc) {
+    return res.json({ ...fromBdc, provider: "bigdatacloud" });
+  }
+  return res.status(502).json({ error: "Geocoding service error" });
 });
 
 /** Géocodage direct (ville / lieu → lat, lon) — proxy avec fallback provider. */

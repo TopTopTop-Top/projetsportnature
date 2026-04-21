@@ -362,7 +362,7 @@ function bookingAccessMethodLabel(method) {
   return "Accès";
 }
 
-/** Libellé lieu depuis la réponse GET /geocode/reverse. */
+/** Libellé lieu depuis la réponse GET /geocode/reverse (ou payload Nominatim brut). */
 function geocodePayloadToCityLabel(data) {
   if (!data || typeof data !== "object") return null;
   const from =
@@ -370,9 +370,24 @@ function geocodePayloadToCityLabel(data) {
     (typeof data.city === "string" && data.city.trim()) ||
     "";
   if (from) return from;
-  if (typeof data.displayName === "string") {
-    const first = data.displayName.split(",")[0]?.trim();
+  const display =
+    (typeof data.displayName === "string" && data.displayName) ||
+    (typeof data.display_name === "string" && data.display_name) ||
+    "";
+  if (display) {
+    const first = display.split(",")[0]?.trim();
     if (first) return first;
+  }
+  const addr =
+    data.address && typeof data.address === "object" ? data.address : null;
+  if (addr) {
+    const a =
+      (typeof addr.city === "string" && addr.city.trim()) ||
+      (typeof addr.town === "string" && addr.town.trim()) ||
+      (typeof addr.village === "string" && addr.village.trim()) ||
+      (typeof addr.municipality === "string" && addr.municipality.trim()) ||
+      "";
+    if (a) return a;
   }
   return null;
 }
@@ -389,31 +404,6 @@ async function geocodeCityToLatLon(query, { signal, token } = {}) {
     const lon = Number(data?.lon);
     if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
     return { lat, lon };
-  } catch (_e) {
-    return null;
-  }
-}
-
-async function reverseGeocodeFromNominatim(lat, lon, { signal } = {}) {
-  const plat = Number(lat);
-  const plon = Number(lon);
-  if (!Number.isFinite(plat) || !Number.isFinite(plon)) return null;
-  try {
-    const url = new URL("https://nominatim.openstreetmap.org/reverse");
-    url.searchParams.set("lat", String(plat));
-    url.searchParams.set("lon", String(plon));
-    url.searchParams.set("format", "json");
-    url.searchParams.set("addressdetails", "1");
-    url.searchParams.set("accept-language", "fr");
-    const r = await fetch(url.toString(), {
-      signal,
-      headers: {
-        "User-Agent":
-          "RavitoBox/1.0 (https://github.com/TopTopTop-Top/projetsportnature)",
-      },
-    });
-    if (!r.ok) return null;
-    return await r.json();
   } catch (_e) {
     return null;
   }
@@ -5905,19 +5895,11 @@ function RavitoApp() {
           }
         } catch (error) {
           if (seq !== hostGeocodeSeqRef.current) return;
-          const fallback = await reverseGeocodeFromNominatim(lat, lng);
-          if (seq !== hostGeocodeSeqRef.current) return;
-          const fallbackLabel = geocodePayloadToCityLabel(fallback);
-          if (fallbackLabel) {
-            setHostForm((s) => ({ ...s, city: fallbackLabel }));
-            setHostReverseGeocode({ status: "ok", message: "" });
-          } else {
-            setHostReverseGeocode({
-              status: "warn",
-              message:
-                "Service de géocodage indisponible pour le moment. Saisis la ville à la main.",
-            });
-          }
+          setHostReverseGeocode({
+            status: "warn",
+            message:
+              "Service de géocodage indisponible pour le moment. Saisis la ville à la main.",
+          });
         }
       })();
     }, 380);
