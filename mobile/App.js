@@ -452,6 +452,57 @@ const HOST_CRITERIA_OPTIONS = [
   "Eau fraîche",
 ];
 
+/** Tags affichés sur les traces (import + édition). */
+const TRAIL_CRITERIA_OPTIONS = [
+  "Boucle",
+  "Aller simple ou A/R",
+  "Vue panoramique",
+  "Lac ou rivière",
+  "Forêt",
+  "Refuge ou abri proche",
+  "Peu de dénivelé",
+  "Gros dénivelé",
+  "Passages techniques",
+  "Exposition (vide, falaise…)",
+  "Boue possible",
+  "Peu fréquenté",
+  "Adapté famille / débutant",
+  "Signalétique claire",
+];
+
+const TRAIL_ACTIVITY_IDS = [
+  "hike",
+  "trail_run",
+  "road_bike",
+  "mtb",
+  "gravel",
+  "ski_nordic",
+  "ski_alp",
+  "other",
+];
+
+const TRAIL_ACTIVITY_LABELS = {
+  hike: "Randonnée",
+  trail_run: "Trail / course nature",
+  road_bike: "Route (vélo)",
+  mtb: "VTT / enduro",
+  gravel: "Gravel",
+  ski_nordic: "Ski de fond",
+  ski_alp: "Ski alpin / rando ski",
+  other: "Autre",
+};
+
+function parseTrailCriteriaFromRow(trail) {
+  const raw = trail?.criteria_json;
+  if (!raw) return [];
+  try {
+    const j = typeof raw === "string" ? JSON.parse(raw) : raw;
+    return Array.isArray(j) ? j.filter((x) => typeof x === "string") : [];
+  } catch (_e) {
+    return [];
+  }
+}
+
 function formatDateHuman(dateText) {
   if (!dateText) return "?";
   const d = new Date(`${dateText}T00:00:00`);
@@ -760,7 +811,15 @@ function SecondaryButton({ label, onPress, icon, compact }) {
 }
 
 /** Bouton discret (bordure) — suppressions / actions secondaires. */
-function OutlineButton({ label, onPress, icon, danger, compact, stretch }) {
+function OutlineButton({
+  label,
+  onPress,
+  icon,
+  danger,
+  compact,
+  stretch,
+  disabled,
+}) {
   return (
     <TouchableOpacity
       style={[
@@ -768,10 +827,12 @@ function OutlineButton({ label, onPress, icon, danger, compact, stretch }) {
         compact && styles.outlineButtonCompact,
         danger && styles.outlineButtonDanger,
         stretch && styles.outlineButtonStretch,
-        Platform.OS === "web" && { cursor: "pointer" },
+        disabled && styles.buttonDisabled,
+        Platform.OS === "web" && { cursor: disabled ? "default" : "pointer" },
       ]}
       onPress={onPress}
       activeOpacity={0.85}
+      disabled={disabled}
     >
       {icon ? (
         <Ionicons
@@ -2531,6 +2592,8 @@ function ExplorerScreen() {
                             {trail.territory} ·{" "}
                             {DIFFICULTY_LABELS[trail.difficulty] ||
                               trail.difficulty}
+                            {" · "}
+                            {TRAIL_ACTIVITY_LABELS[trail.activity || "hike"]}
                             {mine ? " · Mienne" : ""}
                           </Text>
                         </View>
@@ -2664,6 +2727,8 @@ function ExplorerScreen() {
                     {trail.territory} · {trail.distance_km} km · D+
                     {trail.elevation_m ?? 0} m ·{" "}
                     {DIFFICULTY_LABELS[trail.difficulty] || trail.difficulty}
+                    {" · "}
+                    {TRAIL_ACTIVITY_LABELS[trail.activity || "hike"]}
                     {mine ? " · Mienne" : ""}
                   </Text>
                   {trail.notes ? (
@@ -2853,6 +2918,7 @@ function TrailsScreen() {
     webDropHover,
     setWebDropHover,
     user,
+    city,
     mapShowTrails,
     setMapShowTrails,
     mapTrailDifficultyFilter,
@@ -2863,10 +2929,21 @@ function TrailsScreen() {
     setMapTrailPickIds,
     selectedTrailId,
     setSelectedTrailId,
+    trailDifficulty,
+    setTrailDifficulty,
+    trailImportActivity,
+    setTrailImportActivity,
+    trailImportCriteriaTags,
+    setTrailImportCriteriaTags,
+    trailImportNotes,
+    setTrailImportNotes,
     actionsRef,
   } = useAppMain();
 
   const webGpxInputRef = useRef(null);
+  const [trailEditTarget, setTrailEditTarget] = useState(null);
+  const [trailEditDraft, setTrailEditDraft] = useState(null);
+  const [trailEditSaving, setTrailEditSaving] = useState(false);
 
   useEffect(() => {
     actionsRef.current.loadTrails();
@@ -3032,6 +3109,113 @@ function TrailsScreen() {
         showsVerticalScrollIndicator={Platform.OS === "web"}
         keyboardShouldPersistTaps="handled"
       >
+        <Section
+          title="Prochain import GPX"
+          subtitle="Ces réglages s’appliquent au prochain fichier envoyé (web ou appli). Tu peux les modifier à tout moment."
+          icon="create-outline"
+        >
+          <Text style={styles.fieldLabel}>Territoire (libellé)</Text>
+          <Text style={styles.cardMeta}>
+            Utilise la ville de l’onglet Carte :{" "}
+            <Text style={{ fontWeight: "600" }}>{city || "—"}</Text>
+          </Text>
+          <Text style={[styles.fieldLabel, { marginTop: 14 }]}>
+            Difficulté ressentie
+          </Text>
+          <View style={[styles.roleRow, { flexWrap: "wrap" }]}>
+            {["easy", "medium", "hard"].map((d) => (
+              <TouchableOpacity
+                key={`imp-trail-diff-${d}`}
+                style={[
+                  styles.roleChip,
+                  trailDifficulty === d && styles.roleChipActive,
+                ]}
+                onPress={() => setTrailDifficulty(d)}
+                activeOpacity={0.85}
+              >
+                <Text
+                  style={[
+                    styles.roleChipText,
+                    trailDifficulty === d && styles.roleChipTextActive,
+                  ]}
+                >
+                  {DIFFICULTY_LABELS[d]}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+          <Text style={[styles.fieldLabel, { marginTop: 14 }]}>
+            Activité principale
+          </Text>
+          <View style={[styles.roleRow, { flexWrap: "wrap" }]}>
+            {TRAIL_ACTIVITY_IDS.map((id) => (
+              <TouchableOpacity
+                key={`imp-trail-act-${id}`}
+                style={[
+                  styles.roleChip,
+                  trailImportActivity === id && styles.roleChipActive,
+                ]}
+                onPress={() => setTrailImportActivity(id)}
+                activeOpacity={0.85}
+              >
+                <Text
+                  style={[
+                    styles.roleChipText,
+                    trailImportActivity === id && styles.roleChipTextActive,
+                  ]}
+                >
+                  {TRAIL_ACTIVITY_LABELS[id] || id}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+          <Text style={[styles.fieldLabel, { marginTop: 14 }]}>
+            Critères (optionnel, max 20)
+          </Text>
+          <View style={[styles.roleRow, { flexWrap: "wrap" }]}>
+            {TRAIL_CRITERIA_OPTIONS.map((label) => {
+              const active = trailImportCriteriaTags.includes(label);
+              return (
+                <TouchableOpacity
+                  key={`imp-trail-crit-${label}`}
+                  style={[styles.roleChip, active && styles.roleChipActive]}
+                  onPress={() =>
+                    setTrailImportCriteriaTags((prev) =>
+                      prev.includes(label)
+                        ? prev.filter((c) => c !== label)
+                        : prev.length >= 20
+                        ? prev
+                        : [...prev, label]
+                    )
+                  }
+                  activeOpacity={0.85}
+                >
+                  <Text
+                    style={[
+                      styles.roleChipText,
+                      active && styles.roleChipTextActive,
+                    ]}
+                  >
+                    {label}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+          <Text style={[styles.fieldLabel, { marginTop: 14 }]}>
+            Description / infos (optionnel)
+          </Text>
+          <TextInput
+            style={[styles.input, styles.textArea]}
+            multiline
+            value={trailImportNotes}
+            onChangeText={setTrailImportNotes}
+            placeholder="Ex. : boue en hiver, passage raide au km 3, eau au refuge…"
+            placeholderTextColor={theme.inkMuted}
+            maxLength={4000}
+          />
+        </Section>
+
         <Section
           title="Traces locales"
           subtitle="Athlètes et hôtes : importez vos GPX. Tracés visibles sur la carte (web et appli)."
@@ -3291,6 +3475,7 @@ function TrailsScreen() {
             const tid = Number(trail.id);
             const isPicked = mapTrailPickIds.includes(tid);
             const b = difficultyBadgeStyle(trail.difficulty);
+            const trailCrits = parseTrailCriteriaFromRow(trail);
             return (
               <SwipeActionRow
                 key={`trail-list-${trail.id}`}
@@ -3358,6 +3543,36 @@ function TrailsScreen() {
                       {DIFFICULTY_LABELS[trail.difficulty] || trail.difficulty}
                     </Text>
                   </View>
+                  <Text style={[styles.cardMeta, { marginTop: 6 }]}>
+                    {TRAIL_ACTIVITY_LABELS[trail.activity || "hike"]}
+                    {trailCrits.length ? ` · ${trailCrits.join(" · ")}` : ""}
+                  </Text>
+                  {trail.notes ? (
+                    <Text
+                      style={[styles.cardAvailability, { marginTop: 6 }]}
+                      numberOfLines={4}
+                    >
+                      {String(trail.notes)}
+                    </Text>
+                  ) : null}
+                  {isMine ? (
+                    <OutlineButton
+                      stretch
+                      label="Modifier nom, lieu, critères…"
+                      icon="create-outline"
+                      onPress={() => {
+                        setTrailEditTarget(trail);
+                        setTrailEditDraft({
+                          name: String(trail.name || ""),
+                          territory: String(trail.territory || ""),
+                          difficulty: trail.difficulty || "medium",
+                          activity: trail.activity || "hike",
+                          criteriaTags: parseTrailCriteriaFromRow(trail),
+                          notes: trail.notes ? String(trail.notes) : "",
+                        });
+                      }}
+                    />
+                  ) : null}
                   <OutlineButton
                     stretch
                     label={
@@ -3394,6 +3609,229 @@ function TrailsScreen() {
           ) : null}
         </Section>
       </ScrollView>
+
+      <Modal
+        visible={trailEditTarget != null && trailEditDraft != null}
+        transparent
+        animationType="fade"
+        onRequestClose={() => {
+          if (trailEditSaving) return;
+          setTrailEditTarget(null);
+          setTrailEditDraft(null);
+        }}
+      >
+        <View style={styles.modalBackdrop}>
+          <View
+            style={[
+              styles.modalSheet,
+              Platform.OS === "web" ? { maxHeight: "92%" } : { maxHeight: 560 },
+            ]}
+          >
+            <View style={styles.modalSheetHeader}>
+              <Text style={styles.modalSheetTitle}>Modifier la trace</Text>
+              <TouchableOpacity
+                onPress={() => {
+                  if (trailEditSaving) return;
+                  setTrailEditTarget(null);
+                  setTrailEditDraft(null);
+                }}
+                hitSlop={12}
+              >
+                <Ionicons name="close" size={26} color={theme.ink} />
+              </TouchableOpacity>
+            </View>
+            <ScrollView
+              keyboardShouldPersistTaps="handled"
+              style={styles.modalSheetBody}
+            >
+              <Text style={styles.inputLabel}>Nom</Text>
+              <TextInput
+                style={styles.input}
+                value={trailEditDraft?.name ?? ""}
+                onChangeText={(t) =>
+                  setTrailEditDraft((d) => (d ? { ...d, name: t } : d))
+                }
+                placeholder="Nom de la trace"
+                placeholderTextColor={theme.inkMuted}
+              />
+              <Text style={[styles.inputLabel, { marginTop: 12 }]}>
+                Territoire (ville, massif…)
+              </Text>
+              <TextInput
+                style={styles.input}
+                value={trailEditDraft?.territory ?? ""}
+                onChangeText={(t) =>
+                  setTrailEditDraft((d) => (d ? { ...d, territory: t } : d))
+                }
+                placeholder="Ex. Annecy, Bauges…"
+                placeholderTextColor={theme.inkMuted}
+              />
+              <Text style={[styles.fieldLabel, { marginTop: 14 }]}>
+                Difficulté
+              </Text>
+              <View style={[styles.roleRow, { flexWrap: "wrap" }]}>
+                {["easy", "medium", "hard"].map((d) => (
+                  <TouchableOpacity
+                    key={`ed-trail-diff-${d}`}
+                    style={[
+                      styles.roleChip,
+                      trailEditDraft?.difficulty === d && styles.roleChipActive,
+                    ]}
+                    onPress={() =>
+                      setTrailEditDraft((prev) =>
+                        prev ? { ...prev, difficulty: d } : prev
+                      )
+                    }
+                    activeOpacity={0.85}
+                  >
+                    <Text
+                      style={[
+                        styles.roleChipText,
+                        trailEditDraft?.difficulty === d &&
+                          styles.roleChipTextActive,
+                      ]}
+                    >
+                      {DIFFICULTY_LABELS[d]}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+              <Text style={[styles.fieldLabel, { marginTop: 14 }]}>
+                Activité
+              </Text>
+              <View style={[styles.roleRow, { flexWrap: "wrap" }]}>
+                {TRAIL_ACTIVITY_IDS.map((id) => (
+                  <TouchableOpacity
+                    key={`ed-trail-act-${id}`}
+                    style={[
+                      styles.roleChip,
+                      trailEditDraft?.activity === id && styles.roleChipActive,
+                    ]}
+                    onPress={() =>
+                      setTrailEditDraft((prev) =>
+                        prev ? { ...prev, activity: id } : prev
+                      )
+                    }
+                    activeOpacity={0.85}
+                  >
+                    <Text
+                      style={[
+                        styles.roleChipText,
+                        trailEditDraft?.activity === id &&
+                          styles.roleChipTextActive,
+                      ]}
+                    >
+                      {TRAIL_ACTIVITY_LABELS[id] || id}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+              <Text style={[styles.fieldLabel, { marginTop: 14 }]}>
+                Critères
+              </Text>
+              <View style={[styles.roleRow, { flexWrap: "wrap" }]}>
+                {TRAIL_CRITERIA_OPTIONS.map((label) => {
+                  const active =
+                    trailEditDraft?.criteriaTags?.includes(label) ?? false;
+                  return (
+                    <TouchableOpacity
+                      key={`ed-trail-crit-${label}`}
+                      style={[styles.roleChip, active && styles.roleChipActive]}
+                      onPress={() =>
+                        setTrailEditDraft((prev) => {
+                          if (!prev) return prev;
+                          const cur = prev.criteriaTags || [];
+                          const next = cur.includes(label)
+                            ? cur.filter((c) => c !== label)
+                            : cur.length >= 20
+                            ? cur
+                            : [...cur, label];
+                          return { ...prev, criteriaTags: next };
+                        })
+                      }
+                      activeOpacity={0.85}
+                    >
+                      <Text
+                        style={[
+                          styles.roleChipText,
+                          active && styles.roleChipTextActive,
+                        ]}
+                      >
+                        {label}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+              <Text style={[styles.inputLabel, { marginTop: 14 }]}>
+                Description / infos
+              </Text>
+              <TextInput
+                style={[styles.input, styles.textArea]}
+                multiline
+                value={trailEditDraft?.notes ?? ""}
+                onChangeText={(t) =>
+                  setTrailEditDraft((d) => (d ? { ...d, notes: t } : d))
+                }
+                placeholder="Détails utiles pour toi ou les autres…"
+                placeholderTextColor={theme.inkMuted}
+                maxLength={4000}
+              />
+            </ScrollView>
+            <View style={styles.modalSheetFooter}>
+              <OutlineButton
+                compact
+                label="Annuler"
+                icon="close-circle-outline"
+                disabled={trailEditSaving}
+                onPress={() => {
+                  if (trailEditSaving) return;
+                  setTrailEditTarget(null);
+                  setTrailEditDraft(null);
+                }}
+              />
+              <PrimaryButton
+                compact
+                label="Enregistrer"
+                icon="checkmark-outline"
+                loading={trailEditSaving}
+                disabled={trailEditSaving}
+                onPress={async () => {
+                  if (!trailEditTarget || !trailEditDraft || trailEditSaving)
+                    return;
+                  const nm = trailEditDraft.name.trim();
+                  const terr = trailEditDraft.territory.trim();
+                  if (nm.length < 2) {
+                    userAlert("Nom", "Indique au moins 2 caractères.");
+                    return;
+                  }
+                  if (terr.length < 2) {
+                    userAlert("Territoire", "Indique au moins 2 caractères.");
+                    return;
+                  }
+                  setTrailEditSaving(true);
+                  const ok = await actionsRef.current.updateTrail(
+                    trailEditTarget.id,
+                    {
+                      name: nm,
+                      territory: terr,
+                      difficulty: trailEditDraft.difficulty,
+                      activity: trailEditDraft.activity,
+                      criteriaTags: trailEditDraft.criteriaTags || [],
+                      notes: trailEditDraft.notes.trim(),
+                    }
+                  );
+                  setTrailEditSaving(false);
+                  if (ok) {
+                    setTrailEditTarget(null);
+                    setTrailEditDraft(null);
+                  }
+                }}
+              />
+            </View>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -5038,6 +5476,9 @@ function RavitoApp() {
   const [endTime, setEndTime] = useState("09:00");
   const [city, setCity] = useState("Annecy");
   const [trailDifficulty, setTrailDifficulty] = useState("medium");
+  const [trailImportActivity, setTrailImportActivity] = useState("hike");
+  const [trailImportCriteriaTags, setTrailImportCriteriaTags] = useState([]);
+  const [trailImportNotes, setTrailImportNotes] = useState("");
   const [selectedBoxId, setSelectedBoxId] = useState(null);
   const [selectedTrailId, setSelectedTrailId] = useState(null);
   const [hostForm, setHostForm] = useState({
@@ -6064,12 +6505,26 @@ function RavitoApp() {
         formData.append("name", name.replace(/\.gpx$/i, ""));
         formData.append("territory", city);
         formData.append("difficulty", trailDifficulty);
+        formData.append("activity", trailImportActivity);
+        formData.append(
+          "criteriaTags",
+          JSON.stringify(trailImportCriteriaTags || [])
+        );
+        const noteWeb = trailImportNotes.trim();
+        if (noteWeb) formData.append("notes", noteWeb);
         formData.append("gpx", file, name);
       } else {
         formData = new FormData();
         formData.append("name", name.replace(/\.gpx$/i, ""));
         formData.append("territory", city);
         formData.append("difficulty", trailDifficulty);
+        formData.append("activity", trailImportActivity);
+        formData.append(
+          "criteriaTags",
+          JSON.stringify(trailImportCriteriaTags || [])
+        );
+        const noteNat = trailImportNotes.trim();
+        if (noteNat) formData.append("notes", noteNat);
         formData.append("gpx", file);
       }
       const data = await uploadGpxWithFormData(formData);
@@ -6078,6 +6533,7 @@ function RavitoApp() {
         `${data.distanceKm} km / D+ ${data.elevationM} m`
       );
       await loadTrails();
+      setTrailImportNotes("");
     } catch (error) {
       userAlert("Erreur", error.message);
     }
@@ -6614,6 +7070,7 @@ function RavitoApp() {
     uploadGpx,
     uploadGpxWebFile,
     deleteTrail,
+    updateTrail,
     deleteTrailsByIds,
     deleteAllMyTrails,
     centerMapOnTrail,
@@ -6734,6 +7191,9 @@ function RavitoApp() {
       user,
       webDropHover,
       trailDifficulty,
+      trailImportActivity,
+      trailImportCriteriaTags,
+      trailImportNotes,
       trailListFilter,
       mapShowTrails,
       mapTrailDifficultyFilter,

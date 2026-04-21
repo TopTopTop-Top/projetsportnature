@@ -49,6 +49,28 @@ const DIFFICULTY_LABELS = {
   hard: "Difficile",
 };
 
+const TRAIL_ACTIVITY_LABELS = {
+  hike: "Randonnée",
+  trail_run: "Trail / course nature",
+  road_bike: "Route (vélo)",
+  mtb: "VTT / enduro",
+  gravel: "Gravel",
+  ski_nordic: "Ski de fond",
+  ski_alp: "Ski alpin / rando ski",
+  other: "Autre",
+};
+
+function parseTrailCriteria(trail) {
+  try {
+    const raw = trail?.criteria_json;
+    if (!raw) return [];
+    const arr = typeof raw === "string" ? JSON.parse(raw) : raw;
+    return Array.isArray(arr) ? arr.filter((x) => typeof x === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
 function escapeHtml(text) {
   return String(text ?? "")
     .replace(/&/g, "&amp;")
@@ -147,16 +169,35 @@ function buildTrailPopupHtml(trail, staticOrigin) {
   const gpxLine = gpx
     ? `<a href="${escapeHtml(gpx)}" target="_blank" rel="noopener">GPX</a>`
     : "";
-  return [
+  const act =
+    TRAIL_ACTIVITY_LABELS[trail.activity || "hike"] ||
+    String(trail.activity || "—");
+  const crit = parseTrailCriteria(trail);
+  const lines = [
     `<strong>${escapeHtml(trail.name)}</strong>`,
     `${escapeHtml(trail.territory)} · ${trail.distance_km} km`,
     `<span style="font-size:12px">${escapeHtml(
       DIFFICULTY_LABELS[trail.difficulty] || trail.difficulty
-    )}</span>`,
-    gpxLine,
-  ]
-    .filter(Boolean)
-    .join("<br/>");
+    )} · ${escapeHtml(act)}</span>`,
+  ];
+  if (crit.length) {
+    lines.push(
+      `<span style="font-size:12px;color:#334155">${truncateForPopup(
+        crit.join(" · "),
+        280
+      )}</span>`
+    );
+  }
+  if (trail.notes) {
+    lines.push(
+      `<span style="font-size:12px;color:#334155">${truncateForPopup(
+        trail.notes,
+        320
+      )}</span>`
+    );
+  }
+  lines.push(gpxLine);
+  return lines.filter(Boolean).join("<br/>");
 }
 
 function normalizePoint(point) {

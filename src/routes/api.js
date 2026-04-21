@@ -86,6 +86,17 @@ const createHostBoxSchema = z.object({
   criteriaNote: z.string().max(2000).optional(),
 });
 
+const trailActivityEnum = z.enum([
+  "hike",
+  "trail_run",
+  "road_bike",
+  "mtb",
+  "gravel",
+  "ski_nordic",
+  "ski_alp",
+  "other",
+]);
+
 const createTrailSchema = z.object({
   name: z.string().min(3),
   territory: z.string().min(2),
@@ -93,8 +104,63 @@ const createTrailSchema = z.object({
   elevationM: z.number().int().nonnegative().optional(),
   difficulty: z.enum(["easy", "medium", "hard"]),
   gpxUrl: z.string().url().optional(),
-  notes: z.string().optional(),
+  notes: z.string().max(4000).optional(),
+  activity: trailActivityEnum.optional(),
+  criteriaTags: z.array(z.string().min(1).max(60)).max(20).optional(),
 });
+
+const updateTrailSchema = z
+  .object({
+    name: z.string().min(2).max(200).optional(),
+    territory: z.string().min(2).max(120).optional(),
+    difficulty: z.enum(["easy", "medium", "hard"]).optional(),
+    activity: trailActivityEnum.optional(),
+    criteriaTags: z.array(z.string().min(1).max(60)).max(20).optional(),
+    notes: z.union([z.string().max(4000), z.literal("")]).optional(),
+  })
+  .superRefine((val, ctx) => {
+    const keys = Object.keys(val).filter((k) => val[k] !== undefined);
+    if (keys.length === 0) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "At least one field is required",
+      });
+    }
+  });
+
+function normalizeTrailActivity(value) {
+  const v = String(value || "").trim();
+  return trailActivityEnum.safeParse(v).success ? v : "hike";
+}
+
+function parseTrailCriteriaTagsFromBody(value) {
+  if (value == null || value === "") return [];
+  if (Array.isArray(value)) {
+    return value
+      .filter((t) => typeof t === "string")
+      .map((t) => t.trim())
+      .filter(Boolean)
+      .slice(0, 20);
+  }
+  const s = String(value);
+  try {
+    const j = JSON.parse(s);
+    if (Array.isArray(j)) {
+      return j
+        .filter((t) => typeof t === "string")
+        .map((t) => t.trim())
+        .filter(Boolean)
+        .slice(0, 20);
+    }
+  } catch (_e) {
+    // ignore
+  }
+  return s
+    .split(/[,;]/)
+    .map((t) => t.trim())
+    .filter(Boolean)
+    .slice(0, 20);
+}
 
 const createBookingSchema = z.object({
   boxId: z.number().int().positive(),
@@ -474,9 +540,7 @@ async function reverseGeocodePhoton(lat, lon) {
       (typeof p.county === "string" && p.county.trim()) ||
       null;
     const placeLabel =
-      city ||
-      (typeof p.name === "string" && p.name.trim()) ||
-      null;
+      city || (typeof p.name === "string" && p.name.trim()) || null;
     if (!placeLabel && !city) return null;
     const displayName = [p.name, p.street, city, p.postcode, p.country]
       .filter((x) => typeof x === "string" && x.trim())
@@ -485,8 +549,7 @@ async function reverseGeocodePhoton(lat, lon) {
       city: city || null,
       placeLabel: placeLabel || city || null,
       displayName: displayName || null,
-      postcode:
-        (typeof p.postcode === "string" && p.postcode.trim()) || null,
+      postcode: (typeof p.postcode === "string" && p.postcode.trim()) || null,
     };
   } catch (_e) {
     return null;
@@ -1212,9 +1275,11 @@ router.post("/trails", requireAuth, async (req, res) => {
     return res.status(404).json({ error: "Creator user not found" });
 
   const input = parsed.data;
+  const activity = input.activity ?? "hike";
+  const criteriaJson = JSON.stringify(input.criteriaTags ?? []);
   const { rows } = await pool.query(
-    `INSERT INTO trails (creator_user_id, name, territory, distance_km, elevation_m, difficulty, gpx_url, notes)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+    `INSERT INTO trails (creator_user_id, name, territory, distance_km, elevation_m, difficulty, gpx_url, notes, activity, criteria_json)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
      RETURNING *`,
     [
       req.auth.sub,
@@ -1225,6 +1290,8 @@ router.post("/trails", requireAuth, async (req, res) => {
       input.difficulty,
       input.gpxUrl ?? null,
       input.notes ?? null,
+      activity,
+      criteriaJson,
     ]
   );
   return res.status(201).json(rows[0]);
@@ -1232,12 +1299,26 @@ router.post("/trails", requireAuth, async (req, res) => {
 
 router.get("/trails", async (req, res) => {
   const difficulty = req.query.difficulty;
-  const { rows } = difficulty
-    ? await pool.query(
-        `SELECT * FROM trails WHERE difficulty = $1 ORDER BY created_at DESC`,
-        [difficulty]
-      )
-    : await pool.query(`SELECT * FROM trails ORDER BY created_at DESC`);
+  const activity = req.query.activity;
+  const hasDiff =
+    difficulty && ["easy", "medium", "hard"].includes(String(difficulty));
+  const hasAct =
+    activity && trailActivityEnum.safeParse(String(activity)).success;
+  const conds = [];
+  const params = [];
+  if (hasDiff) {
+    params.push(String(difficulty));
+    conds.push(`difficulty = $${params.length}`);
+  }
+  if (hasAct) {
+    params.push(String(activity));
+    conds.push(`activity = $${params.length}`);
+  }
+  const where = conds.length ? ` WHERE ${conds.join(" AND ")}` : "";
+  const { rows } = await pool.query(
+    `SELECT * FROM trails${where} ORDER BY created_at DESC`,
+    params
+  );
   res.json(rows);
 });
 
@@ -1260,6 +1341,57 @@ function unlinkTrailGpxFile(gpxUrl) {
     // ignore
   }
 }
+
+router.patch("/trails/:id", requireAuth, async (req, res) => {
+  const trailId = Number(req.params.id);
+  if (!Number.isInteger(trailId) || trailId <= 0) {
+    return res.status(400).json({ error: "Invalid trail id" });
+  }
+  const parsed = updateTrailSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error.flatten() });
+  }
+  const u = parsed.data;
+  const parts = [];
+  const vals = [];
+  let n = 1;
+  if (u.name !== undefined) {
+    parts.push(`name = $${n++}`);
+    vals.push(u.name);
+  }
+  if (u.territory !== undefined) {
+    parts.push(`territory = $${n++}`);
+    vals.push(u.territory);
+  }
+  if (u.difficulty !== undefined) {
+    parts.push(`difficulty = $${n++}`);
+    vals.push(u.difficulty);
+  }
+  if (u.activity !== undefined) {
+    parts.push(`activity = $${n++}`);
+    vals.push(u.activity);
+  }
+  if (u.criteriaTags !== undefined) {
+    parts.push(`criteria_json = $${n++}`);
+    vals.push(JSON.stringify(u.criteriaTags));
+  }
+  if (u.notes !== undefined) {
+    parts.push(`notes = $${n++}`);
+    vals.push(u.notes.trim() === "" ? null : u.notes);
+  }
+  vals.push(trailId, req.auth.sub);
+  const { rows } = await pool.query(
+    `UPDATE trails SET ${parts.join(
+      ", "
+    )} WHERE id = $${n++} AND creator_user_id = $${n} RETURNING *`,
+    vals
+  );
+  const row = rows[0];
+  if (!row) {
+    return res.status(404).json({ error: "Trail not found or not yours" });
+  }
+  return res.json(row);
+});
 
 router.delete("/trails/:id", requireAuth, async (req, res) => {
   const trailId = Number(req.params.id);
@@ -1313,7 +1445,16 @@ router.post(
       )
         ? req.body.difficulty
         : "medium";
-      const notes = req.body.notes || null;
+      const activity = normalizeTrailActivity(req.body.activity);
+      const criteriaTags = parseTrailCriteriaTagsFromBody(
+        req.body.criteriaTags
+      );
+      const criteriaJson = JSON.stringify(criteriaTags);
+      const notesRaw = req.body.notes;
+      const notes =
+        notesRaw != null && String(notesRaw).trim()
+          ? String(notesRaw).slice(0, 4000)
+          : null;
       const gpxUrl = `/uploads/${req.file.filename}`;
       const polylineJson =
         stats.polylineLatLngs.length > 0
@@ -1321,8 +1462,8 @@ router.post(
           : null;
 
       const { rows } = await pool.query(
-        `INSERT INTO trails (creator_user_id, name, territory, distance_km, elevation_m, difficulty, gpx_url, notes, polyline_json)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+        `INSERT INTO trails (creator_user_id, name, territory, distance_km, elevation_m, difficulty, gpx_url, notes, polyline_json, activity, criteria_json)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
          RETURNING *`,
         [
           req.auth.sub,
@@ -1334,6 +1475,8 @@ router.post(
           gpxUrl,
           notes,
           polylineJson,
+          activity,
+          criteriaJson,
         ]
       );
       return res.status(201).json({

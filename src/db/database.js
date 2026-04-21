@@ -179,6 +179,15 @@ async function migrate() {
       `ALTER TABLE trails ADD COLUMN IF NOT EXISTS polyline_json TEXT`
     );
     await client.query(
+      `ALTER TABLE trails ADD COLUMN IF NOT EXISTS activity TEXT`
+    );
+    await client.query(
+      `ALTER TABLE trails ADD COLUMN IF NOT EXISTS criteria_json TEXT`
+    );
+    await client.query(
+      `UPDATE trails SET activity = 'hike' WHERE activity IS NULL OR TRIM(activity) = ''`
+    );
+    await client.query(
       `ALTER TABLE bookings ADD COLUMN IF NOT EXISTS special_request TEXT`
     );
     await client.query(
