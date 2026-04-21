@@ -3174,7 +3174,7 @@ function TrailsScreen() {
           </Text>
           <View style={[styles.roleRow, { flexWrap: "wrap" }]}>
             {TRAIL_CRITERIA_OPTIONS.map((label) => {
-              const active = trailImportCriteriaTags.includes(label);
+              const active = (trailImportCriteriaTags || []).includes(label);
               return (
                 <TouchableOpacity
                   key={`imp-trail-crit-${label}`}
@@ -7125,6 +7125,12 @@ function RavitoApp() {
       setWebDropHover,
       trailDifficulty,
       setTrailDifficulty,
+      trailImportActivity,
+      setTrailImportActivity,
+      trailImportCriteriaTags,
+      setTrailImportCriteriaTags,
+      trailImportNotes,
+      setTrailImportNotes,
       trailListFilter,
       setTrailListFilter,
       mapShowTrails,
