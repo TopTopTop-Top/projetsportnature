@@ -10,6 +10,7 @@ export default function NativeExplorerMap({
   selectedBoxId,
   onSelectBox,
   onSelectTrail,
+  onMapLongPress,
   onVisibleBoundsChange,
   onPanDrag,
   followExternalCenter = true,
@@ -90,6 +91,12 @@ export default function NativeExplorerMap({
       initialRegion={region}
       onRegionChangeComplete={reportBounds}
       onPanDrag={typeof onPanDrag === "function" ? onPanDrag : undefined}
+      onLongPress={(ev) => {
+        const lat = Number(ev?.nativeEvent?.coordinate?.latitude);
+        const lng = Number(ev?.nativeEvent?.coordinate?.longitude);
+        if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+        onMapLongPress?.(lat, lng);
+      }}
     >
       {trailPolylines.map((t) => (
         <Polyline

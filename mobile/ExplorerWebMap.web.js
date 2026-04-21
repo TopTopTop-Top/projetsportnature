@@ -187,6 +187,7 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
   selectedBoxId,
   onSelectBox,
   onSelectTrail,
+  onMapLongPress,
   onPickLocation,
   onVisibleBoundsChange,
   /** Appelé après un déplacement manuel (drag) — pour découpler la caméra de la recherche. */
@@ -219,6 +220,8 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
   onSelectBoxRef.current = onSelectBox;
   const onSelectTrailRef = useRef(onSelectTrail);
   onSelectTrailRef.current = onSelectTrail;
+  const onMapLongPressRef = useRef(onMapLongPress);
+  onMapLongPressRef.current = onMapLongPress;
   const selectedBoxIdRef = useRef(selectedBoxId);
   selectedBoxIdRef.current = selectedBoxId;
   const onPickLocationRef = useRef(onPickLocation);
@@ -287,6 +290,12 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
     map.on("dragend", () => {
       const fn = onUserMapGestureRef.current;
       if (typeof fn === "function") fn();
+    });
+    map.on("contextmenu", (ev) => {
+      const lat = Number(ev?.latlng?.lat);
+      const lng = Number(ev?.latlng?.lng);
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+      onMapLongPressRef.current?.(lat, lng);
     });
     setTimeout(emitBounds, 0);
 
@@ -374,32 +383,73 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
     });
 
     let selectedLayer = null;
-    boxes.forEach((box) => {
-      try {
+    const map = mapRef.current;
+    const shouldCluster = boxes.length > 30 && map && map.getZoom() < 14;
+    if (shouldCluster) {
+      const clusters = new Map();
+      const factor = 8;
+      boxes.forEach((box) => {
         const lat = Number(box.latitude);
         const lng = Number(box.longitude);
         if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
-        const isSelected = Number(box.id) === Number(selectedBoxIdRef.current);
-        if (isSelected) {
-          const m = L.circleMarker([lat, lng], {
-            radius: 10,
-            color: "#0F766E",
-            weight: 3,
-            fillColor: "#14B8A6",
-            fillOpacity: 0.9,
+        const key = `${Math.round(lat * factor)}:${Math.round(lng * factor)}`;
+        const c = clusters.get(key) || {
+          latSum: 0,
+          lngSum: 0,
+          count: 0,
+        };
+        c.latSum += lat;
+        c.lngSum += lng;
+        c.count += 1;
+        clusters.set(key, c);
+      });
+      clusters.forEach((cluster) => {
+        const lat = cluster.latSum / cluster.count;
+        const lng = cluster.lngSum / cluster.count;
+        const marker = L.circleMarker([lat, lng], {
+          radius: Math.min(18, 10 + Math.log2(cluster.count + 1) * 2),
+          color: "#0F766E",
+          weight: 2,
+          fillColor: "#14B8A6",
+          fillOpacity: 0.85,
+        });
+        marker.bindTooltip(`${cluster.count} box`, { direction: "top" });
+        marker.on("click", () => {
+          map?.setView([lat, lng], Math.min((map?.getZoom?.() || 12) + 2, 18), {
+            animate: true,
           });
-          m.on("click", () => onSelectBoxRef.current?.(box.id));
-          m.addTo(group);
-          selectedLayer = m;
-        } else {
-          const m = L.marker([lat, lng]);
-          m.on("click", () => onSelectBoxRef.current?.(box.id));
-          m.addTo(group);
+        });
+        marker.addTo(group);
+      });
+    } else {
+      boxes.forEach((box) => {
+        try {
+          const lat = Number(box.latitude);
+          const lng = Number(box.longitude);
+          if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+          const isSelected =
+            Number(box.id) === Number(selectedBoxIdRef.current);
+          if (isSelected) {
+            const m = L.circleMarker([lat, lng], {
+              radius: 10,
+              color: "#0F766E",
+              weight: 3,
+              fillColor: "#14B8A6",
+              fillOpacity: 0.9,
+            });
+            m.on("click", () => onSelectBoxRef.current?.(box.id));
+            m.addTo(group);
+            selectedLayer = m;
+          } else {
+            const m = L.marker([lat, lng]);
+            m.on("click", () => onSelectBoxRef.current?.(box.id));
+            m.addTo(group);
+          }
+        } catch (_e) {
+          // Ignore a malformed host point instead of crashing the whole map.
         }
-      } catch (_e) {
-        // Ignore a malformed host point instead of crashing the whole map.
-      }
-    });
+      });
+    }
 
     const p = normalizePoint(draftPoint);
     if (p) {
@@ -418,7 +468,6 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
       }
     }
 
-    const map = mapRef.current;
     try {
       if (
         autoFitToData &&
@@ -435,7 +484,6 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
     } catch (_e) {
       // Keep current viewport if bounds computation fails.
     }
-
   }, [boxes, trails, staticOrigin, draftPoint, pickerMode, autoFitToData, selectedBoxId, selectedTrailSet]);
 
   if (Platform.OS !== "web") {

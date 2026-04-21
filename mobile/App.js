@@ -327,6 +327,41 @@ function bookingApprovalLabel(status) {
   }
 }
 
+function parseBookingDateTimeLocal(dateStr, timeStr) {
+  const d = String(dateStr || "").trim();
+  const t = String(timeStr || "").trim();
+  if (!d || !t) return null;
+  const iso = `${d}T${t.length === 5 ? `${t}:00` : t}`;
+  const dt = new Date(iso);
+  return Number.isNaN(dt.getTime()) ? null : dt;
+}
+
+function canShowBookingAccessInfo(booking, now = new Date()) {
+  const start = parseBookingDateTimeLocal(
+    booking?.booking_date,
+    booking?.start_time
+  );
+  const end = parseBookingDateTimeLocal(
+    booking?.booking_date,
+    booking?.end_time
+  );
+  if (!start || !end) return false;
+  const before = Number(booking?.access_display_before_min ?? 15);
+  const after = Number(booking?.access_display_after_min ?? 15);
+  const openAt = new Date(start.getTime() - Math.max(0, before) * 60 * 1000);
+  const closeAt = new Date(end.getTime() + Math.max(0, after) * 60 * 1000);
+  return now >= openAt && now <= closeAt;
+}
+
+function bookingAccessMethodLabel(method) {
+  const m = String(method || "");
+  if (m === "manual_meetup") return "Remise en main propre";
+  if (m === "padlock_code") return "Code cadenas manuel";
+  if (m === "digital_code") return "Code digital temporaire";
+  if (m === "key_lockbox") return "Boîte à clé";
+  return "Accès";
+}
+
 /** Libellé lieu depuis la réponse GET /geocode/reverse. */
 function geocodePayloadToCityLabel(data) {
   if (!data || typeof data !== "object") return null;
@@ -1399,6 +1434,8 @@ function ExplorerScreen() {
       null,
     [trails, selectedTrailId]
   );
+  const explorerSelectionLock =
+    safePickedBoxIds.length > 0 || mapTrailPickIds.length > 0;
   const prioritizedExplorerBoxes = useMemo(() => {
     if (selectedBoxId == null) return boxesForExplorerList;
     const sid = Number(selectedBoxId);
@@ -1467,6 +1504,61 @@ function ExplorerScreen() {
       setSelectedTrailId(tid);
     },
     [setSelectedTrailId]
+  );
+  const handleExplorerMapLongPress = useCallback(
+    (lat, lng) => {
+      const plat = Number(lat);
+      const plng = Number(lng);
+      if (!Number.isFinite(plat) || !Number.isFinite(plng)) return;
+      let nearestBox = null;
+      let nearestBoxDistKm = Infinity;
+      for (const box of boxesOnMap) {
+        const bLat = Number(box.latitude);
+        const bLng = Number(box.longitude);
+        if (!Number.isFinite(bLat) || !Number.isFinite(bLng)) continue;
+        const d = haversineKm(plat, plng, bLat, bLng);
+        if (d < nearestBoxDistKm) {
+          nearestBoxDistKm = d;
+          nearestBox = box;
+        }
+      }
+      let nearestTrail = null;
+      let nearestTrailDistKm = Infinity;
+      for (const trail of trailsOnMap) {
+        const d = minDistanceKmPointToTrail(trail, plat, plng);
+        if (d < nearestTrailDistKm) {
+          nearestTrailDistKm = d;
+          nearestTrail = trail;
+        }
+      }
+      const boxHit = nearestBox && nearestBoxDistKm <= 0.12;
+      const trailHit = nearestTrail && nearestTrailDistKm <= 0.12;
+      if (!boxHit && !trailHit) return;
+      if (boxHit && (!trailHit || nearestBoxDistKm <= nearestTrailDistKm)) {
+        const bid = Number(nearestBox.id);
+        setSelectedBoxId(bid);
+        if (safePickedBoxIds.includes(bid) && explorerSelectionLock) return;
+        toggleExplorerPickedBox(bid);
+        return;
+      }
+      if (trailHit) {
+        const tid = Number(nearestTrail.id);
+        setSelectedTrailId(tid);
+        if (mapTrailPickIds.includes(tid) && explorerSelectionLock) return;
+        toggleExplorerPickedTrail(tid);
+      }
+    },
+    [
+      boxesOnMap,
+      trailsOnMap,
+      safePickedBoxIds,
+      mapTrailPickIds,
+      explorerSelectionLock,
+      toggleExplorerPickedBox,
+      toggleExplorerPickedTrail,
+      setSelectedBoxId,
+      setSelectedTrailId,
+    ]
   );
   const { width: viewportWidth } = useWindowDimensions();
   const [showBoxFilters, setShowBoxFilters] = useState(false);
@@ -1684,7 +1776,8 @@ function ExplorerScreen() {
             {mapTrailPickIds.length > 1 ? "s" : ""}
           </Text>
           <Text style={styles.explorerSelectionSummaryHint}>
-            Clic carte ou liste : même sélection synchronisée.
+            Appui court carte = focus. Appui long = sélection. Verrou sélection
+            actif automatiquement dès qu'au moins 1 élément est sélectionné.
           </Text>
         </View>
         {!webSplit ? (
@@ -1696,6 +1789,7 @@ function ExplorerScreen() {
             selectedBoxId={selectedBoxId}
             onSelectBox={focusExplorerBox}
             onSelectTrail={focusExplorerTrail}
+            onMapLongPress={handleExplorerMapLongPress}
             onVisibleBoundsChange={setMapViewportBounds}
             onPanDrag={() => actionsRef.current.markExplorerMapUserGesture?.()}
             followExternalCenter={
@@ -2647,6 +2741,7 @@ function ExplorerScreen() {
                     selectedBoxId={selectedBoxId}
                     onSelectBox={focusExplorerBox}
                     onSelectTrail={focusExplorerTrail}
+                    onMapLongPress={handleExplorerMapLongPress}
                     onVisibleBoundsChange={setMapViewportBounds}
                     onUserMapGesture={() =>
                       actionsRef.current.markExplorerMapUserGesture?.()
@@ -2696,6 +2791,7 @@ function ExplorerScreen() {
                 selectedBoxId={selectedBoxId}
                 onSelectBox={focusExplorerBox}
                 onSelectTrail={focusExplorerTrail}
+                onMapLongPress={handleExplorerMapLongPress}
                 onVisibleBoundsChange={setMapViewportBounds}
                 onUserMapGesture={() =>
                   actionsRef.current.markExplorerMapUserGesture?.()
@@ -2831,6 +2927,37 @@ function TrailsScreen() {
       );
     },
     [setMapTrailPickIds, setSelectedTrailId]
+  );
+  const trailsSelectionLock = mapTrailPickIds.length > 0;
+  const handleTrailsMapLongPress = useCallback(
+    (lat, lng) => {
+      const plat = Number(lat);
+      const plng = Number(lng);
+      if (!Number.isFinite(plat) || !Number.isFinite(plng)) return;
+      let nearestTrail = null;
+      let nearestTrailDistKm = Infinity;
+      for (const trail of trailsMapList) {
+        const d = minDistanceKmPointToTrail(trail, plat, plng);
+        if (d < nearestTrailDistKm) {
+          nearestTrailDistKm = d;
+          nearestTrail = trail;
+        }
+      }
+      if (!nearestTrail || nearestTrailDistKm > 0.12) return;
+      const tid = Number(nearestTrail.id);
+      setSelectedTrailId(tid);
+      if (mapTrailPickIds.includes(tid) && trailsSelectionLock) return;
+      setMapTrailsScope("picked");
+      togglePickedTrail(tid);
+    },
+    [
+      trailsMapList,
+      mapTrailPickIds,
+      trailsSelectionLock,
+      setSelectedTrailId,
+      setMapTrailsScope,
+      togglePickedTrail,
+    ]
   );
 
   const webDropProps =
@@ -3103,6 +3230,7 @@ function TrailsScreen() {
               selectedBoxId={null}
               onSelectBox={() => {}}
               onSelectTrail={(id) => setSelectedTrailId(id)}
+              onMapLongPress={handleTrailsMapLongPress}
               followExternalCenter={false}
               autoFitToData
               staticOrigin={API_STATIC_ORIGIN}
@@ -3119,6 +3247,7 @@ function TrailsScreen() {
               selectedBoxId={null}
               onSelectBox={() => {}}
               onSelectTrail={(id) => setSelectedTrailId(id)}
+              onMapLongPress={handleTrailsMapLongPress}
               followExternalCenter={false}
             />
           )}
@@ -3263,6 +3392,7 @@ function HostScreen() {
     hostReverseGeocode,
     setHostReverseGeocode,
     hostBoxes,
+    hostRefunds,
     actionsRef,
   } = useAppMain();
   const canHostLocal = user?.role === "host" || user?.role === "both";
@@ -3288,13 +3418,47 @@ function HostScreen() {
       null,
     [hostBoxes, hostMapSelectedBoxId]
   );
-
   const hostBoxesForMap = useMemo(() => {
     if (!hostMapShowBoxes) return [];
     if (hostMapSelectionMode !== "picked") return hostBoxes;
     const set = new Set(hostPickedBoxIds.map((id) => Number(id)));
     return hostBoxes.filter((b) => set.has(Number(b.id)));
   }, [hostMapShowBoxes, hostMapSelectionMode, hostPickedBoxIds, hostBoxes]);
+  const hostSelectionLock = hostPickedBoxIds.length > 0;
+  const handleHostMapLongPress = useCallback(
+    (lat, lng) => {
+      const plat = Number(lat);
+      const plng = Number(lng);
+      if (!Number.isFinite(plat) || !Number.isFinite(plng)) return;
+      let nearestBox = null;
+      let nearestDist = Infinity;
+      for (const box of hostBoxesForMap) {
+        const bLat = Number(box.latitude);
+        const bLng = Number(box.longitude);
+        if (!Number.isFinite(bLat) || !Number.isFinite(bLng)) continue;
+        const d = haversineKm(plat, plng, bLat, bLng);
+        if (d < nearestDist) {
+          nearestDist = d;
+          nearestBox = box;
+        }
+      }
+      if (!nearestBox || nearestDist > 0.12) return;
+      const bid = Number(nearestBox.id);
+      setHostMapSelectedBoxId(bid);
+      if (hostPickedBoxIds.includes(bid) && hostSelectionLock) return;
+      setHostMapSelectionMode("picked");
+      toggleHostPickedBox(bid);
+    },
+    [
+      hostBoxesForMap,
+      hostPickedBoxIds,
+      hostSelectionLock,
+      setHostMapSelectedBoxId,
+      setHostMapSelectionMode,
+      toggleHostPickedBox,
+    ]
+  );
+
   const prioritizedHostBoxes = useMemo(() => {
     if (hostMapSelectedBoxId == null) return hostBoxes;
     const sid = Number(hostMapSelectedBoxId);
@@ -3310,6 +3474,7 @@ function HostScreen() {
   useEffect(() => {
     if (!canHostLocal || !isFocused) return;
     actionsRef.current.loadHostBoxes();
+    actionsRef.current.loadHostRefunds?.();
     return undefined;
   }, [canHostLocal, isFocused, actionsRef]);
 
@@ -3537,6 +3702,71 @@ function HostScreen() {
                   setHostForm((s) => ({ ...s, accessCode: v }))
                 }
               />
+              <Text style={styles.fieldLabel}>Type d'accès</Text>
+              <View style={[styles.roleRow, { flexWrap: "wrap" }]}>
+                {[
+                  { id: "manual_meetup", label: "Remise en main propre" },
+                  { id: "padlock_code", label: "Code cadenas manuel" },
+                  { id: "digital_code", label: "Code digital temporaire" },
+                  { id: "key_lockbox", label: "Boîte à clé" },
+                ].map((opt) => (
+                  <TouchableOpacity
+                    key={`access-method-${opt.id}`}
+                    style={[
+                      styles.roleChip,
+                      hostForm.accessMethod === opt.id && styles.roleChipActive,
+                    ]}
+                    onPress={() =>
+                      setHostForm((s) => ({ ...s, accessMethod: opt.id }))
+                    }
+                    activeOpacity={0.85}
+                  >
+                    <Text
+                      style={[
+                        styles.roleChipText,
+                        hostForm.accessMethod === opt.id &&
+                          styles.roleChipTextActive,
+                      ]}
+                    >
+                      {opt.label}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+              <Text style={styles.fieldLabel}>Instructions d'accès</Text>
+              <TextInput
+                style={[styles.input, styles.textArea]}
+                placeholder="Ex: rendez-vous devant la porte nord, code du cadenas, consignes..."
+                placeholderTextColor={theme.inkMuted}
+                value={hostForm.accessInstructions}
+                onChangeText={(v) =>
+                  setHostForm((s) => ({ ...s, accessInstructions: v }))
+                }
+                multiline
+              />
+              <Text style={styles.fieldLabel}>
+                Fenêtre d'affichage des infos d'accès (minutes)
+              </Text>
+              <TextInput
+                style={styles.input}
+                placeholder="Avant début (ex: 15)"
+                placeholderTextColor={theme.inkMuted}
+                value={hostForm.accessDisplayBeforeMin}
+                onChangeText={(v) =>
+                  setHostForm((s) => ({ ...s, accessDisplayBeforeMin: v }))
+                }
+                keyboardType="number-pad"
+              />
+              <TextInput
+                style={styles.input}
+                placeholder="Après fin (ex: 15)"
+                placeholderTextColor={theme.inkMuted}
+                value={hostForm.accessDisplayAfterMin}
+                onChangeText={(v) =>
+                  setHostForm((s) => ({ ...s, accessDisplayAfterMin: v }))
+                }
+                keyboardType="number-pad"
+              />
               <Text style={styles.fieldLabel}>Capacité totale (litres)</Text>
               <TextInput
                 style={styles.input}
@@ -3719,7 +3949,9 @@ function HostScreen() {
                 {hostPickedBoxIds.length > 1 ? "s" : ""}
               </Text>
               <Text style={styles.explorerSelectionSummaryHint}>
-                Clic carte ou liste : même sélection synchronisée.
+                Appui court carte = focus. Appui long = sélection. Verrou
+                sélection actif automatiquement dès qu'au moins 1 box est
+                sélectionnée.
               </Text>
             </View>
             {hostBoxes.length > 0 ? (
@@ -3749,6 +3981,7 @@ function HostScreen() {
                   onSelectBox={(id) => {
                     setHostMapSelectedBoxId(id);
                   }}
+                  onMapLongPress={handleHostMapLongPress}
                   autoFitToData
                   followExternalCenter={false}
                 />
@@ -3761,6 +3994,7 @@ function HostScreen() {
                   onSelectBox={(id) => {
                     setHostMapSelectedBoxId(id);
                   }}
+                  onMapLongPress={handleHostMapLongPress}
                   followExternalCenter={false}
                 />
               )
@@ -3898,6 +4132,45 @@ function HostScreen() {
             {hostBoxes.length === 0 ? (
               <Text style={styles.emptyText}>
                 Aucune box active pour le moment.
+              </Text>
+            ) : null}
+          </Section>
+        ) : null}
+        {canHostLocal ? (
+          <Section
+            title="Queue remboursements"
+            subtitle="Phase A simulée : remboursements en attente de traitement."
+            icon="cash-outline"
+          >
+            {hostRefunds.map((r) => (
+              <View key={`refund-${r.id}`} style={styles.card}>
+                <View style={styles.cardAccent} />
+                <Text style={styles.cardTitle}>
+                  {r.box_title || `Box #${r.box_id || "?"}`}
+                </Text>
+                <Text style={styles.cardMeta}>
+                  {r.athlete_full_name || "Athlète"} ·{" "}
+                  {(Number(r.amount_cents || 0) / 100).toFixed(2)} € ·{" "}
+                  {r.status === "done" ? "Traité" : "En attente"}
+                </Text>
+                {r.reason ? (
+                  <Text style={styles.cardAvailability}>
+                    Motif: {String(r.reason)}
+                  </Text>
+                ) : null}
+                {r.status !== "done" ? (
+                  <PrimaryButton
+                    compact
+                    label="Marquer remboursé"
+                    icon="checkmark-circle-outline"
+                    onPress={() => actionsRef.current.markRefundDone?.(r.id)}
+                  />
+                ) : null}
+              </View>
+            ))}
+            {hostRefunds.length === 0 ? (
+              <Text style={styles.emptyText}>
+                Aucun remboursement en attente.
               </Text>
             ) : null}
           </Section>
@@ -4303,6 +4576,10 @@ function ReservationsScreen() {
                       hôte{" "}
                       {(Number(b.host_earnings_cents || 0) / 100).toFixed(2)} €
                     </Text>
+                    <Text style={styles.cardDetailLine}>
+                      Paiement: {b.payment_status || "simulated_unpaid"} ·
+                      remboursement: {b.refund_status || "none"}
+                    </Text>
                     {b.special_request ? (
                       <Text style={styles.cardAvailability}>
                         Demande: {b.special_request}
@@ -4450,6 +4727,7 @@ function ReservationsScreen() {
             {athleteBookings.map((b) => {
               const approval = b.approval_status || "pending";
               const changeDraft = parseBookingChangeRequest(b);
+              const showAccess = canShowBookingAccessInfo(b);
               return (
                 <SwipeActionRow
                   key={`ath-booking-${b.id}`}
@@ -4504,8 +4782,28 @@ function ReservationsScreen() {
                     ) : null}
                     <Text style={styles.cardDetailLine}>
                       Statut : {bookingApprovalLabel(approval)}
-                      {b.access_code ? ` · code ${b.access_code}` : ""}
+                      {showAccess && b.access_code
+                        ? ` · code ${b.access_code}`
+                        : ""}
                     </Text>
+                    <Text style={styles.cardDetailLine}>
+                      Paiement: {b.payment_status || "simulated_unpaid"} ·
+                      remboursement: {b.refund_status || "none"}
+                    </Text>
+                    <Text style={styles.cardDetailLine}>
+                      Accès : {bookingAccessMethodLabel(b.access_method)}
+                    </Text>
+                    {showAccess && b.access_instructions ? (
+                      <Text style={styles.cardAvailability}>
+                        Instructions : {b.access_instructions}
+                      </Text>
+                    ) : null}
+                    {!showAccess ? (
+                      <Text style={styles.cardAvailability}>
+                        Les informations d'accès sont masquées hors fenêtre
+                        autorisée.
+                      </Text>
+                    ) : null}
                     {b.special_request ? (
                       <Text style={styles.cardAvailability}>
                         Demande : {b.special_request}
@@ -4548,6 +4846,19 @@ function ReservationsScreen() {
                       icon="time-outline"
                       onPress={() =>
                         actionsRef.current.showBookingTimeline(b.id)
+                      }
+                    />
+                    <OutlineButton
+                      compact
+                      label="Signaler incident d'accès"
+                      icon="alert-circle-outline"
+                      onPress={() =>
+                        actionsRef.current.reportAccessIncident?.({
+                          bookingId: b.id,
+                          kind: "access_issue",
+                          details:
+                            "Incident signalé depuis l'application mobile.",
+                        })
                       }
                     />
                     {b.status === "completed" ? (
@@ -4723,6 +5034,10 @@ function RavitoApp() {
     city: "Annecy",
     priceCents: "700",
     accessCode: "",
+    accessMethod: "padlock_code",
+    accessInstructions: "",
+    accessDisplayBeforeMin: "15",
+    accessDisplayAfterMin: "15",
     capacityLiters: "20",
     hasWater: true,
     criteriaTags: [],
@@ -4737,6 +5052,7 @@ function RavitoApp() {
   const explorerCityGeocodeSeqRef = useRef(0);
   const explorerSearchSeqRef = useRef(0);
   const [hostBoxes, setHostBoxes] = useState([]);
+  const [hostRefunds, setHostRefunds] = useState([]);
   const [hostBookings, setHostBookings] = useState([]);
   const [athleteBookings, setAthleteBookings] = useState([]);
   const [notifications, setNotifications] = useState([]);
@@ -5126,6 +5442,7 @@ function RavitoApp() {
       setBoxes([]);
       setTrails([]);
       setHostBoxes([]);
+      setHostRefunds([]);
       setHostBookings([]);
       setAthleteBookings([]);
       setAuthMode("login");
@@ -5179,6 +5496,16 @@ function RavitoApp() {
     try {
       const rows = await apiFetch("/host/bookings", { token });
       setHostBookings(rows);
+    } catch (error) {
+      userAlert("Erreur", error.message);
+    }
+  };
+
+  const loadHostRefunds = async () => {
+    if (!token) return;
+    try {
+      const rows = await apiFetch("/host/refunds", { token });
+      setHostRefunds(Array.isArray(rows) ? rows : []);
     } catch (error) {
       userAlert("Erreur", error.message);
     }
@@ -5260,6 +5587,46 @@ function RavitoApp() {
         })
         .join("\n");
       userAlert("Timeline réservation", preview);
+    } catch (error) {
+      userAlert("Erreur", error.message);
+    }
+  };
+
+  const reportAccessIncident = async ({ bookingId, kind, details }) => {
+    if (!token) return;
+    const bid = Number(bookingId);
+    if (!Number.isFinite(bid)) return;
+    try {
+      await apiFetch(`/bookings/${bid}/incidents`, {
+        method: "POST",
+        token,
+        body: {
+          kind: String(kind || "access_issue"),
+          details: String(details || "").trim() || "Incident d'accès signalé.",
+        },
+      });
+      userAlert(
+        "Incident envoyé",
+        "Le signalement d'accès a bien été transmis."
+      );
+    } catch (error) {
+      userAlert("Erreur", error.message);
+    }
+  };
+
+  const markRefundDone = async (refundId) => {
+    if (!token) return;
+    const rid = Number(refundId);
+    if (!Number.isFinite(rid)) return;
+    try {
+      await apiFetch(`/refunds/${rid}/mark-done`, {
+        method: "PATCH",
+        token,
+      });
+      await loadHostRefunds();
+      await loadHostBookings();
+      await loadAthleteBookings();
+      userAlert("Remboursement", "Remboursement marqué comme traité.");
     } catch (error) {
       userAlert("Erreur", error.message);
     }
@@ -5700,6 +6067,10 @@ function RavitoApp() {
       city: hostForm.city,
       priceCents: Number(hostForm.priceCents),
       accessCode: hostForm.accessCode?.trim() || undefined,
+      accessMethod: hostForm.accessMethod || "padlock_code",
+      accessInstructions: hostForm.accessInstructions?.trim() || undefined,
+      accessDisplayBeforeMin: Number(hostForm.accessDisplayBeforeMin) || 15,
+      accessDisplayAfterMin: Number(hostForm.accessDisplayAfterMin) || 15,
       capacityLiters: Number(hostForm.capacityLiters),
       hasWater: Boolean(hostForm.hasWater),
       availabilityNote: hostForm.availabilityNote?.trim() || undefined,
@@ -5730,6 +6101,10 @@ function RavitoApp() {
           city: "Annecy",
           priceCents: "700",
           accessCode: "",
+          accessMethod: "padlock_code",
+          accessInstructions: "",
+          accessDisplayBeforeMin: "15",
+          accessDisplayAfterMin: "15",
           capacityLiters: "20",
           hasWater: true,
           criteriaTags: [],
@@ -5761,6 +6136,10 @@ function RavitoApp() {
       city: box.city || "",
       priceCents: String(box.price_cents ?? 700),
       accessCode: String(box.access_code || ""),
+      accessMethod: String(box.access_method || "padlock_code"),
+      accessInstructions: String(box.access_instructions || ""),
+      accessDisplayBeforeMin: String(box.access_display_before_min ?? 15),
+      accessDisplayAfterMin: String(box.access_display_after_min ?? 15),
       capacityLiters: String(box.capacity_liters ?? 20),
       hasWater: box.has_water === 1 || box.has_water === true,
       criteriaTags: parseBoxCriteria(box),
@@ -5780,6 +6159,10 @@ function RavitoApp() {
       city: "Annecy",
       priceCents: "700",
       accessCode: "",
+      accessMethod: "padlock_code",
+      accessInstructions: "",
+      accessDisplayBeforeMin: "15",
+      accessDisplayAfterMin: "15",
       capacityLiters: "20",
       hasWater: true,
       criteriaTags: [],
@@ -6171,12 +6554,15 @@ function RavitoApp() {
     loadBoxes,
     loadHostBoxes,
     loadHostBookings,
+    loadHostRefunds,
     loadAthleteBookings,
     loadNotifications,
     loadMyReviews,
     openUserReviews,
     markAllNotificationsRead,
     showBookingTimeline,
+    reportAccessIncident,
+    markRefundDone,
     submitReview,
     loadNearbyBoxes,
     refetchExplorerBoxes,
@@ -6229,6 +6615,7 @@ function RavitoApp() {
       hostReverseGeocode,
       setHostReverseGeocode,
       hostBoxes,
+      hostRefunds,
       hostBookings,
       athleteBookings,
       notifications,
@@ -6313,6 +6700,7 @@ function RavitoApp() {
       hostEditingBoxId,
       hostReverseGeocode,
       hostBoxes,
+      hostRefunds,
       hostBookings,
       athleteBookings,
       notifications,

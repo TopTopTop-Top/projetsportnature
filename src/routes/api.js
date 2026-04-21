@@ -54,6 +54,12 @@ const createBoxSchema = z.object({
   capacityLiters: z.number().int().positive().optional(),
   hasWater: z.boolean().optional(),
   accessCode: z.string().trim().min(4).max(32).optional(),
+  accessMethod: z
+    .enum(["manual_meetup", "padlock_code", "digital_code", "key_lockbox"])
+    .optional(),
+  accessInstructions: z.string().max(4000).optional(),
+  accessDisplayBeforeMin: z.number().int().min(0).max(1440).optional(),
+  accessDisplayAfterMin: z.number().int().min(0).max(1440).optional(),
   availabilityNote: z.string().max(2000).optional(),
   criteriaTags: z.array(z.string().min(1).max(50)).max(20).optional(),
   criteriaNote: z.string().max(2000).optional(),
@@ -69,6 +75,12 @@ const createHostBoxSchema = z.object({
   capacityLiters: z.number().int().positive().optional(),
   hasWater: z.boolean().optional(),
   accessCode: z.string().trim().min(4).max(32).optional(),
+  accessMethod: z
+    .enum(["manual_meetup", "padlock_code", "digital_code", "key_lockbox"])
+    .optional(),
+  accessInstructions: z.string().max(4000).optional(),
+  accessDisplayBeforeMin: z.number().int().min(0).max(1440).optional(),
+  accessDisplayAfterMin: z.number().int().min(0).max(1440).optional(),
   availabilityNote: z.string().max(2000).optional(),
   criteriaTags: z.array(z.string().min(1).max(50)).max(20).optional(),
   criteriaNote: z.string().max(2000).optional(),
@@ -537,9 +549,7 @@ router.get("/geocode/search", async (req, res) => {
   }
 
   try {
-    const fallbackUrl = new URL(
-      "https://geocode.maps.co/search"
-    );
+    const fallbackUrl = new URL("https://geocode.maps.co/search");
     fallbackUrl.searchParams.set("q", q);
     fallbackUrl.searchParams.set("limit", "1");
     const fallbackResp = await fetch(fallbackUrl.toString());
@@ -735,6 +745,59 @@ router.patch("/users/me/role", requireAuth, async (req, res) => {
   return res.json({ user });
 });
 
+router.post("/users/me/deactivate", requireAuth, async (req, res) => {
+  const userId = req.auth.sub;
+  const { rows: pendingRefunds } = await pool.query(
+    `SELECT id FROM refunds
+     WHERE host_user_id = $1
+       AND status = 'pending'
+     LIMIT 1`,
+    [userId]
+  );
+  if (pendingRefunds[0]) {
+    return res.status(409).json({
+      error:
+        "Cannot close account while pending refunds exist. Process refunds first.",
+    });
+  }
+  const { rows: activeHostBookings } = await pool.query(
+    `SELECT b.id
+     FROM bookings b
+     JOIN boxes bx ON bx.id = b.box_id
+     WHERE bx.host_user_id = $1
+       AND bx.is_active = 1
+       AND b.status <> 'cancelled'
+       AND b.status <> 'completed'
+     LIMIT 1`,
+    [userId]
+  );
+  if (activeHostBookings[0]) {
+    return res.status(409).json({
+      error:
+        "Cannot close account while active host bookings exist. Deactivate boxes first.",
+    });
+  }
+  await pool.query(
+    `UPDATE boxes
+     SET is_active = 0, archived_at = NOW()
+     WHERE host_user_id = $1`,
+    [userId]
+  );
+  const { rows } = await pool.query(
+    `UPDATE users
+     SET role = 'athlete'
+     WHERE id = $1
+     RETURNING id, full_name, email, role, city, created_at`,
+    [userId]
+  );
+  if (!rows[0]) return res.status(404).json({ error: "User not found" });
+  return res.json({
+    ok: true,
+    user: rows[0],
+    message: "Host account deactivated to athlete mode.",
+  });
+});
+
 router.post("/boxes", requireAuth, async (req, res) => {
   const parsed = createBoxSchema.safeParse(req.body);
   if (!parsed.success) {
@@ -759,8 +822,13 @@ router.post("/boxes", requireAuth, async (req, res) => {
 
   const input = parsed.data;
   const { rows } = await pool.query(
-    `INSERT INTO boxes (host_user_id, title, description, latitude, longitude, city, price_cents, capacity_liters, has_water, access_code, availability_note, criteria_json, criteria_note)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+    `INSERT INTO boxes (
+       host_user_id, title, description, latitude, longitude, city, price_cents,
+       capacity_liters, has_water, access_code,
+       access_method, access_instructions, access_display_before_min, access_display_after_min,
+       availability_note, criteria_json, criteria_note
+     )
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
      RETURNING *`,
     [
       input.hostUserId,
@@ -773,6 +841,10 @@ router.post("/boxes", requireAuth, async (req, res) => {
       input.capacityLiters ?? 20,
       input.hasWater ? 1 : 0,
       input.accessCode?.trim() || generateAccessCode(),
+      input.accessMethod || "padlock_code",
+      input.accessInstructions?.trim() || null,
+      input.accessDisplayBeforeMin ?? 15,
+      input.accessDisplayAfterMin ?? 15,
       input.availabilityNote?.trim() || null,
       input.criteriaTags?.length ? JSON.stringify(input.criteriaTags) : null,
       input.criteriaNote?.trim() || null,
@@ -799,8 +871,13 @@ router.post("/host/boxes", requireAuth, async (req, res) => {
 
   const input = parsed.data;
   const { rows } = await pool.query(
-    `INSERT INTO boxes (host_user_id, title, description, latitude, longitude, city, price_cents, capacity_liters, has_water, access_code, availability_note, criteria_json, criteria_note)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+    `INSERT INTO boxes (
+       host_user_id, title, description, latitude, longitude, city, price_cents,
+       capacity_liters, has_water, access_code,
+       access_method, access_instructions, access_display_before_min, access_display_after_min,
+       availability_note, criteria_json, criteria_note
+     )
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
      RETURNING *`,
     [
       req.auth.sub,
@@ -813,6 +890,10 @@ router.post("/host/boxes", requireAuth, async (req, res) => {
       input.capacityLiters ?? 20,
       input.hasWater ? 1 : 0,
       input.accessCode?.trim() || generateAccessCode(),
+      input.accessMethod || "padlock_code",
+      input.accessInstructions?.trim() || null,
+      input.accessDisplayBeforeMin ?? 15,
+      input.accessDisplayAfterMin ?? 15,
       input.availabilityNote?.trim() || null,
       input.criteriaTags?.length ? JSON.stringify(input.criteriaTags) : null,
       input.criteriaNote?.trim() || null,
@@ -856,12 +937,16 @@ router.patch("/host/boxes/:id", requireAuth, async (req, res) => {
        city = $5,
        price_cents = $6,
        access_code = $7,
-       capacity_liters = $8,
-       has_water = $9,
-       availability_note = $10,
-       criteria_json = $11,
-       criteria_note = $12
-     WHERE id = $13 AND host_user_id = $14 AND is_active = 1
+       access_method = $8,
+       access_instructions = $9,
+       access_display_before_min = $10,
+       access_display_after_min = $11,
+       capacity_liters = $12,
+       has_water = $13,
+       availability_note = $14,
+       criteria_json = $15,
+       criteria_note = $16
+     WHERE id = $17 AND host_user_id = $18 AND is_active = 1
      RETURNING *`,
     [
       input.title,
@@ -871,6 +956,10 @@ router.patch("/host/boxes/:id", requireAuth, async (req, res) => {
       input.city,
       input.priceCents,
       input.accessCode?.trim() || beforeBox.access_code || generateAccessCode(),
+      input.accessMethod || beforeBox.access_method || "padlock_code",
+      input.accessInstructions?.trim() || null,
+      input.accessDisplayBeforeMin ?? beforeBox.access_display_before_min ?? 15,
+      input.accessDisplayAfterMin ?? beforeBox.access_display_after_min ?? 15,
       input.capacityLiters ?? 20,
       input.hasWater ? 1 : 0,
       input.availabilityNote?.trim() || null,
@@ -1198,7 +1287,9 @@ router.post("/bookings", requireAuth, async (req, res) => {
   const input = parsed.data;
   const athleteUserId = req.auth.sub;
   const { rows: boxRows } = await pool.query(
-    `SELECT id, price_cents, access_code FROM boxes WHERE id = $1 AND is_active = 1`,
+    `SELECT id, price_cents, access_code, access_method, access_instructions,
+            access_display_before_min, access_display_after_min
+     FROM boxes WHERE id = $1 AND is_active = 1`,
     [input.boxId]
   );
   const box = boxRows[0];
@@ -1231,9 +1322,9 @@ router.post("/bookings", requireAuth, async (req, res) => {
   const { rows } = await pool.query(
     `INSERT INTO bookings (
       box_id, athlete_user_id, booking_date, start_time, end_time,
-      amount_cents, platform_fee_cents, host_earnings_cents, access_code, special_request, approval_status
+      amount_cents, platform_fee_cents, host_earnings_cents, access_code, payment_status, special_request, approval_status
     )
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'pending')
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'simulated_authorized', $10, 'pending')
     RETURNING *`,
     [
       input.boxId,
@@ -1270,6 +1361,10 @@ router.get("/host/bookings", requireAuth, async (req, res) => {
       b.*,
       bx.title AS box_title,
       bx.city AS box_city,
+      bx.access_method,
+      bx.access_instructions,
+      bx.access_display_before_min,
+      bx.access_display_after_min,
       u.full_name AS athlete_full_name,
       u.email AS athlete_email,
       (SELECT COUNT(*)::int FROM reviews r WHERE r.reviewee_user_id = b.athlete_user_id) AS athlete_review_count,
@@ -1472,6 +1567,8 @@ router.get("/bookings", requireAuth, async (req, res) => {
   const { rows } = await pool.query(
     `SELECT b.*, bx.title AS box_title, bx.city AS box_city,
             bx.host_user_id,
+            bx.access_method, bx.access_instructions,
+            bx.access_display_before_min, bx.access_display_after_min,
             uh.full_name AS host_full_name,
             (SELECT COUNT(*)::int FROM reviews r WHERE r.reviewee_user_id = bx.host_user_id) AS host_review_count,
             (SELECT COALESCE(AVG(score), 0)::float FROM reviews r WHERE r.reviewee_user_id = bx.host_user_id) AS host_avg_score
@@ -1877,13 +1974,6 @@ router.delete("/host/boxes/:id", requireAuth, async (req, res) => {
     [boxId]
   );
   const impactedCount = impactRows.length;
-  if (impactedCount > 0 && !parsed.data.confirmImpact) {
-    return res.status(409).json({
-      error: "This box has active bookings. Confirm impact before deleting.",
-      requiresConfirmImpact: true,
-      impactedBookingsCount: impactedCount,
-    });
-  }
   await pool.query(
     `UPDATE boxes
      SET is_active = 0, archived_at = NOW()
@@ -1900,9 +1990,32 @@ router.delete("/host/boxes/:id", requireAuth, async (req, res) => {
      WHERE box_id = $1
        AND status <> 'cancelled'
        AND status <> 'completed'
-     RETURNING id, athlete_user_id`,
+     RETURNING id, athlete_user_id, amount_cents`,
     [boxId]
   );
+  // Paiement Phase A: file de remboursement simulée pour chaque réservation annulée.
+  for (const row of cancelledRows) {
+    await pool.query(
+      `INSERT INTO refunds (booking_id, athlete_user_id, host_user_id, box_id, amount_cents, reason, status)
+       VALUES ($1, $2, $3, $4, $5, $6, 'pending')
+       ON CONFLICT (booking_id) DO NOTHING`,
+      [
+        row.id,
+        row.athlete_user_id,
+        req.auth.sub,
+        boxId,
+        row.amount_cents,
+        "box_deactivated_by_host",
+      ]
+    );
+    await pool.query(
+      `UPDATE bookings
+       SET refund_status = 'pending',
+           refund_amount_cents = $2
+       WHERE id = $1`,
+      [row.id, row.amount_cents]
+    );
+  }
   for (const row of cancelledRows) {
     await createNotification({
       recipientUserId: row.athlete_user_id,
@@ -1952,14 +2065,6 @@ router.delete("/host/boxes", requireAuth, async (req, res) => {
        AND status <> 'completed'`,
     [boxIds]
   );
-  if (impactRows.length > 0 && !parsed.data.confirmImpact) {
-    return res.status(409).json({
-      error:
-        "Some boxes have active bookings. Confirm impact before deleting all boxes.",
-      requiresConfirmImpact: true,
-      impactedBookingsCount: impactRows.length,
-    });
-  }
   await pool.query(
     `UPDATE boxes
      SET is_active = 0, archived_at = NOW()
@@ -1978,9 +2083,31 @@ router.delete("/host/boxes", requireAuth, async (req, res) => {
        AND bx.host_user_id = $1
        AND b.status <> 'cancelled'
        AND b.status <> 'completed'
-     RETURNING b.id, b.athlete_user_id, bx.id AS box_id, bx.title AS box_title`,
+     RETURNING b.id, b.athlete_user_id, b.amount_cents, bx.id AS box_id, bx.title AS box_title`,
     [req.auth.sub]
   );
+  for (const row of cancelledRows) {
+    await pool.query(
+      `INSERT INTO refunds (booking_id, athlete_user_id, host_user_id, box_id, amount_cents, reason, status)
+       VALUES ($1, $2, $3, $4, $5, $6, 'pending')
+       ON CONFLICT (booking_id) DO NOTHING`,
+      [
+        row.id,
+        row.athlete_user_id,
+        req.auth.sub,
+        row.box_id,
+        row.amount_cents,
+        "boxes_deactivated_by_host",
+      ]
+    );
+    await pool.query(
+      `UPDATE bookings
+       SET refund_status = 'pending',
+           refund_amount_cents = $2
+       WHERE id = $1`,
+      [row.id, row.amount_cents]
+    );
+  }
   for (const row of cancelledRows) {
     await createNotification({
       recipientUserId: row.athlete_user_id,
@@ -2081,8 +2208,34 @@ router.delete("/bookings/:id", requireAuth, async (req, res) => {
     }
   }
   const { rows } = await pool.query(
-    `DELETE FROM bookings WHERE id = $1 AND athlete_user_id = $2 RETURNING id`,
+    `UPDATE bookings
+     SET status = 'cancelled',
+         approval_status = 'cancelled_by_athlete'
+     WHERE id = $1 AND athlete_user_id = $2
+     RETURNING id, box_id, amount_cents`,
     [bookingId, req.auth.sub]
+  );
+  if (!rows[0]) {
+    return res.status(404).json({ error: "Booking not found" });
+  }
+  await pool.query(
+    `INSERT INTO refunds (booking_id, athlete_user_id, box_id, amount_cents, reason, status)
+     VALUES ($1, $2, $3, $4, $5, 'pending')
+     ON CONFLICT (booking_id) DO NOTHING`,
+    [
+      bookingId,
+      req.auth.sub,
+      rows[0].box_id,
+      rows[0].amount_cents,
+      "cancelled_by_athlete",
+    ]
+  );
+  await pool.query(
+    `UPDATE bookings
+     SET refund_status = 'pending',
+         refund_amount_cents = $2
+     WHERE id = $1`,
+    [bookingId, rows[0].amount_cents]
   );
   await logBookingEvent({
     bookingId,
@@ -2094,10 +2247,139 @@ router.delete("/bookings/:id", requireAuth, async (req, res) => {
 });
 
 router.delete("/bookings", requireAuth, async (req, res) => {
-  await pool.query(`DELETE FROM bookings WHERE athlete_user_id = $1`, [
-    req.auth.sub,
-  ]);
+  const { rows } = await pool.query(
+    `UPDATE bookings
+     SET status = 'cancelled',
+         approval_status = 'cancelled_by_athlete'
+     WHERE athlete_user_id = $1
+       AND status <> 'cancelled'
+       AND status <> 'completed'
+     RETURNING id, box_id, amount_cents`,
+    [req.auth.sub]
+  );
+  for (const row of rows) {
+    await pool.query(
+      `INSERT INTO refunds (booking_id, athlete_user_id, box_id, amount_cents, reason, status)
+       VALUES ($1, $2, $3, $4, $5, 'pending')
+       ON CONFLICT (booking_id) DO NOTHING`,
+      [
+        row.id,
+        req.auth.sub,
+        row.box_id,
+        row.amount_cents,
+        "cancelled_by_athlete",
+      ]
+    );
+    await pool.query(
+      `UPDATE bookings
+       SET refund_status = 'pending',
+           refund_amount_cents = $2
+       WHERE id = $1`,
+      [row.id, row.amount_cents]
+    );
+  }
   return res.json({ ok: true });
+});
+
+router.get("/host/refunds", requireAuth, async (req, res) => {
+  const { rows } = await pool.query(
+    `SELECT r.*, b.booking_date, b.start_time, b.end_time,
+            bx.title AS box_title, u.full_name AS athlete_full_name
+     FROM refunds r
+     JOIN bookings b ON b.id = r.booking_id
+     LEFT JOIN boxes bx ON bx.id = r.box_id
+     LEFT JOIN users u ON u.id = r.athlete_user_id
+     WHERE r.host_user_id = $1
+     ORDER BY r.created_at DESC`,
+    [req.auth.sub]
+  );
+  return res.json(rows);
+});
+
+router.patch("/refunds/:id/mark-done", requireAuth, async (req, res) => {
+  const refundId = Number(req.params.id);
+  if (!Number.isInteger(refundId) || refundId <= 0) {
+    return res.status(400).json({ error: "Invalid refund id" });
+  }
+  const { rows } = await pool.query(
+    `UPDATE refunds
+     SET status = 'done',
+         processed_at = NOW()
+     WHERE id = $1 AND host_user_id = $2
+     RETURNING *`,
+    [refundId, req.auth.sub]
+  );
+  if (!rows[0]) {
+    return res.status(404).json({ error: "Refund not found" });
+  }
+  await pool.query(
+    `UPDATE bookings
+     SET refund_status = 'done',
+         refunded_at = NOW()
+     WHERE id = $1`,
+    [rows[0].booking_id]
+  );
+  return res.json(rows[0]);
+});
+
+router.post("/bookings/:id/access-log", requireAuth, async (req, res) => {
+  const bookingId = Number(req.params.id);
+  if (!Number.isInteger(bookingId) || bookingId <= 0) {
+    return res.status(400).json({ error: "Invalid booking id" });
+  }
+  const eventType = String(req.body?.eventType || "access_attempt").slice(
+    0,
+    80
+  );
+  const message = String(req.body?.message || "").slice(0, 1500) || null;
+  const { rows: authRows } = await pool.query(
+    `SELECT b.id, b.box_id
+     FROM bookings b
+     JOIN boxes bx ON bx.id = b.box_id
+     WHERE b.id = $1 AND (b.athlete_user_id = $2 OR bx.host_user_id = $2)`,
+    [bookingId, req.auth.sub]
+  );
+  const booking = authRows[0];
+  if (!booking) return res.status(404).json({ error: "Booking not found" });
+  const { rows } = await pool.query(
+    `INSERT INTO access_logs (booking_id, box_id, user_id, event_type, message)
+     VALUES ($1, $2, $3, $4, $5)
+     RETURNING *`,
+    [bookingId, booking.box_id, req.auth.sub, eventType, message]
+  );
+  return res.status(201).json(rows[0]);
+});
+
+router.post("/bookings/:id/incidents", requireAuth, async (req, res) => {
+  const bookingId = Number(req.params.id);
+  if (!Number.isInteger(bookingId) || bookingId <= 0) {
+    return res.status(400).json({ error: "Invalid booking id" });
+  }
+  const kind = String(req.body?.kind || "access_issue").slice(0, 80);
+  const details = String(req.body?.details || "").slice(0, 3000) || null;
+  const { rows: authRows } = await pool.query(
+    `SELECT b.id, b.box_id, bx.host_user_id
+     FROM bookings b
+     JOIN boxes bx ON bx.id = b.box_id
+     WHERE b.id = $1 AND (b.athlete_user_id = $2 OR bx.host_user_id = $2)`,
+    [bookingId, req.auth.sub]
+  );
+  const booking = authRows[0];
+  if (!booking) return res.status(404).json({ error: "Booking not found" });
+  const { rows } = await pool.query(
+    `INSERT INTO access_incidents (booking_id, box_id, reporter_user_id, kind, details)
+     VALUES ($1, $2, $3, $4, $5)
+     RETURNING *`,
+    [bookingId, booking.box_id, req.auth.sub, kind, details]
+  );
+  await createNotification({
+    recipientUserId: booking.host_user_id,
+    type: "access_incident_reported",
+    title: "Incident d'accès signalé",
+    body: "Un athlète a signalé un problème d'accès sur une réservation.",
+    data: { bookingId, incidentId: rows[0].id },
+  });
+  return res.status(201).json(rows[0]);
 });
 
 module.exports = router;
