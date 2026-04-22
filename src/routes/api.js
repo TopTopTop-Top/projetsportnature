@@ -1342,7 +1342,7 @@ function unlinkTrailGpxFile(gpxUrl) {
   }
 }
 
-router.patch("/trails/:id", requireAuth, async (req, res) => {
+async function handleTrailUpdate(req, res) {
   const trailId = Number(req.params.id);
   if (!Number.isInteger(trailId) || trailId <= 0) {
     return res.status(400).json({ error: "Invalid trail id" });
@@ -1391,6 +1391,15 @@ router.patch("/trails/:id", requireAuth, async (req, res) => {
     return res.status(404).json({ error: "Trail not found or not yours" });
   }
   return res.json(row);
+}
+
+router.patch("/trails/:id", requireAuth, async (req, res) => {
+  return handleTrailUpdate(req, res);
+});
+
+/** Fallback utile si un proxy amont bloque PATCH. */
+router.post("/trails/:id/update", requireAuth, async (req, res) => {
+  return handleTrailUpdate(req, res);
 });
 
 router.delete("/trails/:id", requireAuth, async (req, res) => {

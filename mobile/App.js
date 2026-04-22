@@ -2931,6 +2931,8 @@ function TrailsScreen() {
     setSelectedTrailId,
     trailDifficulty,
     setTrailDifficulty,
+    trailImportTerritory,
+    setTrailImportTerritory,
     trailImportActivity,
     setTrailImportActivity,
     trailImportCriteriaTags,
@@ -3115,9 +3117,17 @@ function TrailsScreen() {
           icon="create-outline"
         >
           <Text style={styles.fieldLabel}>Territoire (libellé)</Text>
-          <Text style={styles.cardMeta}>
-            Utilise la ville de l’onglet Carte :{" "}
-            <Text style={{ fontWeight: "600" }}>{city || "—"}</Text>
+          <TextInput
+            style={styles.input}
+            value={trailImportTerritory}
+            onChangeText={setTrailImportTerritory}
+            placeholder="Ex. Annecy, Bauges, Chamonix..."
+            placeholderTextColor={theme.inkMuted}
+            maxLength={120}
+          />
+          <Text style={styles.helperText}>
+            Tu peux saisir n’importe quelle ville/zone, indépendante de l’onglet
+            Carte.
           </Text>
           <Text style={[styles.fieldLabel, { marginTop: 14 }]}>
             Difficulté ressentie
@@ -5476,6 +5486,7 @@ function RavitoApp() {
   const [endTime, setEndTime] = useState("09:00");
   const [city, setCity] = useState("Annecy");
   const [trailDifficulty, setTrailDifficulty] = useState("medium");
+  const [trailImportTerritory, setTrailImportTerritory] = useState("Annecy");
   const [trailImportActivity, setTrailImportActivity] = useState("hike");
   const [trailImportCriteriaTags, setTrailImportCriteriaTags] = useState([]);
   const [trailImportNotes, setTrailImportNotes] = useState("");
@@ -6466,8 +6477,12 @@ function RavitoApp() {
       const file = picked.assets[0];
       const formData = new FormData();
       formData.append("name", (file.name || "trace").replace(/\.gpx$/i, ""));
-      formData.append("territory", city);
+      formData.append("territory", trailImportTerritory?.trim() || city || "unknown");
       formData.append("difficulty", trailDifficulty);
+      formData.append("activity", trailImportActivity);
+      formData.append("criteriaTags", JSON.stringify(trailImportCriteriaTags || []));
+      const noteMobile = trailImportNotes.trim();
+      if (noteMobile) formData.append("notes", noteMobile);
       formData.append("gpx", {
         uri: file.uri,
         name: file.name || "trace.gpx",
@@ -6480,6 +6495,7 @@ function RavitoApp() {
         `${data.distanceKm} km / D+ ${data.elevationM} m`
       );
       await loadTrails();
+      setTrailImportNotes("");
     } catch (error) {
       userAlert("Erreur", error.message);
     }
@@ -6503,7 +6519,10 @@ function RavitoApp() {
       if (Platform.OS === "web" && typeof globalThis.FormData !== "undefined") {
         formData = new globalThis.FormData();
         formData.append("name", name.replace(/\.gpx$/i, ""));
-        formData.append("territory", city);
+        formData.append(
+          "territory",
+          trailImportTerritory?.trim() || city || "unknown"
+        );
         formData.append("difficulty", trailDifficulty);
         formData.append("activity", trailImportActivity);
         formData.append(
@@ -6516,7 +6535,10 @@ function RavitoApp() {
       } else {
         formData = new FormData();
         formData.append("name", name.replace(/\.gpx$/i, ""));
-        formData.append("territory", city);
+        formData.append(
+          "territory",
+          trailImportTerritory?.trim() || city || "unknown"
+        );
         formData.append("difficulty", trailDifficulty);
         formData.append("activity", trailImportActivity);
         formData.append(
@@ -6923,6 +6945,21 @@ function RavitoApp() {
       await loadTrails();
       return true;
     } catch (error) {
+      if (/Cannot PATCH/i.test(String(error?.message || ""))) {
+        try {
+          await apiFetch(`/trails/${trailId}/update`, {
+            method: "POST",
+            token,
+            body,
+          });
+          userAlert("OK", "Trace mise à jour.");
+          await loadTrails();
+          return true;
+        } catch (fallbackError) {
+          userAlert("Erreur", fallbackError.message);
+          return false;
+        }
+      }
       userAlert("Erreur", error.message);
       return false;
     }
@@ -7125,6 +7162,8 @@ function RavitoApp() {
       setWebDropHover,
       trailDifficulty,
       setTrailDifficulty,
+      trailImportTerritory,
+      setTrailImportTerritory,
       trailImportActivity,
       setTrailImportActivity,
       trailImportCriteriaTags,
@@ -7214,6 +7253,7 @@ function RavitoApp() {
       user,
       webDropHover,
       trailDifficulty,
+      trailImportTerritory,
       trailImportActivity,
       trailImportCriteriaTags,
       trailImportNotes,
