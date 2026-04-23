@@ -35,7 +35,7 @@ app.get("/", (_req, res) => {
       "/api/boxes/nearby",
       "/api/host/boxes",
       "/api/trails",
-      "/api/trails/:id (PATCH, DELETE)",
+      "/api/trails/:id (PUT, PATCH, DELETE)",
       "/api/trails/:id/update (POST)",
       "/api/trails/upload-gpx",
       "/api/bookings",

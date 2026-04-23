@@ -1397,7 +1397,11 @@ router.patch("/trails/:id", requireAuth, async (req, res) => {
   return handleTrailUpdate(req, res);
 });
 
-/** Fallback utile si un proxy amont bloque PATCH. */
+router.put("/trails/:id", requireAuth, async (req, res) => {
+  return handleTrailUpdate(req, res);
+});
+
+/** Fallback si un proxy bloque PATCH ou PUT. */
 router.post("/trails/:id/update", requireAuth, async (req, res) => {
   return handleTrailUpdate(req, res);
 });

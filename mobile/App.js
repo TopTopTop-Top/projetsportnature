@@ -1379,6 +1379,9 @@ function SwipeActionRow({
 }) {
   const swipeRef = useRef(null);
   const closeRow = () => swipeRef.current?.close?.();
+  if (!onDelete && !onEdit) {
+    return children;
+  }
   const renderRightActions = () => (
     <View style={styles.swipeActionsWrap}>
       {onEdit ? (
@@ -1394,17 +1397,19 @@ function SwipeActionRow({
           <Text style={styles.swipeActionText}>{editLabel}</Text>
         </TouchableOpacity>
       ) : null}
-      <TouchableOpacity
-        style={[styles.swipeActionBtn, styles.swipeDeleteAction]}
-        onPress={() => {
-          closeRow();
-          onDelete?.();
-        }}
-        activeOpacity={0.85}
-      >
-        <Ionicons name="trash-outline" size={16} color="#fff" />
-        <Text style={styles.swipeActionText}>{deleteLabel}</Text>
-      </TouchableOpacity>
+      {onDelete ? (
+        <TouchableOpacity
+          style={[styles.swipeActionBtn, styles.swipeDeleteAction]}
+          onPress={() => {
+            closeRow();
+            onDelete();
+          }}
+          activeOpacity={0.85}
+        >
+          <Ionicons name="trash-outline" size={16} color="#fff" />
+          <Text style={styles.swipeActionText}>{deleteLabel}</Text>
+        </TouchableOpacity>
+      ) : null}
     </View>
   );
   return (
@@ -3022,6 +3027,20 @@ function TrailsScreen() {
     },
     [setMapTrailPickIds, setSelectedTrailId]
   );
+
+  const openTrailEditor = useCallback((trail) => {
+    if (!trail) return;
+    setTrailEditTarget(trail);
+    setTrailEditDraft({
+      name: String(trail.name || ""),
+      territory: String(trail.territory || ""),
+      difficulty: trail.difficulty || "medium",
+      activity: trail.activity || "hike",
+      criteriaTags: parseTrailCriteriaFromRow(trail),
+      notes: trail.notes ? String(trail.notes) : "",
+    });
+  }, []);
+
   const trailsSelectionLock = mapTrailPickIds.length > 0;
   const handleTrailsMapLongPress = useCallback(
     (lat, lng) => {
@@ -3490,6 +3509,8 @@ function TrailsScreen() {
             return (
               <SwipeActionRow
                 key={`trail-list-${trail.id}`}
+                onEdit={isMine ? () => openTrailEditor(trail) : undefined}
+                editLabel="Modifier"
                 onDelete={
                   isMine
                     ? () => actionsRef.current.deleteTrail(trail.id, trail.name)
@@ -3571,17 +3592,7 @@ function TrailsScreen() {
                       stretch
                       label="Modifier nom, lieu, critères…"
                       icon="create-outline"
-                      onPress={() => {
-                        setTrailEditTarget(trail);
-                        setTrailEditDraft({
-                          name: String(trail.name || ""),
-                          territory: String(trail.territory || ""),
-                          difficulty: trail.difficulty || "medium",
-                          activity: trail.activity || "hike",
-                          criteriaTags: parseTrailCriteriaFromRow(trail),
-                          notes: trail.notes ? String(trail.notes) : "",
-                        });
-                      }}
+                      onPress={() => openTrailEditor(trail)}
                     />
                   ) : null}
                   <OutlineButton
@@ -6478,10 +6489,16 @@ function RavitoApp() {
       const file = picked.assets[0];
       const formData = new FormData();
       formData.append("name", (file.name || "trace").replace(/\.gpx$/i, ""));
-      formData.append("territory", trailImportTerritory?.trim() || city || "unknown");
+      formData.append(
+        "territory",
+        trailImportTerritory?.trim() || city || "unknown"
+      );
       formData.append("difficulty", trailDifficulty);
       formData.append("activity", trailImportActivity);
-      formData.append("criteriaTags", JSON.stringify(trailImportCriteriaTags || []));
+      formData.append(
+        "criteriaTags",
+        JSON.stringify(trailImportCriteriaTags || [])
+      );
       const noteMobile = trailImportNotes.trim();
       if (noteMobile) formData.append("notes", noteMobile);
       formData.append("gpx", {
@@ -6936,20 +6953,28 @@ function RavitoApp() {
 
   const updateTrail = async (trailId, body) => {
     if (!token) return false;
-    try {
-      /** POST évite les proxys / hébergeurs qui ne laissent pas passer PATCH (erreur HTML « Cannot PATCH »). */
-      await apiFetch(`/trails/${trailId}/update`, {
-        method: "POST",
-        token,
-        body,
-      });
-      userAlert("OK", "Trace mise à jour.");
-      await loadTrails();
-      return true;
-    } catch (error) {
-      userAlert("Erreur", error.message);
-      return false;
+    const attempts = [
+      [`/trails/${trailId}`, "PUT"],
+      [`/trails/${trailId}`, "PATCH"],
+      [`/trails/${trailId}/update`, "POST"],
+    ];
+    let lastError = null;
+    for (const [path, method] of attempts) {
+      try {
+        await apiFetch(path, { method, token, body });
+        userAlert("OK", "Trace mise à jour.");
+        await loadTrails();
+        return true;
+      } catch (error) {
+        lastError = error;
+      }
     }
+    userAlert(
+      "Erreur",
+      lastError?.message ||
+        "Impossible de mettre à jour la trace. Vérifie que l’URL de l’API (EXPO_PUBLIC_API_URL) pointe bien vers le service Node « RavitoBox API » sur Render, puis redéploie."
+    );
+    return false;
   };
 
   const deleteTrailsByIds = async (ids) => {
