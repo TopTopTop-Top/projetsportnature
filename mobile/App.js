@@ -2035,7 +2035,7 @@ function ExplorerScreen() {
                 <Text style={styles.fieldLabel}>Critères des box</Text>
                 <View style={[styles.roleRow, { flexWrap: "wrap" }]}>
                   {HOST_CRITERIA_OPTIONS.map((label) => {
-                    const active = mapBoxCriteriaTags.includes(label);
+                    const active = (mapBoxCriteriaTags || []).includes(label);
                     return (
                       <TouchableOpacity
                         key={`map-crit-${label}`}
@@ -3190,13 +3190,14 @@ function TrailsScreen() {
                   key={`imp-trail-crit-${label}`}
                   style={[styles.roleChip, active && styles.roleChipActive]}
                   onPress={() =>
-                    setTrailImportCriteriaTags((prev) =>
-                      prev.includes(label)
-                        ? prev.filter((c) => c !== label)
-                        : prev.length >= 20
-                        ? prev
-                        : [...prev, label]
-                    )
+                    setTrailImportCriteriaTags((prev) => {
+                      const p = Array.isArray(prev) ? prev : [];
+                      return p.includes(label)
+                        ? p.filter((c) => c !== label)
+                        : p.length >= 20
+                        ? p
+                        : [...p, label];
+                    })
                   }
                   activeOpacity={0.85}
                 >
@@ -6936,8 +6937,9 @@ function RavitoApp() {
   const updateTrail = async (trailId, body) => {
     if (!token) return false;
     try {
-      await apiFetch(`/trails/${trailId}`, {
-        method: "PATCH",
+      /** POST évite les proxys / hébergeurs qui ne laissent pas passer PATCH (erreur HTML « Cannot PATCH »). */
+      await apiFetch(`/trails/${trailId}/update`, {
+        method: "POST",
         token,
         body,
       });
@@ -6945,21 +6947,6 @@ function RavitoApp() {
       await loadTrails();
       return true;
     } catch (error) {
-      if (/Cannot PATCH/i.test(String(error?.message || ""))) {
-        try {
-          await apiFetch(`/trails/${trailId}/update`, {
-            method: "POST",
-            token,
-            body,
-          });
-          userAlert("OK", "Trace mise à jour.");
-          await loadTrails();
-          return true;
-        } catch (fallbackError) {
-          userAlert("Erreur", fallbackError.message);
-          return false;
-        }
-      }
       userAlert("Erreur", error.message);
       return false;
     }
