@@ -122,19 +122,6 @@ function applyTrailLocalPatches(rows, patches, userId) {
   });
 }
 
-/** Champs acceptés par l’API pour une mise à jour trace → patch stocké en local si 404. */
-function buildTrailLocalPatchFromBody(body) {
-  const raw = body && typeof body === "object" ? body : {};
-  const patch = {};
-  if (raw.name !== undefined) patch.name = raw.name;
-  if (raw.territory !== undefined) patch.territory = raw.territory;
-  if (raw.difficulty !== undefined) patch.difficulty = raw.difficulty;
-  if (raw.activity !== undefined) patch.activity = raw.activity;
-  if (raw.criteriaTags !== undefined) patch.criteriaTags = raw.criteriaTags;
-  if (raw.notes !== undefined) patch.notes = raw.notes;
-  return patch;
-}
-
 function haversineKm(lat1, lon1, lat2, lon2) {
   const R = 6371;
   const dLat = ((lat2 - lat1) * Math.PI) / 180;
@@ -5884,8 +5871,9 @@ function RavitoApp() {
 
   const selectedBox = boxes.find((box) => box.id === selectedBoxId) || null;
   const selectedTrail =
-    trailsMerged.find((trail) => Number(trail.id) === Number(selectedTrailId)) ||
-    null;
+    trailsMerged.find(
+      (trail) => Number(trail.id) === Number(selectedTrailId)
+    ) || null;
 
   useEffect(() => {
     if (selectedTrailId == null) return;
@@ -7075,18 +7063,10 @@ function RavitoApp() {
     const tid = Number(trailId);
     const rawBody = body && typeof body === "object" ? body : {};
     const attempts = [
-      [
-        "/host/trails/update",
-        "POST",
-        { ...rawBody, trailId: tid },
-      ],
+      ["/host/trails/update", "POST", { ...rawBody, trailId: tid }],
       [`/host/trails/${tid}`, "PATCH", rawBody],
       [`/host/trails/${tid}`, "PUT", rawBody],
-      [
-        "/update-trail",
-        "POST",
-        { ...rawBody, trailId: tid },
-      ],
+      ["/update-trail", "POST", { ...rawBody, trailId: tid }],
       [`/trails/${tid}`, "PUT", rawBody],
       [`/trails/${tid}`, "PATCH", rawBody],
       [`/trails/${tid}/update`, "POST", rawBody],
@@ -7130,7 +7110,17 @@ function RavitoApp() {
       : "";
 
     if (is404Like && user?.id) {
-      const localPatch = buildTrailLocalPatchFromBody(rawBody);
+      const localPatch = {};
+      if (rawBody.name !== undefined) localPatch.name = rawBody.name;
+      if (rawBody.territory !== undefined)
+        localPatch.territory = rawBody.territory;
+      if (rawBody.difficulty !== undefined)
+        localPatch.difficulty = rawBody.difficulty;
+      if (rawBody.activity !== undefined)
+        localPatch.activity = rawBody.activity;
+      if (rawBody.criteriaTags !== undefined)
+        localPatch.criteriaTags = rawBody.criteriaTags;
+      if (rawBody.notes !== undefined) localPatch.notes = rawBody.notes;
       if (Object.keys(localPatch).length > 0) {
         setTrailLocalPatches((prev) => {
           const key = String(tid);
