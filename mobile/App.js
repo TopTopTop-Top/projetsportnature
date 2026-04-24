@@ -7080,6 +7080,14 @@ function RavitoApp() {
       for (const [path, method, payload] of attempts) {
         try {
           await apiFetch(path, { method, token, body: payload, baseUrl });
+          if (user?.id) {
+            setTrailLocalPatches((prev) => {
+              const next = { ...prev };
+              delete next[String(tid)];
+              writeTrailPatchesToStorage(user.id, next);
+              return next;
+            });
+          }
           userAlert(
             "OK",
             baseUrl !== API_BASE_URL
@@ -7328,7 +7336,7 @@ function RavitoApp() {
   const mainContextValue = useMemo(
     () => ({
       boxes,
-      trails,
+      trails: trailsMerged,
       trailsForMap,
       city,
       setCity,
