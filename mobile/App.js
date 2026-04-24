@@ -122,6 +122,19 @@ function applyTrailLocalPatches(rows, patches, userId) {
   });
 }
 
+/** Champs acceptés par l’API pour une mise à jour trace → patch stocké en local si 404. */
+function buildTrailLocalPatchFromBody(body) {
+  const raw = body && typeof body === "object" ? body : {};
+  const patch = {};
+  if (raw.name !== undefined) patch.name = raw.name;
+  if (raw.territory !== undefined) patch.territory = raw.territory;
+  if (raw.difficulty !== undefined) patch.difficulty = raw.difficulty;
+  if (raw.activity !== undefined) patch.activity = raw.activity;
+  if (raw.criteriaTags !== undefined) patch.criteriaTags = raw.criteriaTags;
+  if (raw.notes !== undefined) patch.notes = raw.notes;
+  return patch;
+}
+
 function haversineKm(lat1, lon1, lat2, lon2) {
   const R = 6371;
   const dLat = ((lat2 - lat1) * Math.PI) / 180;
