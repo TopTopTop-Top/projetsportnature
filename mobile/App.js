@@ -6955,7 +6955,11 @@ function RavitoApp() {
     if (!token) return false;
     const tid = Number(trailId);
     const attempts = [
-      ["/update-trail", "POST", { ...(body && typeof body === "object" ? body : {}), trailId: tid }],
+      [
+        "/update-trail",
+        "POST",
+        { ...(body && typeof body === "object" ? body : {}), trailId: tid },
+      ],
       [`/trails/${tid}`, "PUT", body],
       [`/trails/${tid}`, "PATCH", body],
       [`/trails/${tid}/update`, "POST", body],
