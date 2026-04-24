@@ -671,7 +671,9 @@ async function apiFetch(
   { method = "GET", body, token, signal, baseUrl } = {}
 ) {
   const root =
-    typeof baseUrl === "string" && baseUrl.trim() ? baseUrl.trim() : API_BASE_URL;
+    typeof baseUrl === "string" && baseUrl.trim()
+      ? baseUrl.trim()
+      : API_BASE_URL;
   const response = await fetch(`${root}${path}`, {
     method,
     signal,
@@ -690,7 +692,7 @@ async function apiFetch(
       trimmed.toLowerCase().startsWith("<html")
     ) {
       throw new Error(
-        `Réponse HTML (${response.status}) pour ${method} ${path} — l’URL « ${root} » n’est pas l’API RavitoBox (JSON). Souvent EXPO_PUBLIC_API_URL pointe vers le mauvais service Render (ex. site statique …-1). Utilise l’URL du Web Service Node, ex. : ${PROD_API_BASE_URL}`
+        `Réponse HTML (${response.status}) : ${method} ${path} sur « ${root} » (pas de JSON). Causes fréquentes : (1) EXPO_PUBLIC_API_URL pointe vers un site statique au lieu du Web Service Node ; (2) le backend Render n’a pas été redéployé depuis main (routes mise à jour trace : PATCH/PUT /api/trails/:id, POST /api/update-trail). Référence API : ${PROD_API_BASE_URL}`
       );
     }
     try {
@@ -7011,10 +7013,15 @@ function RavitoApp() {
         }
       }
     }
+    const raw = String(lastError?.message || "");
+    const hint404 =
+      /HTML|introuvable|404/i.test(raw) || /Cannot (POST|PUT|PATCH)/i.test(raw)
+        ? "\n\n→ Sur Render : Web Service Node de l’API, branche main à jour, puis Manual Deploy (Clear build cache si besoin)."
+        : "";
     userAlert(
       "Erreur",
-      lastError?.message ||
-        "Impossible de mettre à jour la trace. Vérifie EXPO_PUBLIC_API_URL (Web Service Node) et que l’API est redeployée depuis GitHub."
+      (lastError?.message ||
+        "Impossible de mettre à jour la trace. Vérifie EXPO_PUBLIC_API_URL et le déploiement de l’API.") + hint404
     );
     return false;
   };
