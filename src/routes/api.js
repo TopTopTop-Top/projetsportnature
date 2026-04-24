@@ -1405,6 +1405,22 @@ router.post("/update-trail", requireAuth, async (req, res) => {
   return applyTrailUpdate(res, trailId, req.auth.sub, rest);
 });
 
+/** Même logique que /trails/:id — préfixe /host/ pour les proxys qui ne forwardent que /api/host/* (comme les box). */
+router.patch("/host/trails/:id", requireAuth, async (req, res) => {
+  return handleTrailUpdate(req, res);
+});
+
+router.put("/host/trails/:id", requireAuth, async (req, res) => {
+  return handleTrailUpdate(req, res);
+});
+
+router.post("/host/trails/update", requireAuth, async (req, res) => {
+  const raw = req.body && typeof req.body === "object" ? req.body : {};
+  const trailId = Number(raw.trailId ?? raw.id);
+  const { trailId: _tid, id: _id, ...rest } = raw;
+  return applyTrailUpdate(res, trailId, req.auth.sub, rest);
+});
+
 router.patch("/trails/:id", requireAuth, async (req, res) => {
   return handleTrailUpdate(req, res);
 });

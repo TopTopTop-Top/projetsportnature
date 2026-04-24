@@ -7021,7 +7021,8 @@ function RavitoApp() {
     userAlert(
       "Erreur",
       (lastError?.message ||
-        "Impossible de mettre à jour la trace. Vérifie EXPO_PUBLIC_API_URL et le déploiement de l’API.") + hint404
+        "Impossible de mettre à jour la trace. Vérifie EXPO_PUBLIC_API_URL et le déploiement de l’API.") +
+        hint404
     );
     return false;
   };
