@@ -58,6 +58,70 @@ function absoluteUploadUrl(path) {
   return `${API_STATIC_ORIGIN}${path.startsWith("/") ? "" : "/"}${path}`;
 }
 
+const TRAIL_LOCAL_PATCHES_PREFIX = "ravitobox_trail_local_patches_";
+const TRAIL_LOCAL_PATCHES_SUFFIX = "_v1";
+
+function trailLocalPatchesStorageKey(userId) {
+  const id =
+    userId != null && String(userId).trim() !== "" ? String(userId) : "anon";
+  return `${TRAIL_LOCAL_PATCHES_PREFIX}${id}${TRAIL_LOCAL_PATCHES_SUFFIX}`;
+}
+
+/** Cache hors localStorage (native, même session). */
+const trailPatchesMemoryByUser = {};
+
+function readTrailPatchesFromStorage(userId) {
+  const key = trailLocalPatchesStorageKey(userId);
+  try {
+    if (Platform.OS === "web" && typeof localStorage !== "undefined") {
+      const s = localStorage.getItem(key);
+      if (s) {
+        const o = JSON.parse(s);
+        return o && typeof o === "object" ? o : {};
+      }
+      return {};
+    }
+  } catch (_e) {
+    // private mode / quota
+  }
+  return { ...(trailPatchesMemoryByUser[key] || {}) };
+}
+
+function writeTrailPatchesToStorage(userId, obj) {
+  const key = trailLocalPatchesStorageKey(userId);
+  const safe = obj && typeof obj === "object" ? { ...obj } : {};
+  trailPatchesMemoryByUser[key] = safe;
+  try {
+    if (Platform.OS === "web" && typeof localStorage !== "undefined") {
+      localStorage.setItem(key, JSON.stringify(safe));
+    }
+  } catch (_e) {
+    // ignore
+  }
+}
+
+/** Applique les champs modifiés en local (API indisponible / 404) sur les lignes serveur. */
+function applyTrailLocalPatches(rows, patches, userId) {
+  if (!Array.isArray(rows)) return [];
+  if (!patches || typeof patches !== "object") return rows;
+  const uid = userId != null ? Number(userId) : null;
+  return rows.map((t) => {
+    const p = patches[String(t.id)];
+    if (!p || typeof p !== "object") return t;
+    if (uid != null && Number.isFinite(uid)) {
+      if (Number(t.creator_user_id) !== uid) return t;
+    }
+    const { criteriaTags, ...restPatch } = p;
+    const out = { ...t, ...restPatch };
+    if (Array.isArray(criteriaTags)) {
+      out.criteria_json = JSON.stringify(criteriaTags);
+    }
+    delete out.criteriaTags;
+    out._savedLocally = 1;
+    return out;
+  });
+}
+
 function haversineKm(lat1, lon1, lat2, lon2) {
   const R = 6371;
   const dLat = ((lat2 - lat1) * Math.PI) / 180;
@@ -5511,6 +5575,8 @@ function RavitoApp() {
 
   const [boxes, setBoxes] = useState([]);
   const [trails, setTrails] = useState([]);
+  /** Corrections trace non encore acceptées par l’API (clé = id trace). */
+  const [trailLocalPatches, setTrailLocalPatches] = useState({});
   const [bookingDate, setBookingDate] = useState(() => todayIsoDate());
   const [startTime, setStartTime] = useState("08:00");
   const [endTime, setEndTime] = useState("09:00");
@@ -5606,6 +5672,14 @@ function RavitoApp() {
     }
   }, [user]);
 
+  useEffect(() => {
+    if (user?.id == null) {
+      setTrailLocalPatches({});
+      return;
+    }
+    setTrailLocalPatches(readTrailPatchesFromStorage(user.id));
+  }, [user?.id]);
+
   const isAuthed = useMemo(() => Boolean(token), [token]);
   const canHost = useMemo(
     () => user?.role === "host" || user?.role === "both",
@@ -5616,9 +5690,14 @@ function RavitoApp() {
     [user?.role]
   );
 
+  const trailsMerged = useMemo(
+    () => applyTrailLocalPatches(trails, trailLocalPatches, user?.id),
+    [trails, trailLocalPatches, user?.id]
+  );
+
   const trailsForMap = useMemo(() => {
     if (!mapShowTrails) return [];
-    let t = trails;
+    let t = trailsMerged;
     const uid = user?.id != null ? Number(user.id) : null;
     if (mapTrailsScope === "mine" && uid != null && Number.isFinite(uid)) {
       t = t.filter((tr) => Number(tr.creator_user_id) === uid);
@@ -5792,18 +5871,18 @@ function RavitoApp() {
 
   const selectedBox = boxes.find((box) => box.id === selectedBoxId) || null;
   const selectedTrail =
-    trails.find((trail) => Number(trail.id) === Number(selectedTrailId)) ||
+    trailsMerged.find((trail) => Number(trail.id) === Number(selectedTrailId)) ||
     null;
 
   useEffect(() => {
     if (selectedTrailId == null) return;
-    const exists = trails.some(
+    const exists = trailsMerged.some(
       (trail) => Number(trail.id) === Number(selectedTrailId)
     );
     if (!exists) {
       setSelectedTrailId(null);
     }
-  }, [trails, selectedTrailId]);
+  }, [trailsMerged, selectedTrailId]);
 
   /** En ville / GPS : centre = coordonnées de recherche (pas la box sélectionnée), pour éviter carte bloquée loin du point demandé. */
   const webMapCenter = useMemo(() => {
@@ -5936,6 +6015,7 @@ function RavitoApp() {
       setToken(null);
       setRefreshToken(null);
       setUser(null);
+      setTrailLocalPatches({});
       setBoxes([]);
       setTrails([]);
       setHostBoxes([]);
@@ -6963,6 +7043,14 @@ function RavitoApp() {
     try {
       await apiFetch(`/trails/${trailId}`, { method: "DELETE", token });
       userAlert("OK", "Trace supprimée.");
+      if (user?.id) {
+        setTrailLocalPatches((prev) => {
+          const next = { ...prev };
+          delete next[String(trailId)];
+          writeTrailPatchesToStorage(user.id, next);
+          return next;
+        });
+      }
       await loadTrails();
     } catch (error) {
       userAlert("Erreur", error.message);
@@ -6972,15 +7060,23 @@ function RavitoApp() {
   const updateTrail = async (trailId, body) => {
     if (!token) return false;
     const tid = Number(trailId);
+    const rawBody = body && typeof body === "object" ? body : {};
     const attempts = [
+      [
+        "/host/trails/update",
+        "POST",
+        { ...rawBody, trailId: tid },
+      ],
+      [`/host/trails/${tid}`, "PATCH", rawBody],
+      [`/host/trails/${tid}`, "PUT", rawBody],
       [
         "/update-trail",
         "POST",
-        { ...(body && typeof body === "object" ? body : {}), trailId: tid },
+        { ...rawBody, trailId: tid },
       ],
-      [`/trails/${tid}`, "PUT", body],
-      [`/trails/${tid}`, "PATCH", body],
-      [`/trails/${tid}/update`, "POST", body],
+      [`/trails/${tid}`, "PUT", rawBody],
+      [`/trails/${tid}`, "PATCH", rawBody],
+      [`/trails/${tid}/update`, "POST", rawBody],
     ];
     const baseCandidates = [
       API_BASE_URL,
@@ -7014,10 +7110,32 @@ function RavitoApp() {
       }
     }
     const raw = String(lastError?.message || "");
-    const hint404 =
-      /HTML|introuvable|404/i.test(raw) || /Cannot (POST|PUT|PATCH)/i.test(raw)
-        ? "\n\n→ Sur Render : Web Service Node de l’API, branche main à jour, puis Manual Deploy (Clear build cache si besoin)."
-        : "";
+    const is404Like =
+      /HTML|introuvable|404/i.test(raw) || /Cannot (POST|PUT|PATCH)/i.test(raw);
+    const hint404 = is404Like
+      ? "\n\n→ Sur Render : Web Service Node de l’API, branche main à jour, puis Manual Deploy (Clear build cache si besoin)."
+      : "";
+
+    if (is404Like && user?.id) {
+      const localPatch = buildTrailLocalPatchFromBody(rawBody);
+      if (Object.keys(localPatch).length > 0) {
+        setTrailLocalPatches((prev) => {
+          const key = String(tid);
+          const next = {
+            ...prev,
+            [key]: { ...(prev[key] || {}), ...localPatch },
+          };
+          writeTrailPatchesToStorage(user.id, next);
+          return next;
+        });
+        userAlert(
+          "Enregistré sur cet appareil",
+          "L’API renvoie encore une erreur (404 / HTML). Tes changements sont conservés ici (web : persistant). Après déploiement Render et une URL API correcte, enregistre à nouveau pour synchroniser le serveur."
+        );
+        return true;
+      }
+    }
+
     userAlert(
       "Erreur",
       (lastError?.message ||
@@ -7044,6 +7162,14 @@ function RavitoApp() {
         )
       );
       userAlert("OK", n === 1 ? "Trace supprimée." : `${n} traces supprimées.`);
+      if (user?.id) {
+        setTrailLocalPatches((prev) => {
+          const next = { ...prev };
+          for (const id of unique) delete next[String(id)];
+          writeTrailPatchesToStorage(user.id, next);
+          return next;
+        });
+      }
       await loadTrails();
     } catch (error) {
       userAlert("Erreur", error.message);
@@ -7082,7 +7208,7 @@ function RavitoApp() {
   const centerMapOnTrail = useCallback(
     (trailId) => {
       const tid = Number(trailId);
-      const trail = trails.find((t) => Number(t.id) === tid);
+      const trail = trailsMerged.find((t) => Number(t.id) === tid);
       if (!trail) {
         userAlert("Trace", "Tracé introuvable.");
         return;
@@ -7120,7 +7246,7 @@ function RavitoApp() {
       setMapLon((sumLng / n).toFixed(5));
       setMapExplorerRecenterNonce((x) => x + 1);
     },
-    [trails]
+    [trailsMerged]
   );
 
   const isolateTrailOnMap = useCallback(
@@ -7297,7 +7423,7 @@ function RavitoApp() {
     }),
     [
       boxes,
-      trails,
+      trailsMerged,
       trailsForMap,
       city,
       mapLat,
