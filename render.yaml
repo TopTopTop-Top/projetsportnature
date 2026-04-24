@@ -18,6 +18,7 @@ services:
     buildCommand: npm install && npm run build:web
     staticPublishPath: dist
     pullRequestPreviewsEnabled: true
+    # Doit être l’URL du Web Service Node (JSON), jamais l’URL du site statique lui-même.
     envVars:
       - key: EXPO_PUBLIC_API_URL
         value: https://projetsportnature.onrender.com/api

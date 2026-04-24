@@ -37,17 +37,56 @@ import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { Ionicons } from "@expo/vector-icons";
 
-/** Backend Node (Render « Web Service »), pas l’URL du site statique (ex. …-1.onrender.com si ce n’est pas la même app). */
+/** Backend Node (Render « Web Service »), pas l’URL du site statique. */
 const PROD_API_BASE_URL = "https://projetsportnature.onrender.com/api";
 const DEV_API_BASE_URL = "http://localhost:3000/api";
+
+function withApiSuffix(url) {
+  if (!url || typeof url !== "string") return "";
+  const t = url.trim().replace(/\/$/, "");
+  if (!t) return "";
+  return /\/api$/i.test(t) ? t : `${t}/api`;
+}
+
 /**
- * En dev: fallback local pour éviter d'appeler Render par erreur.
- * En prod web : EXPO_PUBLIC_API_URL doit pointer vers ce même backend Node,
- * sinon les POST renvoient du HTML « Cannot POST /api/… ».
+ * URL du backend JSON. En prod web sur Render : si EXPO_PUBLIC_API_URL pointe vers
+ * le même hôte que la page (site statique), on utilise PROD_API_BASE_URL — comme
+ * pour les box, les écritures doivent frapper le Web Service Node, pas le static.
  */
-const API_BASE_URL =
-  process.env.EXPO_PUBLIC_API_URL ||
-  (__DEV__ ? DEV_API_BASE_URL : PROD_API_BASE_URL);
+function getApiBaseUrl() {
+  const envRaw =
+    typeof process !== "undefined" && process.env.EXPO_PUBLIC_API_URL
+      ? String(process.env.EXPO_PUBLIC_API_URL).trim()
+      : "";
+  const envNorm = withApiSuffix(envRaw);
+
+  if (__DEV__) {
+    return envNorm || DEV_API_BASE_URL;
+  }
+
+  if (
+    Platform.OS === "web" &&
+    typeof window !== "undefined" &&
+    window.location?.hostname
+  ) {
+    const pageOrigin = `${window.location.protocol}//${window.location.host}`.replace(
+      /\/$/,
+      ""
+    );
+    if (envNorm) {
+      const apiOrigin = envNorm.replace(/\/api\/?$/i, "").replace(/\/$/, "");
+      if (apiOrigin === pageOrigin) {
+        return PROD_API_BASE_URL;
+      }
+    } else if (/-1\.onrender\.com$/i.test(window.location.hostname)) {
+      return PROD_API_BASE_URL;
+    }
+  }
+
+  return envNorm || PROD_API_BASE_URL;
+}
+
+const API_BASE_URL = getApiBaseUrl();
 
 /** Origine du serveur (fichiers statiques /uploads, sans /api). */
 const API_STATIC_ORIGIN = API_BASE_URL.replace(/\/api\/?$/i, "");
