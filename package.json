@@ -8,6 +8,7 @@
     "dev:mobile:clear": "npm --prefix mobile start -- --clear",
     "dev:all": "concurrently \"npm run dev\" \"npm run dev:mobile\"",
     "start": "node src/server.js",
+    "deploy:render-api": "bash scripts/trigger-render-api-deploy.sh",
     "test": "echo \"No tests yet\""
   },
   "keywords": [],

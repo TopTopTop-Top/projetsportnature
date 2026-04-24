@@ -3,10 +3,12 @@ services:
   # Si les box passent mais pas les traces, ce service tourne souvent une vieille image sans ces routes.
   - type: web
     name: ravitobox-api
+    branch: main
     env: node
     plan: free
     buildCommand: npm install
     startCommand: npm start
+    healthCheckPath: /api/health
     autoDeploy: true
     envVars:
       - key: NODE_VERSION
@@ -16,6 +18,7 @@ services:
 
   - type: static_site
     name: ravitobox-web
+    branch: main
     rootDir: mobile
     buildCommand: npm install && npm run build:web
     staticPublishPath: dist

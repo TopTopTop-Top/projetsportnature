@@ -1,0 +1,29 @@
+# Déclenche un déploiement du Web Service Node (API) sur Render après push sur main.
+# À configurer une fois : Render → ton service API → Settings → Deploy Hook → créer un hook,
+# puis GitHub → repo → Settings → Secrets → Actions → ajouter RENDER_DEPLOY_HOOK_RAVITOBOX_API = URL du hook.
+name: Render — déployer l’API
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "src/**"
+      - "package.json"
+      - "package-lock.json"
+      - "render.yaml"
+  workflow_dispatch:
+
+jobs:
+  trigger:
+    runs-on: ubuntu-latest
+    steps:
+      - name: POST Deploy Hook (API Node)
+        env:
+          HOOK: ${{ secrets.RENDER_DEPLOY_HOOK_RAVITOBOX_API }}
+        run: |
+          if [ -z "${HOOK}" ]; then
+            echo "::notice title=Render::Secret RENDER_DEPLOY_HOOK_RAVITOBOX_API absent. Render → Web Service API → Deploy Hook → coller l’URL dans GitHub Actions secrets."
+            exit 0
+          fi
+          curl -fsS -m 120 -X POST "$HOOK"
+          echo "Deploy hook appelé."
