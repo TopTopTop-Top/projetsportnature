@@ -6953,15 +6953,17 @@ function RavitoApp() {
 
   const updateTrail = async (trailId, body) => {
     if (!token) return false;
+    const tid = Number(trailId);
     const attempts = [
-      [`/trails/${trailId}`, "PUT"],
-      [`/trails/${trailId}`, "PATCH"],
-      [`/trails/${trailId}/update`, "POST"],
+      ["/update-trail", "POST", { ...(body && typeof body === "object" ? body : {}), trailId: tid }],
+      [`/trails/${tid}`, "PUT", body],
+      [`/trails/${tid}`, "PATCH", body],
+      [`/trails/${tid}/update`, "POST", body],
     ];
     let lastError = null;
-    for (const [path, method] of attempts) {
+    for (const [path, method, payload] of attempts) {
       try {
-        await apiFetch(path, { method, token, body });
+        await apiFetch(path, { method, token, body: payload });
         userAlert("OK", "Trace mise à jour.");
         await loadTrails();
         return true;

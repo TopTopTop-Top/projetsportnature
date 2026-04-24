@@ -1342,12 +1342,11 @@ function unlinkTrailGpxFile(gpxUrl) {
   }
 }
 
-async function handleTrailUpdate(req, res) {
-  const trailId = Number(req.params.id);
+async function applyTrailUpdate(res, trailId, authUserId, body) {
   if (!Number.isInteger(trailId) || trailId <= 0) {
     return res.status(400).json({ error: "Invalid trail id" });
   }
-  const parsed = updateTrailSchema.safeParse(req.body);
+  const parsed = updateTrailSchema.safeParse(body);
   if (!parsed.success) {
     return res.status(400).json({ error: parsed.error.flatten() });
   }
@@ -1379,7 +1378,7 @@ async function handleTrailUpdate(req, res) {
     parts.push(`notes = $${n++}`);
     vals.push(u.notes.trim() === "" ? null : u.notes);
   }
-  vals.push(trailId, req.auth.sub);
+  vals.push(trailId, authUserId);
   const { rows } = await pool.query(
     `UPDATE trails SET ${parts.join(
       ", "
@@ -1392,6 +1391,19 @@ async function handleTrailUpdate(req, res) {
   }
   return res.json(row);
 }
+
+async function handleTrailUpdate(req, res) {
+  const trailId = Number(req.params.id);
+  return applyTrailUpdate(res, trailId, req.auth.sub, req.body);
+}
+
+/** Route plate (sans /trails/:id/…) pour proxys / hébergeurs qui ne routent pas les chemins dynamiques. */
+router.post("/update-trail", requireAuth, async (req, res) => {
+  const raw = req.body && typeof req.body === "object" ? req.body : {};
+  const trailId = Number(raw.trailId ?? raw.id);
+  const { trailId: _tid, id: _id, ...rest } = raw;
+  return applyTrailUpdate(res, trailId, req.auth.sub, rest);
+});
 
 router.patch("/trails/:id", requireAuth, async (req, res) => {
   return handleTrailUpdate(req, res);
