@@ -16,7 +16,7 @@ app.use("/uploads", express.static(path.join(__dirname, "../uploads")));
 app.get("/", (_req, res) => {
   res.json({
     name: "RavitoBox API",
-    version: "0.3.0",
+    version: "0.4.0",
     endpoints: [
       "/api/health",
       "/api/geocode/reverse",

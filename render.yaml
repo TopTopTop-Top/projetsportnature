@@ -1,4 +1,6 @@
 services:
+  # Web Service Node : doit être redéployé quand src/routes/api.js change (ex. PATCH traces).
+  # Si les box passent mais pas les traces, ce service tourne souvent une vieille image sans ces routes.
   - type: web
     name: ravitobox-api
     env: node
