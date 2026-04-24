@@ -666,8 +666,13 @@ function parseFieldErrorsFromApiError(errObj) {
   return out;
 }
 
-async function apiFetch(path, { method = "GET", body, token, signal } = {}) {
-  const response = await fetch(`${API_BASE_URL}${path}`, {
+async function apiFetch(
+  path,
+  { method = "GET", body, token, signal, baseUrl } = {}
+) {
+  const root =
+    typeof baseUrl === "string" && baseUrl.trim() ? baseUrl.trim() : API_BASE_URL;
+  const response = await fetch(`${root}${path}`, {
     method,
     signal,
     headers: {
@@ -685,7 +690,7 @@ async function apiFetch(path, { method = "GET", body, token, signal } = {}) {
       trimmed.toLowerCase().startsWith("<html")
     ) {
       throw new Error(
-        `Réponse HTML (${response.status}) pour ${method} ${path} — l’URL « ${API_BASE_URL} » n’est pas l’API RavitoBox (JSON). Souvent EXPO_PUBLIC_API_URL pointe vers le mauvais service Render (ex. site statique …-1). Utilise l’URL du Web Service Node, ex. : ${PROD_API_BASE_URL}`
+        `Réponse HTML (${response.status}) pour ${method} ${path} — l’URL « ${root} » n’est pas l’API RavitoBox (JSON). Souvent EXPO_PUBLIC_API_URL pointe vers le mauvais service Render (ex. site statique …-1). Utilise l’URL du Web Service Node, ex. : ${PROD_API_BASE_URL}`
       );
     }
     try {
@@ -6975,21 +6980,41 @@ function RavitoApp() {
       [`/trails/${tid}`, "PATCH", body],
       [`/trails/${tid}/update`, "POST", body],
     ];
+    const baseCandidates = [
+      API_BASE_URL,
+      ...(API_BASE_URL !== PROD_API_BASE_URL ? [PROD_API_BASE_URL] : []),
+    ];
     let lastError = null;
-    for (const [path, method, payload] of attempts) {
-      try {
-        await apiFetch(path, { method, token, body: payload });
-        userAlert("OK", "Trace mise à jour.");
-        await loadTrails();
-        return true;
-      } catch (error) {
-        lastError = error;
+    for (const baseUrl of baseCandidates) {
+      for (const [path, method, payload] of attempts) {
+        try {
+          await apiFetch(path, { method, token, body: payload, baseUrl });
+          userAlert(
+            "OK",
+            baseUrl !== API_BASE_URL
+              ? "Trace mise à jour via l’API par défaut (ton EXPO_PUBLIC_API_URL ne pointe pas vers le bon backend). Corrige la variable puis reconstruis l’app."
+              : "Trace mise à jour."
+          );
+          if (baseUrl !== API_BASE_URL) {
+            try {
+              const rows = await apiFetch("/trails", { baseUrl });
+              setTrails(Array.isArray(rows) ? rows : []);
+            } catch (_e) {
+              await loadTrails();
+            }
+          } else {
+            await loadTrails();
+          }
+          return true;
+        } catch (error) {
+          lastError = error;
+        }
       }
     }
     userAlert(
       "Erreur",
       lastError?.message ||
-        "Impossible de mettre à jour la trace. Vérifie que l’URL de l’API (EXPO_PUBLIC_API_URL) pointe bien vers le service Node « RavitoBox API » sur Render, puis redéploie."
+        "Impossible de mettre à jour la trace. Vérifie EXPO_PUBLIC_API_URL (Web Service Node) et que l’API est redeployée depuis GitHub."
     );
     return false;
   };
