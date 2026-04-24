@@ -37,11 +37,13 @@ import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { Ionicons } from "@expo/vector-icons";
 
+/** Backend Node (Render « Web Service »), pas l’URL du site statique (ex. …-1.onrender.com si ce n’est pas la même app). */
 const PROD_API_BASE_URL = "https://projetsportnature.onrender.com/api";
 const DEV_API_BASE_URL = "http://localhost:3000/api";
 /**
  * En dev: fallback local pour éviter d'appeler Render par erreur.
- * Tu peux toujours forcer une autre URL via EXPO_PUBLIC_API_URL.
+ * En prod web : EXPO_PUBLIC_API_URL doit pointer vers ce même backend Node,
+ * sinon les POST renvoient du HTML « Cannot POST /api/… ».
  */
 const API_BASE_URL =
   process.env.EXPO_PUBLIC_API_URL ||
@@ -677,6 +679,15 @@ async function apiFetch(path, { method = "GET", body, token, signal } = {}) {
   const text = await response.text();
   let data = {};
   if (text) {
+    const trimmed = text.trim();
+    if (
+      trimmed.startsWith("<!DOCTYPE") ||
+      trimmed.toLowerCase().startsWith("<html")
+    ) {
+      throw new Error(
+        `Réponse HTML (${response.status}) pour ${method} ${path} — l’URL « ${API_BASE_URL} » n’est pas l’API RavitoBox (JSON). Souvent EXPO_PUBLIC_API_URL pointe vers le mauvais service Render (ex. site statique …-1). Utilise l’URL du Web Service Node, ex. : ${PROD_API_BASE_URL}`
+      );
+    }
     try {
       data = JSON.parse(text);
     } catch {
