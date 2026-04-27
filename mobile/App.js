@@ -5631,10 +5631,21 @@ function MainTabs() {
             <View style={[styles.modalSheet, { maxWidth: 360, width: "100%" }]}>
               <View style={styles.modalSheetHeader}>
                 <Text style={styles.modalSheetTitle}>Aller a</Text>
-                <IconButton
-                  icon="close-outline"
+                <TouchableOpacity
                   onPress={() => setWebTabPickerVisible(false)}
-                />
+                  style={{
+                    width: 34,
+                    height: 34,
+                    borderRadius: 17,
+                    alignItems: "center",
+                    justifyContent: "center",
+                    backgroundColor: theme.surfaceMuted,
+                    borderWidth: 1,
+                    borderColor: theme.border,
+                  }}
+                >
+                  <Ionicons name="close-outline" size={18} color={theme.ink} />
+                </TouchableOpacity>
               </View>
               <View style={{ padding: 14, gap: 8 }}>
                 {tabTargets.map((t) => (
