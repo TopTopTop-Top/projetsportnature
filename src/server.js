@@ -60,7 +60,7 @@ app.get("/", (_req, res) => {
 });
 
 app.use("/api", apiRouter);
-app.use("/api/*", (req, res) => {
+app.use(/^\/api\/.*/, (req, res) => {
   res.status(404).json({
     error: `Unknown API route: ${req.method} ${req.originalUrl}`,
   });
