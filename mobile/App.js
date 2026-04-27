@@ -15,6 +15,7 @@ import {
   TouchableOpacity,
   FlatList,
   Alert,
+  AppState,
   StyleSheet,
   ScrollView,
   Platform,
@@ -7425,6 +7426,55 @@ function RavitoApp() {
     setMapExplorerCameraFollowSearch(true);
     setMapExplorerRecenterNonce((n) => n + 1);
   }, []);
+
+  const syncLiveSessionData = useCallback(async () => {
+    if (!token) return;
+    const a = actionsRef.current || {};
+    const jobs = [];
+    if (typeof a.loadBoxes === "function") jobs.push(a.loadBoxes());
+    if (typeof a.loadTrails === "function") jobs.push(a.loadTrails());
+    if (typeof a.loadNotifications === "function") jobs.push(a.loadNotifications());
+    if (canHost) {
+      if (typeof a.loadHostBoxes === "function") jobs.push(a.loadHostBoxes());
+      if (typeof a.loadHostBookings === "function")
+        jobs.push(a.loadHostBookings());
+      if (typeof a.loadHostRefunds === "function") jobs.push(a.loadHostRefunds());
+    }
+    if (canBook) {
+      if (typeof a.loadAthleteBookings === "function")
+        jobs.push(a.loadAthleteBookings());
+    }
+    await Promise.allSettled(jobs);
+  }, [token, canHost, canBook]);
+
+  useEffect(() => {
+    if (!token) return;
+    void syncLiveSessionData();
+    const id = setInterval(() => {
+      void syncLiveSessionData();
+    }, 15000);
+    return () => clearInterval(id);
+  }, [token, syncLiveSessionData]);
+
+  useEffect(() => {
+    if (!token) return;
+    if (Platform.OS === "web" && typeof document !== "undefined") {
+      const onVisibility = () => {
+        if (document.visibilityState === "visible") {
+          void syncLiveSessionData();
+        }
+      };
+      document.addEventListener("visibilitychange", onVisibility);
+      return () =>
+        document.removeEventListener("visibilitychange", onVisibility);
+    }
+    const sub = AppState.addEventListener("change", (state) => {
+      if (state === "active") {
+        void syncLiveSessionData();
+      }
+    });
+    return () => sub.remove();
+  }, [token, syncLiveSessionData]);
 
   const actionsRef = useRef({});
 
