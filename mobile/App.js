@@ -5496,10 +5496,49 @@ function MainTabs() {
   const { width } = useWindowDimensions();
   const compactTabs = width < 390;
   const ultraCompactTabs = width < 355;
+  const isNarrowScreen = width < 430;
+  const tabTargets = [
+    { key: "Carte", label: "Carte" },
+    { key: "Trails", label: "Traces" },
+    ...(canHost ? [{ key: "Host", label: "Mes box" }] : []),
+    { key: "Reservations", label: "Reservations" },
+    { key: "Profil", label: "Profil" },
+  ];
+  const openTabPicker = useCallback(
+    (navigation) => {
+      if (!navigation?.navigate) return;
+      if (Platform.OS === "web") {
+        const help = tabTargets
+          .map((t) => `${t.label.toLowerCase()} -> ${t.key}`)
+          .join("\n");
+        const raw = window.prompt(
+          `Aller a l'onglet (nom ou route):\n${help}`,
+          "traces"
+        );
+        if (!raw) return;
+        const s = String(raw).trim().toLowerCase();
+        const picked = tabTargets.find(
+          (t) => t.key.toLowerCase() === s || t.label.toLowerCase() === s
+        );
+        if (picked) navigation.navigate(picked.key);
+        return;
+      }
+      Alert.alert(
+        "Aller a",
+        "Choisis un onglet",
+        tabTargets.map((t) => ({
+          text: t.label,
+          onPress: () => navigation.navigate(t.key),
+        }))
+      );
+    },
+    [tabTargets]
+  );
   return (
     <Tab.Navigator
-      screenOptions={({ route }) => ({
+      screenOptions={({ route, navigation }) => ({
         sceneStyle: { flex: 1 },
+        tabBarPosition: "bottom",
         headerStyle: {
           backgroundColor: theme.hero,
           shadowOpacity: 0,
@@ -5507,6 +5546,23 @@ function MainTabs() {
         },
         headerTitleStyle: { fontWeight: "700", fontSize: 17 },
         headerTintColor: "#fff",
+        headerRight: isNarrowScreen
+          ? () => (
+              <TouchableOpacity
+                onPress={() => openTabPicker(navigation)}
+                style={{
+                  width: 34,
+                  height: 34,
+                  borderRadius: 17,
+                  alignItems: "center",
+                  justifyContent: "center",
+                  backgroundColor: "rgba(255,255,255,0.18)",
+                }}
+              >
+                <Ionicons name="menu" size={18} color="#fff" />
+              </TouchableOpacity>
+            )
+          : undefined,
         tabBarShowLabel: !ultraCompactTabs,
         tabBarStyle: {
           backgroundColor: theme.surface,
@@ -5514,8 +5570,12 @@ function MainTabs() {
           paddingTop: compactTabs ? 4 : 6,
           paddingBottom: compactTabs ? 4 : 6,
           height: compactTabs ? 58 : 62,
+          position: "absolute",
+          left: 0,
+          right: 0,
+          bottom: 0,
         },
-        tabBarItemStyle: { minWidth: 0 },
+        tabBarItemStyle: { minWidth: 0, flex: 1, maxWidth: "none" },
         tabBarLabelStyle: {
           fontSize: compactTabs ? 10 : 11,
           fontWeight: "600",
