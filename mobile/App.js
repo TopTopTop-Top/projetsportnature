@@ -5497,6 +5497,8 @@ function MainTabs() {
   const compactTabs = width < 390;
   const ultraCompactTabs = width < 355;
   const isNarrowScreen = width < 430;
+  const [webTabPickerVisible, setWebTabPickerVisible] = useState(false);
+  const pickerNavRef = useRef(null);
   const tabTargets = [
     { key: "Carte", label: "Carte" },
     { key: "Trails", label: "Traces" },
@@ -5508,19 +5510,8 @@ function MainTabs() {
     (navigation) => {
       if (!navigation?.navigate) return;
       if (Platform.OS === "web") {
-        const help = tabTargets
-          .map((t) => `${t.label.toLowerCase()} -> ${t.key}`)
-          .join("\n");
-        const raw = window.prompt(
-          `Aller a l'onglet (nom ou route):\n${help}`,
-          "traces"
-        );
-        if (!raw) return;
-        const s = String(raw).trim().toLowerCase();
-        const picked = tabTargets.find(
-          (t) => t.key.toLowerCase() === s || t.label.toLowerCase() === s
-        );
-        if (picked) navigation.navigate(picked.key);
+        pickerNavRef.current = navigation;
+        setWebTabPickerVisible(true);
         return;
       }
       Alert.alert(
@@ -5535,99 +5526,135 @@ function MainTabs() {
     [tabTargets]
   );
   return (
-    <Tab.Navigator
-      screenOptions={({ route, navigation }) => ({
-        sceneStyle: { flex: 1 },
-        tabBarPosition: "bottom",
-        headerStyle: {
-          backgroundColor: theme.hero,
-          shadowOpacity: 0,
-          elevation: 0,
-        },
-        headerTitleStyle: { fontWeight: "700", fontSize: 17 },
-        headerTintColor: "#fff",
-        headerRight: isNarrowScreen
-          ? () => (
-              <TouchableOpacity
-                onPress={() => openTabPicker(navigation)}
-                style={{
-                  width: 34,
-                  height: 34,
-                  borderRadius: 17,
-                  alignItems: "center",
-                  justifyContent: "center",
-                  backgroundColor: "rgba(255,255,255,0.18)",
-                }}
-              >
-                <Ionicons name="menu" size={18} color="#fff" />
-              </TouchableOpacity>
-            )
-          : undefined,
-        tabBarShowLabel: !ultraCompactTabs,
-        tabBarStyle: {
-          backgroundColor: theme.surface,
-          borderTopColor: theme.borderSoft,
-          paddingTop: compactTabs ? 4 : 6,
-          paddingBottom: compactTabs ? 4 : 6,
-          height: compactTabs ? 58 : 62,
-          position: "absolute",
-          left: 0,
-          right: 0,
-          bottom: 0,
-        },
-        tabBarItemStyle: { minWidth: 0, flex: 1, maxWidth: "none" },
-        tabBarLabelStyle: {
-          fontSize: compactTabs ? 10 : 11,
-          fontWeight: "600",
-        },
-        tabBarActiveTintColor: theme.primary,
-        tabBarInactiveTintColor: theme.inkMuted,
-        tabBarIcon: ({ color, size }) => {
-          const map = {
-            Carte: "map-outline",
-            Trails: "navigate-outline",
-            Host: "home-outline",
-            Reservations: "calendar-outline",
-            Profil: "person-circle-outline",
-          };
-          return (
-            <Ionicons
-              name={map[route.name] || "ellipse"}
-              size={size}
-              color={color}
-            />
-          );
-        },
-      })}
-    >
-      <Tab.Screen
-        name="Carte"
-        component={ExplorerScreen}
-        options={{ title: "Carte" }}
-      />
-      <Tab.Screen
-        name="Trails"
-        component={TrailsScreen}
-        options={{ title: "Traces", tabBarLabel: "Traces" }}
-      />
-      {canHost ? (
+    <>
+      <Tab.Navigator
+        screenOptions={({ route, navigation }) => ({
+          sceneStyle: { flex: 1 },
+          tabBarPosition: "bottom",
+          headerStyle: {
+            backgroundColor: theme.hero,
+            shadowOpacity: 0,
+            elevation: 0,
+          },
+          headerTitleStyle: { fontWeight: "700", fontSize: 17 },
+          headerTintColor: "#fff",
+          headerRight: isNarrowScreen
+            ? () => (
+                <TouchableOpacity
+                  onPress={() => openTabPicker(navigation)}
+                  style={{
+                    width: 34,
+                    height: 34,
+                    borderRadius: 17,
+                    alignItems: "center",
+                    justifyContent: "center",
+                    backgroundColor: "rgba(255,255,255,0.18)",
+                  }}
+                >
+                  <Ionicons name="menu" size={18} color="#fff" />
+                </TouchableOpacity>
+              )
+            : undefined,
+          tabBarShowLabel: !ultraCompactTabs,
+          tabBarStyle: {
+            backgroundColor: theme.surface,
+            borderTopColor: theme.borderSoft,
+            paddingTop: compactTabs ? 4 : 6,
+            paddingBottom: compactTabs ? 4 : 6,
+            height: compactTabs ? 58 : 62,
+            position: "absolute",
+            left: 0,
+            right: 0,
+            bottom: 0,
+          },
+          tabBarItemStyle: { minWidth: 0, flex: 1, maxWidth: "none" },
+          tabBarLabelStyle: {
+            fontSize: compactTabs ? 10 : 11,
+            fontWeight: "600",
+          },
+          tabBarActiveTintColor: theme.primary,
+          tabBarInactiveTintColor: theme.inkMuted,
+          tabBarIcon: ({ color, size }) => {
+            const map = {
+              Carte: "map-outline",
+              Trails: "navigate-outline",
+              Host: "home-outline",
+              Reservations: "calendar-outline",
+              Profil: "person-circle-outline",
+            };
+            return (
+              <Ionicons
+                name={map[route.name] || "ellipse"}
+                size={size}
+                color={color}
+              />
+            );
+          },
+        })}
+      >
         <Tab.Screen
-          name="Host"
-          component={HostScreen}
-          options={{ title: "Mes box", tabBarLabel: "Box" }}
+          name="Carte"
+          component={ExplorerScreen}
+          options={{ title: "Carte" }}
         />
+        <Tab.Screen
+          name="Trails"
+          component={TrailsScreen}
+          options={{ title: "Traces", tabBarLabel: "Traces" }}
+        />
+        {canHost ? (
+          <Tab.Screen
+            name="Host"
+            component={HostScreen}
+            options={{ title: "Mes box", tabBarLabel: "Box" }}
+          />
+        ) : null}
+        <Tab.Screen
+          name="Reservations"
+          component={ReservationsScreen}
+          options={{ title: "Réservations", tabBarLabel: "Resa" }}
+        />
+        <Tab.Screen
+          name="Profil"
+          component={ProfileScreen}
+          options={{ title: "Profil" }}
+        />
+      </Tab.Navigator>
+      {Platform.OS === "web" ? (
+        <Modal
+          visible={webTabPickerVisible}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setWebTabPickerVisible(false)}
+        >
+          <View style={styles.modalBackdrop}>
+            <View style={[styles.modalSheet, { maxWidth: 360, width: "100%" }]}>
+              <View style={styles.modalSheetHeader}>
+                <Text style={styles.modalSheetTitle}>Aller a</Text>
+                <IconButton
+                  icon="close-outline"
+                  onPress={() => setWebTabPickerVisible(false)}
+                />
+              </View>
+              <View style={{ padding: 14, gap: 8 }}>
+                {tabTargets.map((t) => (
+                  <TouchableOpacity
+                    key={t.key}
+                    onPress={() => {
+                      pickerNavRef.current?.navigate?.(t.key);
+                      setWebTabPickerVisible(false);
+                    }}
+                    style={styles.roleChip}
+                  >
+                    <Text style={styles.roleChipText}>{t.label}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </View>
+          </View>
+        </Modal>
       ) : null}
-      <Tab.Screen
-        name="Reservations"
-        component={ReservationsScreen}
-        options={{ title: "Réservations", tabBarLabel: "Resa" }}
-      />
-      <Tab.Screen
-        name="Profil"
-        component={ProfileScreen}
-        options={{ title: "Profil" }}
-      />
-    </Tab.Navigator>
+    </>
   );
 }
 
