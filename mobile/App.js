@@ -69,10 +69,8 @@ function getApiBaseUrl() {
     typeof window !== "undefined" &&
     window.location?.hostname
   ) {
-    const pageOrigin = `${window.location.protocol}//${window.location.host}`.replace(
-      /\/$/,
-      ""
-    );
+    const pageOrigin =
+      `${window.location.protocol}//${window.location.host}`.replace(/\/$/, "");
     if (envNorm) {
       const apiOrigin = envNorm.replace(/\/api\/?$/i, "").replace(/\/$/, "");
       if (apiOrigin === pageOrigin) {
@@ -5495,6 +5493,9 @@ function ReservationsScreen() {
 
 function MainTabs() {
   const { canHost } = useAppMain();
+  const { width } = useWindowDimensions();
+  const compactTabs = width < 390;
+  const ultraCompactTabs = width < 355;
   return (
     <Tab.Navigator
       screenOptions={({ route }) => ({
@@ -5506,13 +5507,19 @@ function MainTabs() {
         },
         headerTitleStyle: { fontWeight: "700", fontSize: 17 },
         headerTintColor: "#fff",
+        tabBarShowLabel: !ultraCompactTabs,
         tabBarStyle: {
           backgroundColor: theme.surface,
           borderTopColor: theme.borderSoft,
-          paddingTop: 6,
-          height: 62,
+          paddingTop: compactTabs ? 4 : 6,
+          paddingBottom: compactTabs ? 4 : 6,
+          height: compactTabs ? 58 : 62,
         },
-        tabBarLabelStyle: { fontSize: 11, fontWeight: "600" },
+        tabBarItemStyle: { minWidth: 0 },
+        tabBarLabelStyle: {
+          fontSize: compactTabs ? 10 : 11,
+          fontWeight: "600",
+        },
         tabBarActiveTintColor: theme.primary,
         tabBarInactiveTintColor: theme.inkMuted,
         tabBarIcon: ({ color, size }) => {
@@ -5541,19 +5548,19 @@ function MainTabs() {
       <Tab.Screen
         name="Trails"
         component={TrailsScreen}
-        options={{ title: "Traces" }}
+        options={{ title: "Traces", tabBarLabel: "Traces" }}
       />
       {canHost ? (
         <Tab.Screen
           name="Host"
           component={HostScreen}
-          options={{ title: "Mes box" }}
+          options={{ title: "Mes box", tabBarLabel: "Box" }}
         />
       ) : null}
       <Tab.Screen
         name="Reservations"
         component={ReservationsScreen}
-        options={{ title: "Réservations" }}
+        options={{ title: "Réservations", tabBarLabel: "Resa" }}
       />
       <Tab.Screen
         name="Profil"
