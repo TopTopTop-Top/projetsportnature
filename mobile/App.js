@@ -3073,7 +3073,7 @@ function TrailsScreen() {
   const [trailEditSaving, setTrailEditSaving] = useState(false);
   const [trailSearchQuery, setTrailSearchQuery] = useState("");
   const [trailActivityFilter, setTrailActivityFilter] = useState("all");
-  const [trailTagFilter, setTrailTagFilter] = useState("all");
+  const [trailTagFilters, setTrailTagFilters] = useState([]);
   const [trailMinElevation, setTrailMinElevation] = useState("");
   const [trailMaxElevation, setTrailMaxElevation] = useState("");
 
@@ -3132,9 +3132,9 @@ function TrailsScreen() {
       if (trailActivityFilter !== "all") {
         if ((t.activity || "hike") !== trailActivityFilter) return false;
       }
-      if (trailTagFilter !== "all") {
+      if (trailTagFilters.length > 0) {
         const tags = parseTrailCriteriaFromRow(t);
-        if (!tags.includes(trailTagFilter)) return false;
+        if (!trailTagFilters.every((tag) => tags.includes(tag))) return false;
       }
       const elev = Number(t.elevation_m || 0);
       if (Number.isFinite(minElev) && elev < minElev) return false;
@@ -3155,10 +3155,17 @@ function TrailsScreen() {
     tracesFiltered,
     trailSearchQuery,
     trailActivityFilter,
-    trailTagFilter,
+    trailTagFilters,
     trailMinElevation,
     trailMaxElevation,
   ]);
+
+  const advancedFilterCount =
+    (trailSearchQuery.trim() ? 1 : 0) +
+    (trailActivityFilter !== "all" ? 1 : 0) +
+    trailTagFilters.length +
+    (trailMinElevation.trim() ? 1 : 0) +
+    (trailMaxElevation.trim() ? 1 : 0);
 
   const prioritizedTracesFiltered = useMemo(() => {
     if (selectedTrailId == null) return advancedTracesFiltered;
@@ -3650,6 +3657,11 @@ function TrailsScreen() {
           subtitle="Filtre par texte, activité, tags et dénivelé."
           icon="search-outline"
         >
+          <Text style={styles.cardMeta}>
+            {advancedTracesFiltered.length} résultat
+            {advancedTracesFiltered.length > 1 ? "s" : ""} · {advancedFilterCount}{" "}
+            filtre{advancedFilterCount > 1 ? "s actifs" : " actif"}
+          </Text>
           <TextInput
             style={styles.input}
             value={trailSearchQuery}
@@ -3659,7 +3671,13 @@ function TrailsScreen() {
           />
           <Text style={[styles.fieldLabel, { marginTop: 12 }]}>Activité</Text>
           <View style={[styles.roleRow, { flexWrap: "wrap" }]}>
-            {[{ id: "all", label: "Toutes" }, ...TRAIL_ACTIVITY_IDS.map((id) => ({ id, label: TRAIL_ACTIVITY_LABELS[id] || id }))].map((opt) => (
+            {[
+              { id: "all", label: "Toutes" },
+              ...TRAIL_ACTIVITY_IDS.map((id) => ({
+                id,
+                label: TRAIL_ACTIVITY_LABELS[id] || id,
+              })),
+            ].map((opt) => (
               <TouchableOpacity
                 key={`trail-adv-act-${opt.id}`}
                 style={[
@@ -3680,29 +3698,42 @@ function TrailsScreen() {
               </TouchableOpacity>
             ))}
           </View>
-          <Text style={[styles.fieldLabel, { marginTop: 12 }]}>Critère</Text>
+          <Text style={[styles.fieldLabel, { marginTop: 12 }]}>
+            Critères (multi-sélection)
+          </Text>
           <View style={[styles.roleRow, { flexWrap: "wrap" }]}>
-            {[{ id: "all", label: "Tous" }, ...TRAIL_CRITERIA_OPTIONS.map((c) => ({ id: c, label: c }))].map((opt) => (
+            {TRAIL_CRITERIA_OPTIONS.map((opt) => (
               <TouchableOpacity
-                key={`trail-adv-tag-${opt.id}`}
+                key={`trail-adv-tag-${opt}`}
                 style={[
                   styles.roleChip,
-                  trailTagFilter === opt.id && styles.roleChipActive,
+                  trailTagFilters.includes(opt) && styles.roleChipActive,
                 ]}
-                onPress={() => setTrailTagFilter(opt.id)}
+                onPress={() =>
+                  setTrailTagFilters((prev) =>
+                    prev.includes(opt)
+                      ? prev.filter((x) => x !== opt)
+                      : [...prev, opt]
+                  )
+                }
                 activeOpacity={0.85}
               >
                 <Text
                   style={[
                     styles.roleChipText,
-                    trailTagFilter === opt.id && styles.roleChipTextActive,
+                    trailTagFilters.includes(opt) && styles.roleChipTextActive,
                   ]}
                 >
-                  {opt.label}
+                  {opt}
                 </Text>
               </TouchableOpacity>
             ))}
           </View>
+          {trailTagFilters.length > 0 ? (
+            <Text style={styles.helperText}>
+              Critères sélectionnés: {trailTagFilters.join(" · ")}
+            </Text>
+          ) : null}
           <View style={styles.row}>
             <View style={styles.half}>
               <Text style={styles.fieldLabel}>D+ min</Text>
@@ -3735,7 +3766,7 @@ function TrailsScreen() {
             onPress={() => {
               setTrailSearchQuery("");
               setTrailActivityFilter("all");
-              setTrailTagFilter("all");
+              setTrailTagFilters([]);
               setTrailMinElevation("");
               setTrailMaxElevation("");
             }}
@@ -4941,11 +4972,13 @@ function ProfileScreen() {
   const canEnableBoth = user?.role !== "both";
   const today = todayIsoDate();
   const todayBookingsCount = useMemo(
-    () => (athleteBookings || []).filter((b) => b.booking_date === today).length,
+    () =>
+      (athleteBookings || []).filter((b) => b.booking_date === today).length,
     [athleteBookings, today]
   );
   const unreadNotificationsCount = useMemo(
-    () => (notifications || []).filter((n) => Number(n.is_read || 0) === 0).length,
+    () =>
+      (notifications || []).filter((n) => Number(n.is_read || 0) === 0).length,
     [notifications]
   );
 
@@ -7672,12 +7705,14 @@ function RavitoApp() {
     const jobs = [];
     if (typeof a.loadBoxes === "function") jobs.push(a.loadBoxes());
     if (typeof a.loadTrails === "function") jobs.push(a.loadTrails());
-    if (typeof a.loadNotifications === "function") jobs.push(a.loadNotifications());
+    if (typeof a.loadNotifications === "function")
+      jobs.push(a.loadNotifications());
     if (canHost) {
       if (typeof a.loadHostBoxes === "function") jobs.push(a.loadHostBoxes());
       if (typeof a.loadHostBookings === "function")
         jobs.push(a.loadHostBookings());
-      if (typeof a.loadHostRefunds === "function") jobs.push(a.loadHostRefunds());
+      if (typeof a.loadHostRefunds === "function")
+        jobs.push(a.loadHostRefunds());
     }
     if (canBook) {
       if (typeof a.loadAthleteBookings === "function")
