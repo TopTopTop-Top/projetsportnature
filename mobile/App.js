@@ -3071,6 +3071,11 @@ function TrailsScreen() {
   const [trailEditTarget, setTrailEditTarget] = useState(null);
   const [trailEditDraft, setTrailEditDraft] = useState(null);
   const [trailEditSaving, setTrailEditSaving] = useState(false);
+  const [trailSearchQuery, setTrailSearchQuery] = useState("");
+  const [trailActivityFilter, setTrailActivityFilter] = useState("all");
+  const [trailTagFilter, setTrailTagFilter] = useState("all");
+  const [trailMinElevation, setTrailMinElevation] = useState("");
+  const [trailMaxElevation, setTrailMaxElevation] = useState("");
 
   useEffect(() => {
     actionsRef.current.loadTrails();
@@ -3119,17 +3124,55 @@ function TrailsScreen() {
     }
     return trails;
   }, [trails, user?.id, mapTrailsScope]);
+  const advancedTracesFiltered = useMemo(() => {
+    const q = trailSearchQuery.trim().toLowerCase();
+    const minElev = Number.parseInt(trailMinElevation, 10);
+    const maxElev = Number.parseInt(trailMaxElevation, 10);
+    return tracesFiltered.filter((t) => {
+      if (trailActivityFilter !== "all") {
+        if ((t.activity || "hike") !== trailActivityFilter) return false;
+      }
+      if (trailTagFilter !== "all") {
+        const tags = parseTrailCriteriaFromRow(t);
+        if (!tags.includes(trailTagFilter)) return false;
+      }
+      const elev = Number(t.elevation_m || 0);
+      if (Number.isFinite(minElev) && elev < minElev) return false;
+      if (Number.isFinite(maxElev) && elev > maxElev) return false;
+      if (!q) return true;
+      const hay = [
+        t.name,
+        t.territory,
+        TRAIL_ACTIVITY_LABELS[t.activity || "hike"],
+        ...parseTrailCriteriaFromRow(t),
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+      return hay.includes(q);
+    });
+  }, [
+    tracesFiltered,
+    trailSearchQuery,
+    trailActivityFilter,
+    trailTagFilter,
+    trailMinElevation,
+    trailMaxElevation,
+  ]);
+
   const prioritizedTracesFiltered = useMemo(() => {
-    if (selectedTrailId == null) return tracesFiltered;
+    if (selectedTrailId == null) return advancedTracesFiltered;
     const sid = Number(selectedTrailId);
-    const list = Array.isArray(tracesFiltered) ? [...tracesFiltered] : [];
+    const list = Array.isArray(advancedTracesFiltered)
+      ? [...advancedTracesFiltered]
+      : [];
     list.sort((a, b) => {
       const aSel = Number(a.id) === sid ? 1 : 0;
       const bSel = Number(b.id) === sid ? 1 : 0;
       return bSel - aSel;
     });
     return list;
-  }, [tracesFiltered, selectedTrailId]);
+  }, [advancedTracesFiltered, selectedTrailId]);
 
   const trailsMapList = useMemo(
     () => (mapShowTrails ? tracesFiltered : []),
@@ -3603,6 +3646,103 @@ function TrailsScreen() {
         </Section>
 
         <Section
+          title="Recherche avancée"
+          subtitle="Filtre par texte, activité, tags et dénivelé."
+          icon="search-outline"
+        >
+          <TextInput
+            style={styles.input}
+            value={trailSearchQuery}
+            onChangeText={setTrailSearchQuery}
+            placeholder="Nom, territoire, activité, critère..."
+            placeholderTextColor={theme.inkMuted}
+          />
+          <Text style={[styles.fieldLabel, { marginTop: 12 }]}>Activité</Text>
+          <View style={[styles.roleRow, { flexWrap: "wrap" }]}>
+            {[{ id: "all", label: "Toutes" }, ...TRAIL_ACTIVITY_IDS.map((id) => ({ id, label: TRAIL_ACTIVITY_LABELS[id] || id }))].map((opt) => (
+              <TouchableOpacity
+                key={`trail-adv-act-${opt.id}`}
+                style={[
+                  styles.roleChip,
+                  trailActivityFilter === opt.id && styles.roleChipActive,
+                ]}
+                onPress={() => setTrailActivityFilter(opt.id)}
+                activeOpacity={0.85}
+              >
+                <Text
+                  style={[
+                    styles.roleChipText,
+                    trailActivityFilter === opt.id && styles.roleChipTextActive,
+                  ]}
+                >
+                  {opt.label}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+          <Text style={[styles.fieldLabel, { marginTop: 12 }]}>Critère</Text>
+          <View style={[styles.roleRow, { flexWrap: "wrap" }]}>
+            {[{ id: "all", label: "Tous" }, ...TRAIL_CRITERIA_OPTIONS.map((c) => ({ id: c, label: c }))].map((opt) => (
+              <TouchableOpacity
+                key={`trail-adv-tag-${opt.id}`}
+                style={[
+                  styles.roleChip,
+                  trailTagFilter === opt.id && styles.roleChipActive,
+                ]}
+                onPress={() => setTrailTagFilter(opt.id)}
+                activeOpacity={0.85}
+              >
+                <Text
+                  style={[
+                    styles.roleChipText,
+                    trailTagFilter === opt.id && styles.roleChipTextActive,
+                  ]}
+                >
+                  {opt.label}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+          <View style={styles.row}>
+            <View style={styles.half}>
+              <Text style={styles.fieldLabel}>D+ min</Text>
+              <TextInput
+                style={styles.input}
+                value={trailMinElevation}
+                onChangeText={setTrailMinElevation}
+                placeholder="0"
+                keyboardType="numeric"
+                placeholderTextColor={theme.inkMuted}
+              />
+            </View>
+            <View style={styles.half}>
+              <Text style={styles.fieldLabel}>D+ max</Text>
+              <TextInput
+                style={styles.input}
+                value={trailMaxElevation}
+                onChangeText={setTrailMaxElevation}
+                placeholder="2000"
+                keyboardType="numeric"
+                placeholderTextColor={theme.inkMuted}
+              />
+            </View>
+          </View>
+          <OutlineButton
+            compact
+            stretch
+            label="Réinitialiser les filtres avancés"
+            icon="refresh-outline"
+            onPress={() => {
+              setTrailSearchQuery("");
+              setTrailActivityFilter("all");
+              setTrailTagFilter("all");
+              setTrailMinElevation("");
+              setTrailMaxElevation("");
+            }}
+          />
+        </Section>
+
+        <Section
           title="Liste des traces"
           subtitle="Sélectionne une ou plusieurs traces : surbrillance carte + affichage selon filtres."
           icon="list-outline"
@@ -3744,10 +3884,21 @@ function TrailsScreen() {
               </SwipeActionRow>
             );
           })}
-          {tracesFiltered.length === 0 ? (
-            <Text style={styles.emptyText}>
-              Aucune trace avec les filtres actuels.
-            </Text>
+          {advancedTracesFiltered.length === 0 ? (
+            <>
+              <Text style={styles.emptyText}>
+                Aucune trace avec les filtres actuels.
+              </Text>
+              <SecondaryButton
+                label="Importer un GPX maintenant"
+                icon="cloud-upload-outline"
+                onPress={() =>
+                  Platform.OS === "web"
+                    ? webGpxInputRef.current?.click?.()
+                    : actionsRef.current.uploadGpx()
+                }
+              />
+            </>
           ) : null}
         </Section>
       </ScrollView>
@@ -4776,10 +4927,27 @@ function HostScreen() {
 }
 
 function ProfileScreen() {
-  const { user, myReviewsSummary, myReviews, actionsRef } = useAppMain();
+  const {
+    user,
+    myReviewsSummary,
+    myReviews,
+    athleteBookings,
+    notifications,
+    openUserReviews,
+    actionsRef,
+  } = useAppMain();
   const isFocused = useIsFocused();
   const roleLabel = ROLE_LABELS[user?.role] || user?.role;
   const canEnableBoth = user?.role !== "both";
+  const today = todayIsoDate();
+  const todayBookingsCount = useMemo(
+    () => (athleteBookings || []).filter((b) => b.booking_date === today).length,
+    [athleteBookings, today]
+  );
+  const unreadNotificationsCount = useMemo(
+    () => (notifications || []).filter((n) => Number(n.is_read || 0) === 0).length,
+    [notifications]
+  );
 
   useEffect(() => {
     if (!isFocused) return;
@@ -4816,6 +4984,40 @@ function ProfileScreen() {
             </View>
           </View>
         </Section>
+        <Section
+          title="Actions rapides"
+          subtitle="Accès direct aux tâches clés sans changer d'écran."
+          icon="flash-outline"
+        >
+          <View style={styles.card}>
+            <View style={styles.cardAccent} />
+            <Text style={styles.cardMeta}>
+              Réservations du jour: {todayBookingsCount}
+            </Text>
+            <Text style={styles.cardMeta}>
+              Notifications non lues: {unreadNotificationsCount}
+            </Text>
+          </View>
+          <PrimaryButton
+            label="Importer une trace GPX"
+            icon="cloud-upload-outline"
+            onPress={() => actionsRef.current.uploadGpx?.()}
+          />
+          <SecondaryButton
+            label="Rafraîchir traces + réservations + notifications"
+            icon="refresh-outline"
+            onPress={async () => {
+              await Promise.allSettled([
+                actionsRef.current.loadTrails?.(),
+                actionsRef.current.loadAthleteBookings?.(),
+                actionsRef.current.loadHostBookings?.(),
+                actionsRef.current.loadNotifications?.(),
+              ]);
+              userAlert("Synchronisation", "Données mises à jour.");
+            }}
+          />
+        </Section>
+
         <Section
           title="Réputation"
           subtitle="Notes reçues par les autres utilisateurs."
@@ -6937,6 +7139,26 @@ function RavitoApp() {
   const decideHostBooking = async (bookingId, decision) => {
     if (!token) return;
     try {
+      const latestRows = await apiFetch("/host/bookings", { token });
+      const latest = Array.isArray(latestRows)
+        ? latestRows.find((b) => Number(b.id) === Number(bookingId))
+        : null;
+      const latestApproval = latest?.approval_status || "pending";
+      if (
+        latest &&
+        !["pending", "pending_host_confirmation"].includes(latestApproval)
+      ) {
+        userAlert(
+          "Données mises à jour",
+          `Cette réservation n'est plus en attente (statut: ${bookingApprovalLabel(
+            latestApproval
+          )}). Rafraîchis la liste avant de décider.`
+        );
+        await loadHostBookings();
+        await loadAthleteBookings();
+        await loadNotifications();
+        return;
+      }
       await apiFetch(`/host/bookings/${bookingId}/decision`, {
         method: "PATCH",
         token,
@@ -6953,6 +7175,23 @@ function RavitoApp() {
   const decideAthleteBookingChange = async (bookingId, decision) => {
     if (!token) return;
     try {
+      const latestRows = await apiFetch("/bookings", { token });
+      const latest = Array.isArray(latestRows)
+        ? latestRows.find((b) => Number(b.id) === Number(bookingId))
+        : null;
+      const latestApproval = latest?.approval_status || "pending";
+      if (latest && latestApproval !== "pending_athlete_confirmation") {
+        userAlert(
+          "Données mises à jour",
+          `La demande n'attend plus ta validation (statut: ${bookingApprovalLabel(
+            latestApproval
+          )}).`
+        );
+        await loadAthleteBookings();
+        await loadHostBookings();
+        await loadNotifications();
+        return;
+      }
       await apiFetch(`/bookings/${bookingId}/decision`, {
         method: "PATCH",
         token,
@@ -8298,6 +8537,10 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: 8,
     flexWrap: "wrap",
+  },
+  half: {
+    flex: 1,
+    minWidth: 140,
   },
   roleRow: {
     flexDirection: "row",
