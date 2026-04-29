@@ -224,13 +224,28 @@ function minDistanceKmPointToTrail(trail, lat, lon) {
 
 function pointInBounds(lat, lon, bounds) {
   if (!bounds) return true;
+  const south = Number(bounds.south);
+  const north = Number(bounds.north);
+  const west = Number(bounds.west);
+  const east = Number(bounds.east);
+  if (
+    !Number.isFinite(lat) ||
+    !Number.isFinite(lon) ||
+    !Number.isFinite(south) ||
+    !Number.isFinite(north) ||
+    !Number.isFinite(west) ||
+    !Number.isFinite(east)
+  ) {
+    return false;
+  }
+  const lonInBounds =
+    west <= east
+      ? lon >= west && lon <= east
+      : lon >= west || lon <= east;
   return (
-    Number.isFinite(lat) &&
-    Number.isFinite(lon) &&
-    lat >= Number(bounds.south) &&
-    lat <= Number(bounds.north) &&
-    lon >= Number(bounds.west) &&
-    lon <= Number(bounds.east)
+    lat >= south &&
+    lat <= north &&
+    lonInBounds
   );
 }
 
@@ -6489,7 +6504,13 @@ function RavitoApp() {
     try {
       const rows = await apiFetch(`/boxes?city=${encodeURIComponent(q)}`);
       setBoxes(rows);
-      setSelectedBoxId(rows.length > 0 ? rows[0].id : null);
+      setSelectedBoxId((prev) =>
+        prev != null && rows.some((b) => Number(b.id) === Number(prev))
+          ? prev
+          : rows.length > 0
+          ? rows[0].id
+          : null
+      );
     } catch (error) {
       userAlert("Erreur", error.message);
     }
