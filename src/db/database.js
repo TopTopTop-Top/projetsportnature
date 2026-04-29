@@ -309,8 +309,22 @@ async function migrate() {
         route_plan_id INTEGER NOT NULL REFERENCES route_plans(id) ON DELETE CASCADE,
         box_id INTEGER NOT NULL REFERENCES boxes(id) ON DELETE CASCADE,
         sort_index INTEGER NOT NULL DEFAULT 0,
+        comment TEXT,
         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
         UNIQUE(route_plan_id, box_id)
+      )`
+    );
+    await client.query(
+      `CREATE TABLE IF NOT EXISTS route_plan_trail_notes (
+        id SERIAL PRIMARY KEY,
+        route_plan_id INTEGER NOT NULL REFERENCES route_plans(id) ON DELETE CASCADE,
+        note TEXT NOT NULL,
+        point_lat DOUBLE PRECISION,
+        point_lon DOUBLE PRECISION,
+        sort_index INTEGER NOT NULL DEFAULT 0,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
       )`
     );
     await client.query(
@@ -341,7 +355,16 @@ async function migrate() {
       `ALTER TABLE route_plans ADD COLUMN IF NOT EXISTS notes TEXT`
     );
     await client.query(
+      `ALTER TABLE route_plan_boxes ADD COLUMN IF NOT EXISTS comment TEXT`
+    );
+    await client.query(
+      `ALTER TABLE route_plan_boxes ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()`
+    );
+    await client.query(
       `CREATE INDEX IF NOT EXISTS idx_route_plan_boxes_plan_sort ON route_plan_boxes(route_plan_id, sort_index, created_at)`
+    );
+    await client.query(
+      `CREATE INDEX IF NOT EXISTS idx_route_plan_trail_notes_plan_sort ON route_plan_trail_notes(route_plan_id, sort_index, created_at)`
     );
 
     await client.query("COMMIT");

@@ -1609,6 +1609,12 @@ function ExplorerScreen() {
     setSelectedRoutePlanId,
     selectedRoutePlanDetail,
     routePlanBusy,
+    updateRoutePlan,
+    deleteRoutePlan,
+    updateRoutePlanBoxComment,
+    addRoutePlanTrailNote,
+    updateRoutePlanTrailNote,
+    deleteRoutePlanTrailNote,
     mapListSource,
     setMapListSource,
     mapBoxesNearTrailsOnly,
@@ -1804,11 +1810,19 @@ function ExplorerScreen() {
   const { width: viewportWidth } = useWindowDimensions();
   const [showBoxFilters, setShowBoxFilters] = useState(false);
   const [showTrailFilters, setShowTrailFilters] = useState(false);
-  const [planExportIncludePending, setPlanExportIncludePending] = useState(true);
+  const [planExportIncludePending, setPlanExportIncludePending] =
+    useState(true);
   const [planExportIncludeRejected, setPlanExportIncludeRejected] =
     useState(false);
   const [planSearchQuery, setPlanSearchQuery] = useState("");
   const [routePlanDraftNotes, setRoutePlanDraftNotes] = useState("");
+  const [planNameDraft, setPlanNameDraft] = useState("");
+  const [planNotesDraft, setPlanNotesDraft] = useState("");
+  const [boxCommentDraftById, setBoxCommentDraftById] = useState({});
+  const [trailNoteDraftById, setTrailNoteDraftById] = useState({});
+  const [newTrailNoteText, setNewTrailNoteText] = useState("");
+  const [newTrailNoteLat, setNewTrailNoteLat] = useState("");
+  const [newTrailNoteLon, setNewTrailNoteLon] = useState("");
   const filteredRoutePlans = useMemo(() => {
     const base = Array.isArray(routePlans) ? routePlans : [];
     const q = String(planSearchQuery || "")
@@ -1826,6 +1840,25 @@ function ExplorerScreen() {
       })
       .slice(0, 30);
   }, [routePlans, planSearchQuery]);
+
+  useEffect(() => {
+    const plan = activePlanForSelectedTrail;
+    if (!plan) return;
+    setPlanNameDraft(String(plan.name || ""));
+    setPlanNotesDraft(String(plan.notes || ""));
+    const byId = {};
+    (plan.boxes || []).forEach((b) => {
+      const bid = Number(b.id);
+      if (Number.isFinite(bid)) byId[bid] = String(b.plan_box_comment || "");
+    });
+    setBoxCommentDraftById(byId);
+    const trailById = {};
+    (plan.trail_notes || []).forEach((n) => {
+      const nid = Number(n.id);
+      if (Number.isFinite(nid)) trailById[nid] = String(n.note || "");
+    });
+    setTrailNoteDraftById(trailById);
+  }, [activePlanForSelectedTrail]);
 
   useEffect(() => {
     actionsRef.current.loadTrails();
@@ -2054,7 +2087,9 @@ function ExplorerScreen() {
             selectedBoxId={selectedBoxId}
             selectedBoxIds={mapPickedBoxIds}
             compatibleBoxIds={nearTrailCompatibleBoxIds}
-            proximityTrailIds={nearTrailReferenceTrails.map((t) => Number(t.id))}
+            proximityTrailIds={nearTrailReferenceTrails.map((t) =>
+              Number(t.id)
+            )}
             trailCorridorKm={Number(mapTrailProximityKm) || 2}
             dimIncompatibleBoxes={mapBoxesNearTrailsOnly && mapNearShowAllOnMap}
             onSelectBox={focusExplorerBox}
@@ -2177,11 +2212,15 @@ function ExplorerScreen() {
                 <Text style={styles.fieldLabel}>Plans de cette trace</Text>
                 <View style={[styles.roleRow, { flexWrap: "wrap" }]}>
                   {plansForSelectedTrail.slice(0, 5).map((plan) => {
-                    const active = Number(selectedRoutePlanId) === Number(plan.id);
+                    const active =
+                      Number(selectedRoutePlanId) === Number(plan.id);
                     return (
                       <TouchableOpacity
                         key={`route-plan-chip-${plan.id}`}
-                        style={[styles.roleChip, active && styles.roleChipActive]}
+                        style={[
+                          styles.roleChip,
+                          active && styles.roleChipActive,
+                        ]}
                         onPress={() => {
                           setSelectedRoutePlanId(Number(plan.id));
                           actionsRef.current.loadRoutePlanDetail?.(plan.id);
@@ -2215,13 +2254,14 @@ function ExplorerScreen() {
                     Plan actif: {activePlanForSelectedTrail.name}
                   </Text>
                   <Text style={styles.cardMeta}>
-                    {activePlanForSelectedTrail.validated_box_count || 0} validée
+                    {activePlanForSelectedTrail.validated_box_count || 0}{" "}
+                    validée
                     {(activePlanForSelectedTrail.validated_box_count || 0) > 1
                       ? "s"
                       : ""}{" "}
                     · {activePlanForSelectedTrail.pending_box_count || 0} en
-                    attente · {activePlanForSelectedTrail.rejected_box_count || 0}{" "}
-                    refusée
+                    attente ·{" "}
+                    {activePlanForSelectedTrail.rejected_box_count || 0} refusée
                     {(activePlanForSelectedTrail.rejected_box_count || 0) > 1
                       ? "s"
                       : ""}
@@ -2235,16 +2275,61 @@ function ExplorerScreen() {
               </View>
             ) : null}
             {activePlanForSelectedTrail ? (
+              <View style={{ marginTop: 8 }}>
+                <TextInput
+                  style={styles.input}
+                  placeholder="Nom du plan"
+                  placeholderTextColor={theme.inkMuted}
+                  value={planNameDraft}
+                  onChangeText={setPlanNameDraft}
+                />
+                <TextInput
+                  style={[styles.input, styles.textArea]}
+                  placeholder="Notes générales du plan"
+                  placeholderTextColor={theme.inkMuted}
+                  value={planNotesDraft}
+                  onChangeText={setPlanNotesDraft}
+                  multiline
+                />
+                <View style={[styles.roleRow, { flexWrap: "wrap" }]}>
+                  <OutlineButton
+                    compact
+                    label="Enregistrer modifs plan"
+                    icon="save-outline"
+                    onPress={async () => {
+                      await updateRoutePlan?.(activePlanForSelectedTrail.id, {
+                        name: planNameDraft,
+                        notes: planNotesDraft,
+                      });
+                    }}
+                  />
+                  <OutlineButton
+                    compact
+                    label="Supprimer ce plan"
+                    icon="trash-outline"
+                    onPress={async () => {
+                      const ok = await confirmDestructive(
+                        "Supprimer ce plan ?",
+                        "Cette action supprime le plan et ses commentaires."
+                      );
+                      if (!ok) return;
+                      await deleteRoutePlan?.(activePlanForSelectedTrail.id);
+                    }}
+                  />
+                </View>
+              </View>
+            ) : null}
+            {activePlanForSelectedTrail ? (
               <>
-                <View style={[styles.roleRow, { marginTop: 8, flexWrap: "wrap" }]}>
+                <View
+                  style={[styles.roleRow, { marginTop: 8, flexWrap: "wrap" }]}
+                >
                   <TouchableOpacity
                     style={[
                       styles.roleChip,
                       planExportIncludePending && styles.roleChipActive,
                     ]}
-                    onPress={() =>
-                      setPlanExportIncludePending((prev) => !prev)
-                    }
+                    onPress={() => setPlanExportIncludePending((prev) => !prev)}
                     activeOpacity={0.85}
                   >
                     <Text
@@ -2276,7 +2361,9 @@ function ExplorerScreen() {
                     </Text>
                   </TouchableOpacity>
                 </View>
-                <View style={[styles.roleRow, { marginTop: 8, flexWrap: "wrap" }]}>
+                <View
+                  style={[styles.roleRow, { marginTop: 8, flexWrap: "wrap" }]}
+                >
                   <OutlineButton
                     compact
                     label="Voir box du plan sur carte"
@@ -2321,9 +2408,15 @@ function ExplorerScreen() {
                             style={[
                               styles.trailPickRow,
                               isValidated
-                                ? { borderColor: "#34D399", backgroundColor: "#ECFDF5" }
+                                ? {
+                                    borderColor: "#34D399",
+                                    backgroundColor: "#ECFDF5",
+                                  }
                                 : isRejected
-                                ? { borderColor: "#FCA5A5", backgroundColor: "#FEF2F2" }
+                                ? {
+                                    borderColor: "#FCA5A5",
+                                    backgroundColor: "#FEF2F2",
+                                  }
                                 : null,
                             ]}
                           >
@@ -2345,7 +2438,9 @@ function ExplorerScreen() {
                               }
                             />
                             <View style={{ flex: 1, marginLeft: 10 }}>
-                              <Text style={styles.cardTitle}>{b.title || "Box"}</Text>
+                              <Text style={styles.cardTitle}>
+                                {b.title || "Box"}
+                              </Text>
                               <Text style={styles.cardMeta}>
                                 {b.city || "Ville inconnue"} · {status}
                                 {b.latest_booking_date &&
@@ -2354,6 +2449,32 @@ function ExplorerScreen() {
                                   ? ` · ${b.latest_booking_date} ${b.latest_booking_start_time}-${b.latest_booking_end_time}`
                                   : ""}
                               </Text>
+                              <TextInput
+                                style={[styles.input, { marginTop: 6 }]}
+                                placeholder="Commentaire box (stratégie, matos, ravito...)"
+                                placeholderTextColor={theme.inkMuted}
+                                value={String(
+                                  boxCommentDraftById[Number(b.id)] || ""
+                                )}
+                                onChangeText={(v) =>
+                                  setBoxCommentDraftById((prev) => ({
+                                    ...prev,
+                                    [Number(b.id)]: v,
+                                  }))
+                                }
+                              />
+                              <OutlineButton
+                                compact
+                                label="Enregistrer commentaire box"
+                                icon="create-outline"
+                                onPress={async () => {
+                                  await updateRoutePlanBoxComment?.(
+                                    activePlanForSelectedTrail.id,
+                                    b.id,
+                                    boxCommentDraftById[Number(b.id)] || ""
+                                  );
+                                }}
+                              />
                             </View>
                           </View>
                         );
@@ -2361,6 +2482,112 @@ function ExplorerScreen() {
                     </ScrollView>
                   </View>
                 ) : null}
+                <View style={{ marginTop: 8 }}>
+                  <Text style={styles.fieldLabel}>Notes de parcours</Text>
+                  <TextInput
+                    style={[styles.input, styles.textArea]}
+                    placeholder="Note parcours (point ravito, vigilance, pente...)"
+                    placeholderTextColor={theme.inkMuted}
+                    value={newTrailNoteText}
+                    onChangeText={setNewTrailNoteText}
+                    multiline
+                  />
+                  <View style={styles.roleRow}>
+                    <TextInput
+                      style={[styles.input, { flex: 1, marginRight: 8 }]}
+                      placeholder="Lat (optionnel)"
+                      placeholderTextColor={theme.inkMuted}
+                      value={newTrailNoteLat}
+                      onChangeText={setNewTrailNoteLat}
+                    />
+                    <TextInput
+                      style={[styles.input, { flex: 1 }]}
+                      placeholder="Lon (optionnel)"
+                      placeholderTextColor={theme.inkMuted}
+                      value={newTrailNoteLon}
+                      onChangeText={setNewTrailNoteLon}
+                    />
+                  </View>
+                  <OutlineButton
+                    compact
+                    label="Ajouter note parcours"
+                    icon="add-circle-outline"
+                    onPress={async () => {
+                      const payload = {
+                        note: newTrailNoteText,
+                      };
+                      const lat = Number.parseFloat(newTrailNoteLat);
+                      const lon = Number.parseFloat(newTrailNoteLon);
+                      if (Number.isFinite(lat)) payload.pointLat = lat;
+                      if (Number.isFinite(lon)) payload.pointLon = lon;
+                      const ok = await addRoutePlanTrailNote?.(
+                        activePlanForSelectedTrail.id,
+                        payload
+                      );
+                      if (ok) {
+                        setNewTrailNoteText("");
+                        setNewTrailNoteLat("");
+                        setNewTrailNoteLon("");
+                      }
+                    }}
+                  />
+                  {(activePlanForSelectedTrail.trail_notes || []).map((n) => (
+                    <View key={`trail-note-${n.id}`} style={styles.trailPickRow}>
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.cardMeta}>
+                          {(n.point_lat != null && n.point_lon != null
+                            ? `${Number(n.point_lat).toFixed(5)}, ${Number(
+                                n.point_lon
+                              ).toFixed(5)} · `
+                            : "") + "Note parcours"}
+                        </Text>
+                        <TextInput
+                          style={[styles.input, { marginTop: 6 }]}
+                          placeholder="Modifier la note parcours"
+                          placeholderTextColor={theme.inkMuted}
+                          value={String(
+                            trailNoteDraftById[Number(n.id)] ?? n.note ?? ""
+                          )}
+                          onChangeText={(v) =>
+                            setTrailNoteDraftById((prev) => ({
+                              ...prev,
+                              [Number(n.id)]: v,
+                            }))
+                          }
+                          multiline
+                        />
+                        <View style={[styles.roleRow, { flexWrap: "wrap" }]}>
+                          <OutlineButton
+                            compact
+                            label="Enregistrer note"
+                            icon="create-outline"
+                            onPress={() =>
+                              updateRoutePlanTrailNote?.(
+                                activePlanForSelectedTrail.id,
+                                n.id,
+                                {
+                                  note:
+                                    trailNoteDraftById[Number(n.id)] ?? n.note,
+                                }
+                              )
+                            }
+                          />
+                          <OutlineButton
+                            compact
+                            label="Supprimer note"
+                            icon="trash-outline"
+                            onPress={() =>
+                              deleteRoutePlanTrailNote?.(
+                                activePlanForSelectedTrail.id,
+                                n.id
+                              )
+                            }
+                          />
+                        </View>
+                      </View>
+                    </View>
+                  ))}
+                </View>
               </>
             ) : null}
           </View>
@@ -2378,7 +2605,9 @@ function ExplorerScreen() {
             onChangeText={setPlanSearchQuery}
           />
           {filteredRoutePlans.length === 0 ? (
-            <Text style={styles.emptyText}>Aucun plan trouvé avec ce filtre.</Text>
+            <Text style={styles.emptyText}>
+              Aucun plan trouvé avec ce filtre.
+            </Text>
           ) : (
             <ScrollView
               style={styles.trailPickScroll}
@@ -2683,8 +2912,7 @@ function ExplorerScreen() {
                       <TouchableOpacity
                         style={[
                           styles.roleChip,
-                          mapNearTrailsMode === "mine" &&
-                            styles.roleChipActive,
+                          mapNearTrailsMode === "mine" && styles.roleChipActive,
                         ]}
                         onPress={() => setMapNearTrailsMode("mine")}
                         activeOpacity={0.85}
@@ -2776,7 +3004,9 @@ function ExplorerScreen() {
                         })}
                       </ScrollView>
                     ) : null}
-                    <Text style={styles.fieldLabel}>Rayon autour des traces</Text>
+                    <Text style={styles.fieldLabel}>
+                      Rayon autour des traces
+                    </Text>
                     <View style={[styles.roleRow, { flexWrap: "wrap" }]}>
                       {["0.5", "1", "2", "3", "5"].map((km) => (
                         <TouchableOpacity
@@ -2848,13 +3078,14 @@ function ExplorerScreen() {
                       <View style={{ flex: 1 }}>
                         <Text style={styles.infoBannerTitle}>
                           {nearTrailCompatibleBoxIds.length} box réservable
-                          {nearTrailCompatibleBoxIds.length > 1 ? "s" : ""} dans{" "}
-                          {mapTrailProximityKm} km
+                          {nearTrailCompatibleBoxIds.length > 1
+                            ? "s"
+                            : ""} dans {mapTrailProximityKm} km
                         </Text>
                         <Text style={styles.cardMeta}>
                           Référence: {nearTrailReferenceTrails.length} trace
-                          {nearTrailReferenceTrails.length > 1 ? "s" : ""} ·
-                          tri distance puis disponibilité
+                          {nearTrailReferenceTrails.length > 1 ? "s" : ""} · tri
+                          distance puis disponibilité
                         </Text>
                       </View>
                     </View>
@@ -2991,8 +3222,16 @@ function ExplorerScreen() {
                     { marginBottom: 8 },
                   ]}
                 >
-                  <Text style={[styles.selectionPillText, styles.selectionPillTextActive]}>
-                    {(Number(nearTrailDistanceByBoxId[Number(item.id)]) || 0).toFixed(1)} km de ta trace ·{" "}
+                  <Text
+                    style={[
+                      styles.selectionPillText,
+                      styles.selectionPillTextActive,
+                    ]}
+                  >
+                    {(
+                      Number(nearTrailDistanceByBoxId[Number(item.id)]) || 0
+                    ).toFixed(1)}{" "}
+                    km de ta trace ·{" "}
                     {canBook ? "Réservable" : "Voir en compte athlète"}
                   </Text>
                 </View>
@@ -3530,7 +3769,9 @@ function ExplorerScreen() {
                   Number(t.id)
                 )}
                 trailCorridorKm={Number(mapTrailProximityKm) || 2}
-                dimIncompatibleBoxes={mapBoxesNearTrailsOnly && mapNearShowAllOnMap}
+                dimIncompatibleBoxes={
+                  mapBoxesNearTrailsOnly && mapNearShowAllOnMap
+                }
                 onSelectBox={focusExplorerBox}
                 onSelectTrail={focusExplorerTrail}
                 onMapLongPress={handleExplorerMapLongPress}
@@ -6677,7 +6918,9 @@ function RavitoApp() {
       );
       return pickedTrails.length > 0
         ? pickedTrails
-        : allTrails.filter((trail) => Number(trail.id) === Number(selectedTrailId));
+        : allTrails.filter(
+            (trail) => Number(trail.id) === Number(selectedTrailId)
+          );
     }
     if (mapNearTrailsMode === "one") {
       return allTrails.filter(
@@ -6818,7 +7061,9 @@ function RavitoApp() {
             const aReservable = canBook ? 1 : 0;
             const bReservable = canBook ? 1 : 0;
             if (aReservable !== bReservable) return bReservable - aReservable;
-            return (Number(a.distance_km) || 1e9) - (Number(b.distance_km) || 1e9);
+            return (
+              (Number(a.distance_km) || 1e9) - (Number(b.distance_km) || 1e9)
+            );
           });
         } else if (list.some((b) => b.distance_km != null)) {
           list.sort(
@@ -7568,6 +7813,123 @@ function RavitoApp() {
     }
   };
 
+  const updateRoutePlan = async (routePlanId, { name, notes } = {}) => {
+    if (!token) return null;
+    const pid = Number(routePlanId);
+    if (!Number.isFinite(pid) || pid <= 0) return null;
+    try {
+      const detail = await apiFetch(`/route-plans/${pid}`, {
+        method: "PATCH",
+        token,
+        body: { ...(name != null ? { name } : {}), ...(notes != null ? { notes } : {}) },
+      });
+      await loadRoutePlans();
+      setSelectedRoutePlanDetail(detail || null);
+      return detail || null;
+    } catch (error) {
+      userAlert("Erreur", error.message);
+      return null;
+    }
+  };
+
+  const deleteRoutePlan = async (routePlanId) => {
+    if (!token) return false;
+    const pid = Number(routePlanId);
+    if (!Number.isFinite(pid) || pid <= 0) return false;
+    try {
+      await apiFetch(`/route-plans/${pid}`, { method: "DELETE", token });
+      await loadRoutePlans();
+      if (Number(selectedRoutePlanId) === pid) {
+        setSelectedRoutePlanId(null);
+        setSelectedRoutePlanDetail(null);
+      }
+      return true;
+    } catch (error) {
+      userAlert("Erreur", error.message);
+      return false;
+    }
+  };
+
+  const updateRoutePlanBoxComment = async (routePlanId, boxId, comment) => {
+    if (!token) return null;
+    const pid = Number(routePlanId);
+    const bid = Number(boxId);
+    if (!Number.isFinite(pid) || !Number.isFinite(bid)) return null;
+    try {
+      const detail = await apiFetch(`/route-plans/${pid}/boxes/${bid}`, {
+        method: "PATCH",
+        token,
+        body: { comment: comment ?? "" },
+      });
+      setSelectedRoutePlanDetail(detail || null);
+      await loadRoutePlans();
+      return detail || null;
+    } catch (error) {
+      userAlert("Erreur", error.message);
+      return null;
+    }
+  };
+
+  const addRoutePlanTrailNote = async (routePlanId, payload = {}) => {
+    if (!token) return false;
+    const pid = Number(routePlanId);
+    if (!Number.isFinite(pid) || pid <= 0) return false;
+    const noteText = String(payload.note || "").trim();
+    if (!noteText) {
+      userAlert("Plan", "Écris une note parcours.");
+      return false;
+    }
+    try {
+      const detail = await apiFetch(`/route-plans/${pid}/trail-notes`, {
+        method: "POST",
+        token,
+        body: payload,
+      });
+      setSelectedRoutePlanDetail(detail || null);
+      return true;
+    } catch (error) {
+      userAlert("Erreur", error.message);
+      return false;
+    }
+  };
+
+  const updateRoutePlanTrailNote = async (routePlanId, noteId, payload = {}) => {
+    if (!token) return null;
+    const pid = Number(routePlanId);
+    const nid = Number(noteId);
+    if (!Number.isFinite(pid) || !Number.isFinite(nid)) return null;
+    try {
+      const detail = await apiFetch(`/route-plans/${pid}/trail-notes/${nid}`, {
+        method: "PATCH",
+        token,
+        body: payload,
+      });
+      setSelectedRoutePlanDetail(detail || null);
+      return detail || null;
+    } catch (error) {
+      userAlert("Erreur", error.message);
+      return null;
+    }
+  };
+
+  const deleteRoutePlanTrailNote = async (routePlanId, noteId) => {
+    if (!token) return false;
+    const pid = Number(routePlanId);
+    const nid = Number(noteId);
+    if (!Number.isFinite(pid) || !Number.isFinite(nid)) return false;
+    try {
+      const detail = await apiFetch(`/route-plans/${pid}/trail-notes/${nid}`, {
+        method: "DELETE",
+        token,
+      });
+      setSelectedRoutePlanDetail(detail || null);
+      return true;
+    } catch (error) {
+      userAlert("Erreur", error.message);
+      return false;
+    }
+  };
+
   const showRoutePlanOnMap = useCallback((routePlan) => {
     const boxesList = Array.isArray(routePlan?.boxes) ? routePlan.boxes : [];
     const boxIds = boxesList
@@ -7586,10 +7948,7 @@ function RavitoApp() {
     if (Number.isFinite(Number(routePlan?.trail_id))) {
       const tid = Number(routePlan.trail_id);
       setSelectedTrailId(tid);
-      setMapTrailPickIds((prev) => {
-        const base = Array.isArray(prev) ? prev : [];
-        return base.includes(tid) ? base : [...base, tid];
-      });
+      setMapTrailPickIds([tid]);
     }
     setSelectedBoxId(boxIds[0]);
     userAlert(
@@ -8630,6 +8989,12 @@ function RavitoApp() {
     loadRoutePlans,
     loadRoutePlanDetail,
     createRoutePlanFromSelection,
+    updateRoutePlan,
+    deleteRoutePlan,
+    updateRoutePlanBoxComment,
+    addRoutePlanTrailNote,
+    updateRoutePlanTrailNote,
+    deleteRoutePlanTrailNote,
     showRoutePlanOnMap,
     downloadRoutePlanGpx,
     bookBox,
