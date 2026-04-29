@@ -1762,7 +1762,7 @@ router.get("/route-plans/:id", requireAuth, async (req, res) => {
   return res.json(detail);
 });
 
-router.patch("/route-plans/:id", requireAuth, async (req, res) => {
+async function applyRoutePlanUpdate(req, res) {
   const routePlanId = Number(req.params.id);
   if (!Number.isInteger(routePlanId) || routePlanId <= 0) {
     return res.status(400).json({ error: "Invalid route plan id" });
@@ -1795,9 +1795,9 @@ router.patch("/route-plans/:id", requireAuth, async (req, res) => {
   if (!rows[0]) return res.status(404).json({ error: "Route plan not found" });
   const detail = await getRoutePlanDetailsForUser(routePlanId, req.auth.sub);
   return res.json(detail);
-});
+}
 
-router.delete("/route-plans/:id", requireAuth, async (req, res) => {
+async function applyRoutePlanDelete(req, res) {
   const routePlanId = Number(req.params.id);
   if (!Number.isInteger(routePlanId) || routePlanId <= 0) {
     return res.status(400).json({ error: "Invalid route plan id" });
@@ -1810,9 +1810,23 @@ router.delete("/route-plans/:id", requireAuth, async (req, res) => {
   );
   if (!rows[0]) return res.status(404).json({ error: "Route plan not found" });
   return res.json({ ok: true });
+}
+
+router.patch("/route-plans/:id", requireAuth, async (req, res) => {
+  return applyRoutePlanUpdate(req, res);
+});
+router.post("/route-plans/:id/update", requireAuth, async (req, res) => {
+  return applyRoutePlanUpdate(req, res);
 });
 
-router.patch("/route-plans/:id/boxes/:boxId", requireAuth, async (req, res) => {
+router.delete("/route-plans/:id", requireAuth, async (req, res) => {
+  return applyRoutePlanDelete(req, res);
+});
+router.post("/route-plans/:id/delete", requireAuth, async (req, res) => {
+  return applyRoutePlanDelete(req, res);
+});
+
+async function applyRoutePlanBoxUpdate(req, res) {
   const routePlanId = Number(req.params.id);
   const boxId = Number(req.params.boxId);
   if (
@@ -1849,7 +1863,18 @@ router.patch("/route-plans/:id/boxes/:boxId", requireAuth, async (req, res) => {
   if (!rows[0]) return res.status(404).json({ error: "Box not in this plan" });
   const detail = await getRoutePlanDetailsForUser(routePlanId, req.auth.sub);
   return res.json(detail);
+}
+
+router.patch("/route-plans/:id/boxes/:boxId", requireAuth, async (req, res) => {
+  return applyRoutePlanBoxUpdate(req, res);
 });
+router.post(
+  "/route-plans/:id/boxes/:boxId/update",
+  requireAuth,
+  async (req, res) => {
+    return applyRoutePlanBoxUpdate(req, res);
+  }
+);
 
 router.post("/route-plans/:id/trail-notes", requireAuth, async (req, res) => {
   const routePlanId = Number(req.params.id);
@@ -1881,94 +1906,115 @@ router.post("/route-plans/:id/trail-notes", requireAuth, async (req, res) => {
   return res.status(201).json(detail);
 });
 
+async function applyRoutePlanTrailNoteUpdate(req, res) {
+  const routePlanId = Number(req.params.id);
+  const noteId = Number(req.params.noteId);
+  if (
+    !Number.isInteger(routePlanId) ||
+    routePlanId <= 0 ||
+    !Number.isInteger(noteId) ||
+    noteId <= 0
+  ) {
+    return res.status(400).json({ error: "Invalid route plan or note id" });
+  }
+  const parsed = updateRoutePlanTrailNoteSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error.flatten() });
+  }
+  const u = parsed.data;
+  const { rows: ownRows } = await pool.query(
+    `SELECT id FROM route_plans WHERE id = $1 AND athlete_user_id = $2`,
+    [routePlanId, req.auth.sub]
+  );
+  if (!ownRows[0])
+    return res.status(404).json({ error: "Route plan not found" });
+  const parts = [];
+  const vals = [];
+  let n = 1;
+  if (u.note !== undefined) {
+    parts.push(`note = $${n++}`);
+    vals.push(String(u.note || "").trim());
+  }
+  if (u.pointLat !== undefined) {
+    parts.push(`point_lat = $${n++}`);
+    vals.push(u.pointLat);
+  }
+  if (u.pointLon !== undefined) {
+    parts.push(`point_lon = $${n++}`);
+    vals.push(u.pointLon);
+  }
+  if (u.sortIndex !== undefined) {
+    parts.push(`sort_index = $${n++}`);
+    vals.push(u.sortIndex);
+  }
+  parts.push(`updated_at = NOW()`);
+  vals.push(noteId, routePlanId);
+  const { rows } = await pool.query(
+    `UPDATE route_plan_trail_notes
+     SET ${parts.join(", ")}
+     WHERE id = $${n++} AND route_plan_id = $${n}
+     RETURNING id`,
+    vals
+  );
+  if (!rows[0]) return res.status(404).json({ error: "Trail note not found" });
+  const detail = await getRoutePlanDetailsForUser(routePlanId, req.auth.sub);
+  return res.json(detail);
+}
+
+async function applyRoutePlanTrailNoteDelete(req, res) {
+  const routePlanId = Number(req.params.id);
+  const noteId = Number(req.params.noteId);
+  if (
+    !Number.isInteger(routePlanId) ||
+    routePlanId <= 0 ||
+    !Number.isInteger(noteId) ||
+    noteId <= 0
+  ) {
+    return res.status(400).json({ error: "Invalid route plan or note id" });
+  }
+  const { rows: ownRows } = await pool.query(
+    `SELECT id FROM route_plans WHERE id = $1 AND athlete_user_id = $2`,
+    [routePlanId, req.auth.sub]
+  );
+  if (!ownRows[0])
+    return res.status(404).json({ error: "Route plan not found" });
+  const { rows } = await pool.query(
+    `DELETE FROM route_plan_trail_notes
+     WHERE id = $1 AND route_plan_id = $2
+     RETURNING id`,
+    [noteId, routePlanId]
+  );
+  if (!rows[0]) return res.status(404).json({ error: "Trail note not found" });
+  const detail = await getRoutePlanDetailsForUser(routePlanId, req.auth.sub);
+  return res.json(detail);
+}
+
 router.patch(
   "/route-plans/:id/trail-notes/:noteId",
   requireAuth,
   async (req, res) => {
-    const routePlanId = Number(req.params.id);
-    const noteId = Number(req.params.noteId);
-    if (
-      !Number.isInteger(routePlanId) ||
-      routePlanId <= 0 ||
-      !Number.isInteger(noteId) ||
-      noteId <= 0
-    ) {
-      return res.status(400).json({ error: "Invalid route plan or note id" });
-    }
-    const parsed = updateRoutePlanTrailNoteSchema.safeParse(req.body);
-    if (!parsed.success) {
-      return res.status(400).json({ error: parsed.error.flatten() });
-    }
-    const u = parsed.data;
-    const { rows: ownRows } = await pool.query(
-      `SELECT id FROM route_plans WHERE id = $1 AND athlete_user_id = $2`,
-      [routePlanId, req.auth.sub]
-    );
-    if (!ownRows[0])
-      return res.status(404).json({ error: "Route plan not found" });
-    const parts = [];
-    const vals = [];
-    let n = 1;
-    if (u.note !== undefined) {
-      parts.push(`note = $${n++}`);
-      vals.push(String(u.note || "").trim());
-    }
-    if (u.pointLat !== undefined) {
-      parts.push(`point_lat = $${n++}`);
-      vals.push(u.pointLat);
-    }
-    if (u.pointLon !== undefined) {
-      parts.push(`point_lon = $${n++}`);
-      vals.push(u.pointLon);
-    }
-    if (u.sortIndex !== undefined) {
-      parts.push(`sort_index = $${n++}`);
-      vals.push(u.sortIndex);
-    }
-    parts.push(`updated_at = NOW()`);
-    vals.push(noteId, routePlanId);
-    const { rows } = await pool.query(
-      `UPDATE route_plan_trail_notes
-       SET ${parts.join(", ")}
-       WHERE id = $${n++} AND route_plan_id = $${n}
-       RETURNING id`,
-      vals
-    );
-    if (!rows[0]) return res.status(404).json({ error: "Trail note not found" });
-    const detail = await getRoutePlanDetailsForUser(routePlanId, req.auth.sub);
-    return res.json(detail);
+    return applyRoutePlanTrailNoteUpdate(req, res);
   }
 );
-
+router.post(
+  "/route-plans/:id/trail-notes/:noteId/update",
+  requireAuth,
+  async (req, res) => {
+    return applyRoutePlanTrailNoteUpdate(req, res);
+  }
+);
 router.delete(
   "/route-plans/:id/trail-notes/:noteId",
   requireAuth,
   async (req, res) => {
-    const routePlanId = Number(req.params.id);
-    const noteId = Number(req.params.noteId);
-    if (
-      !Number.isInteger(routePlanId) ||
-      routePlanId <= 0 ||
-      !Number.isInteger(noteId) ||
-      noteId <= 0
-    ) {
-      return res.status(400).json({ error: "Invalid route plan or note id" });
-    }
-    const { rows: ownRows } = await pool.query(
-      `SELECT id FROM route_plans WHERE id = $1 AND athlete_user_id = $2`,
-      [routePlanId, req.auth.sub]
-    );
-    if (!ownRows[0])
-      return res.status(404).json({ error: "Route plan not found" });
-    const { rows } = await pool.query(
-      `DELETE FROM route_plan_trail_notes
-       WHERE id = $1 AND route_plan_id = $2
-       RETURNING id`,
-      [noteId, routePlanId]
-    );
-    if (!rows[0]) return res.status(404).json({ error: "Trail note not found" });
-    const detail = await getRoutePlanDetailsForUser(routePlanId, req.auth.sub);
-    return res.json(detail);
+    return applyRoutePlanTrailNoteDelete(req, res);
+  }
+);
+router.post(
+  "/route-plans/:id/trail-notes/:noteId/delete",
+  requireAuth,
+  async (req, res) => {
+    return applyRoutePlanTrailNoteDelete(req, res);
   }
 );
 

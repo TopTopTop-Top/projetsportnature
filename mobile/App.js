@@ -7832,14 +7832,24 @@ function RavitoApp() {
     const pid = Number(routePlanId);
     if (!Number.isFinite(pid) || pid <= 0) return null;
     try {
-      const detail = await apiFetch(`/route-plans/${pid}`, {
-        method: "PATCH",
-        token,
-        body: {
-          ...(name != null ? { name } : {}),
-          ...(notes != null ? { notes } : {}),
-        },
-      });
+      const payload = {
+        ...(name != null ? { name } : {}),
+        ...(notes != null ? { notes } : {}),
+      };
+      let detail = null;
+      try {
+        detail = await apiFetch(`/route-plans/${pid}`, {
+          method: "PATCH",
+          token,
+          body: payload,
+        });
+      } catch (_e) {
+        detail = await apiFetch(`/route-plans/${pid}/update`, {
+          method: "POST",
+          token,
+          body: payload,
+        });
+      }
       setRoutePlans((prev) =>
         (Array.isArray(prev) ? prev : []).map((p) =>
           Number(p.id) === pid
@@ -7865,7 +7875,14 @@ function RavitoApp() {
     const pid = Number(routePlanId);
     if (!Number.isFinite(pid) || pid <= 0) return false;
     try {
-      await apiFetch(`/route-plans/${pid}`, { method: "DELETE", token });
+      try {
+        await apiFetch(`/route-plans/${pid}`, { method: "DELETE", token });
+      } catch (_e) {
+        await apiFetch(`/route-plans/${pid}/delete`, {
+          method: "POST",
+          token,
+        });
+      }
       setRoutePlans((prev) =>
         (Array.isArray(prev) ? prev : []).filter((p) => Number(p.id) !== pid)
       );
@@ -7887,11 +7904,20 @@ function RavitoApp() {
     const bid = Number(boxId);
     if (!Number.isFinite(pid) || !Number.isFinite(bid)) return null;
     try {
-      const detail = await apiFetch(`/route-plans/${pid}/boxes/${bid}`, {
-        method: "PATCH",
-        token,
-        body: { comment: comment ?? "" },
-      });
+      let detail = null;
+      try {
+        detail = await apiFetch(`/route-plans/${pid}/boxes/${bid}`, {
+          method: "PATCH",
+          token,
+          body: { comment: comment ?? "" },
+        });
+      } catch (_e) {
+        detail = await apiFetch(`/route-plans/${pid}/boxes/${bid}/update`, {
+          method: "POST",
+          token,
+          body: { comment: comment ?? "" },
+        });
+      }
       setSelectedRoutePlanDetail(detail || null);
       await loadRoutePlans();
       return detail || null;
@@ -7934,11 +7960,20 @@ function RavitoApp() {
     const nid = Number(noteId);
     if (!Number.isFinite(pid) || !Number.isFinite(nid)) return null;
     try {
-      const detail = await apiFetch(`/route-plans/${pid}/trail-notes/${nid}`, {
-        method: "PATCH",
-        token,
-        body: payload,
-      });
+      let detail = null;
+      try {
+        detail = await apiFetch(`/route-plans/${pid}/trail-notes/${nid}`, {
+          method: "PATCH",
+          token,
+          body: payload,
+        });
+      } catch (_e) {
+        detail = await apiFetch(`/route-plans/${pid}/trail-notes/${nid}/update`, {
+          method: "POST",
+          token,
+          body: payload,
+        });
+      }
       setSelectedRoutePlanDetail(detail || null);
       return detail || null;
     } catch (error) {
@@ -7953,10 +7988,18 @@ function RavitoApp() {
     const nid = Number(noteId);
     if (!Number.isFinite(pid) || !Number.isFinite(nid)) return false;
     try {
-      const detail = await apiFetch(`/route-plans/${pid}/trail-notes/${nid}`, {
-        method: "DELETE",
-        token,
-      });
+      let detail = null;
+      try {
+        detail = await apiFetch(`/route-plans/${pid}/trail-notes/${nid}`, {
+          method: "DELETE",
+          token,
+        });
+      } catch (_e) {
+        detail = await apiFetch(`/route-plans/${pid}/trail-notes/${nid}/delete`, {
+          method: "POST",
+          token,
+        });
+      }
       setSelectedRoutePlanDetail(detail || null);
       return true;
     } catch (error) {
