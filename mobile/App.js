@@ -2532,7 +2532,10 @@ function ExplorerScreen() {
                     }}
                   />
                   {(activePlanForSelectedTrail.trail_notes || []).map((n) => (
-                    <View key={`trail-note-${n.id}`} style={styles.trailPickRow}>
+                    <View
+                      key={`trail-note-${n.id}`}
+                      style={styles.trailPickRow}
+                    >
                       <View style={{ flex: 1 }}>
                         <Text style={styles.cardMeta}>
                           {(n.point_lat != null && n.point_lon != null
@@ -2617,35 +2620,46 @@ function ExplorerScreen() {
               {filteredRoutePlans.map((plan) => {
                 const active = Number(selectedRoutePlanId) === Number(plan.id);
                 return (
-                  <TouchableOpacity
+                  <SwipeableRow
                     key={`saved-plan-${plan.id}`}
-                    style={[
-                      styles.trailPickRow,
-                      active ? styles.trailPickRowActive : null,
-                    ]}
-                    onPress={() => {
-                      setSelectedRoutePlanId(Number(plan.id));
-                      actionsRef.current.loadRoutePlanDetail?.(plan.id);
-                      if (Number.isFinite(Number(plan.trail_id))) {
-                        setSelectedTrailId(Number(plan.trail_id));
-                      }
+                    onDelete={async () => {
+                      const ok = await confirmDestructive(
+                        "Supprimer ce plan ?",
+                        `Le plan « ${plan.name || "sans nom"} » sera supprimé.`
+                      );
+                      if (!ok) return;
+                      await deleteRoutePlan?.(plan.id);
                     }}
-                    activeOpacity={0.85}
                   >
-                    <Ionicons
-                      name={active ? "bookmark" : "bookmark-outline"}
-                      size={20}
-                      color={theme.primary}
-                    />
-                    <View style={{ flex: 1, marginLeft: 10 }}>
-                      <Text style={styles.cardTitle}>{plan.name}</Text>
-                      <Text style={styles.cardMeta}>
-                        {plan.trail_name || "Trace"} ·{" "}
-                        {plan.territory || "Territoire inconnu"} ·{" "}
-                        {plan.selected_box_count || 0} box
-                      </Text>
-                    </View>
-                  </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[
+                        styles.trailPickRow,
+                        active ? styles.trailPickRowActive : null,
+                      ]}
+                      onPress={() => {
+                        setSelectedRoutePlanId(Number(plan.id));
+                        actionsRef.current.loadRoutePlanDetail?.(plan.id);
+                        if (Number.isFinite(Number(plan.trail_id))) {
+                          setSelectedTrailId(Number(plan.trail_id));
+                        }
+                      }}
+                      activeOpacity={0.85}
+                    >
+                      <Ionicons
+                        name={active ? "bookmark" : "bookmark-outline"}
+                        size={20}
+                        color={theme.primary}
+                      />
+                      <View style={{ flex: 1, marginLeft: 10 }}>
+                        <Text style={styles.cardTitle}>{plan.name}</Text>
+                        <Text style={styles.cardMeta}>
+                          {plan.trail_name || "Trace"} ·{" "}
+                          {plan.territory || "Territoire inconnu"} ·{" "}
+                          {plan.selected_box_count || 0} box
+                        </Text>
+                      </View>
+                    </TouchableOpacity>
+                  </SwipeableRow>
                 );
               })}
             </ScrollView>
@@ -7821,10 +7835,24 @@ function RavitoApp() {
       const detail = await apiFetch(`/route-plans/${pid}`, {
         method: "PATCH",
         token,
-        body: { ...(name != null ? { name } : {}), ...(notes != null ? { notes } : {}) },
+        body: {
+          ...(name != null ? { name } : {}),
+          ...(notes != null ? { notes } : {}),
+        },
       });
-      await loadRoutePlans();
+      setRoutePlans((prev) =>
+        (Array.isArray(prev) ? prev : []).map((p) =>
+          Number(p.id) === pid
+            ? {
+                ...p,
+                ...(detail?.name != null ? { name: detail.name } : {}),
+                ...(detail?.notes !== undefined ? { notes: detail.notes } : {}),
+              }
+            : p
+        )
+      );
       setSelectedRoutePlanDetail(detail || null);
+      await loadRoutePlans().catch(() => {});
       return detail || null;
     } catch (error) {
       userAlert("Erreur", error.message);
@@ -7838,11 +7866,14 @@ function RavitoApp() {
     if (!Number.isFinite(pid) || pid <= 0) return false;
     try {
       await apiFetch(`/route-plans/${pid}`, { method: "DELETE", token });
-      await loadRoutePlans();
+      setRoutePlans((prev) =>
+        (Array.isArray(prev) ? prev : []).filter((p) => Number(p.id) !== pid)
+      );
       if (Number(selectedRoutePlanId) === pid) {
         setSelectedRoutePlanId(null);
         setSelectedRoutePlanDetail(null);
       }
+      await loadRoutePlans().catch(() => {});
       return true;
     } catch (error) {
       userAlert("Erreur", error.message);
@@ -7893,7 +7924,11 @@ function RavitoApp() {
     }
   };
 
-  const updateRoutePlanTrailNote = async (routePlanId, noteId, payload = {}) => {
+  const updateRoutePlanTrailNote = async (
+    routePlanId,
+    noteId,
+    payload = {}
+  ) => {
     if (!token) return null;
     const pid = Number(routePlanId);
     const nid = Number(noteId);
