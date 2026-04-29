@@ -7836,7 +7836,13 @@ function RavitoApp() {
     if (!token) return;
     const a = actionsRef.current || {};
     const jobs = [];
-    if (typeof a.loadBoxes === "function") jobs.push(a.loadBoxes());
+    // Respect the current explorer source (viewport/city/nearby) during background sync.
+    // Calling loadBoxes() blindly forces "city" results and can make viewport markers disappear.
+    if (typeof a.refetchExplorerBoxes === "function") {
+      jobs.push(a.refetchExplorerBoxes());
+    } else if (typeof a.loadBoxes === "function") {
+      jobs.push(a.loadBoxes());
+    }
     if (typeof a.loadTrails === "function") jobs.push(a.loadTrails());
     if (typeof a.loadNotifications === "function")
       jobs.push(a.loadNotifications());
