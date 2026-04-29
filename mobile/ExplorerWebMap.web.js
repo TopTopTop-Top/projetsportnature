@@ -41,7 +41,7 @@ function patchLeafletIcons(L) {
   });
 }
 
-const TRAIL_STYLE = { color: "#0F766E", weight: 4, opacity: 0.82 };
+const TRAIL_STYLE = { color: "#0F766E", weight: 2.6, opacity: 0.66 };
 const TRAIL_DIFFICULTY_STYLES = {
   easy: { color: "#16A34A", casing: "#DCFCE7" },
   medium: { color: "#D97706", casing: "#FEF3C7" },
@@ -440,15 +440,15 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
         if (isSelected) {
           L.polyline(positions, {
             color: diffStyle.casing,
-            weight: 10,
-            opacity: 0.88,
+            weight: 7,
+            opacity: 0.62,
           }).addTo(group);
         }
         const line = L.polyline(positions, {
           color: diffStyle.color,
-          weight: isSelected ? 6 : 4,
-          opacity: isSelected ? 0.98 : TRAIL_STYLE.opacity,
-          dashArray: isSelected ? undefined : "7 7",
+          weight: isSelected ? 4 : TRAIL_STYLE.weight,
+          opacity: isSelected ? 0.94 : TRAIL_STYLE.opacity,
+          dashArray: isSelected ? undefined : "5 9",
           lineCap: "round",
           lineJoin: "round",
         });
@@ -534,26 +534,20 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
               fillOpacity: 0.35,
             }).addTo(group);
           }
-          const price =
-            Number.isFinite(Number(box.price_cents)) && Number(box.price_cents) >= 0
-              ? `${(Number(box.price_cents) / 100).toFixed(0)}€`
-              : "€";
           const labelIcon = L.divIcon({
-            className: "ravitobox-price-pin",
+            className: "ravitobox-status-pin",
             html: `<div style="
-              display:flex;align-items:center;justify-content:center;
-              min-width:34px;height:30px;padding:0 8px;border-radius:999px;
+              width:${isSelected ? 18 : 14}px;height:${isSelected ? 18 : 14}px;border-radius:999px;
               border:2px solid ${isSelected ? "#0F172A" : status.stroke};
-              background:${isSelected ? "#14B8A6" : status.bg};
-              color:${isSelected ? "#ffffff" : status.fg};
-              font-size:12px;font-weight:700;box-shadow:0 4px 14px rgba(2,6,23,.22);
-            ">${escapeHtml(price)}</div>`,
-            iconSize: [42, 30],
-            iconAnchor: [21, 15],
+              background:${isSelected ? "#14B8A6" : "#FFFFFF"};
+              box-shadow:0 3px 10px rgba(2,6,23,.20);
+            "></div>`,
+            iconSize: [isSelected ? 18 : 14, isSelected ? 18 : 14],
+            iconAnchor: [isSelected ? 9 : 7, isSelected ? 9 : 7],
           });
           const m = L.marker([lat, lng], { icon: labelIcon });
           m.on("click", () => onSelectBoxRef.current?.(box.id));
-          m.bindTooltip(`${price} · ${status.label}`, {
+          m.bindTooltip(`${escapeHtml(box.title || "Box")} · ${status.label}`, {
             direction: "top",
             offset: [0, -12],
           });

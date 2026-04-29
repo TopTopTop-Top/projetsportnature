@@ -117,8 +117,8 @@ export default function NativeExplorerMap({
           <Polyline
             coordinates={t.coordinates}
             strokeColor={TRAIL_DIFFICULTY_COLORS[t.difficulty] || "#0F766E"}
-            strokeWidth={t.isSelected ? 6 : 4}
-            lineDashPattern={t.isSelected ? undefined : [8, 8]}
+            strokeWidth={t.isSelected ? 4 : 2.6}
+            lineDashPattern={t.isSelected ? undefined : [6, 10]}
             tappable
             onPress={() => onSelectTrail?.(t.id)}
           />
@@ -160,19 +160,7 @@ export default function NativeExplorerMap({
               styles.boxPin,
               Number(box.id) === Number(selectedBoxId) && styles.boxPinSelected,
             ]}
-          >
-            <Text
-              style={[
-                styles.boxPinLabel,
-                Number(box.id) === Number(selectedBoxId) &&
-                  styles.boxPinLabelSelected,
-              ]}
-            >
-              {Number.isFinite(Number(box.price_cents))
-                ? `${(Number(box.price_cents) / 100).toFixed(0)}€`
-                : "€"}
-            </Text>
-          </View>
+          />
         </Marker>
       ))}
     </MapView>
@@ -187,33 +175,24 @@ const styles = StyleSheet.create({
     overflow: "hidden",
   },
   boxPin: {
-    minWidth: 34,
-    height: 30,
-    paddingHorizontal: 8,
+    width: 14,
+    height: 14,
     borderRadius: 999,
     alignItems: "center",
     justifyContent: "center",
     borderWidth: 2,
     borderColor: "#0F766E",
-    backgroundColor: "#D1FAE5",
+    backgroundColor: "#fff",
     shadowColor: "#0F172A",
-    shadowOpacity: 0.24,
+    shadowOpacity: 0.18,
     shadowOffset: { width: 0, height: 3 },
-    shadowRadius: 8,
-    elevation: 5,
+    shadowRadius: 6,
+    elevation: 4,
   },
   boxPinSelected: {
     borderColor: "#0F172A",
     backgroundColor: "#14B8A6",
-    transform: [{ scale: 1.06 }],
-  },
-  boxPinLabel: {
-    fontSize: 12,
-    fontWeight: "800",
-    color: "#065F46",
-  },
-  boxPinLabelSelected: {
-    color: "#fff",
+    transform: [{ scale: 1.25 }],
   },
   trailPointStart: {
     width: 10,

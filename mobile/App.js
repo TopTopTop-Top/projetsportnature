@@ -1638,11 +1638,9 @@ function ExplorerScreen() {
   const explorerSelectionLock =
     safePickedBoxIds.length > 0 || mapTrailPickIds.length > 0;
   const prioritizedExplorerBoxes = useMemo(() => {
-    if (selectedBoxId == null) return boxesForExplorerList;
+    const list = Array.isArray(boxesForExplorerList) ? [...boxesForExplorerList] : [];
+    if (selectedBoxId == null) return list;
     const sid = Number(selectedBoxId);
-    const list = Array.isArray(boxesForExplorerList)
-      ? [...boxesForExplorerList]
-      : [];
     list.sort((a, b) => {
       const aSel = Number(a.id) === sid ? 1 : 0;
       const bSel = Number(b.id) === sid ? 1 : 0;
@@ -1651,11 +1649,11 @@ function ExplorerScreen() {
     return list;
   }, [boxesForExplorerList, selectedBoxId]);
   const prioritizedExplorerTrails = useMemo(() => {
-    if (selectedTrailId == null) return trailsForExplorerList;
-    const sid = Number(selectedTrailId);
     const list = Array.isArray(trailsForExplorerList)
       ? [...trailsForExplorerList]
       : [];
+    if (selectedTrailId == null) return list;
+    const sid = Number(selectedTrailId);
     list.sort((a, b) => {
       const aSel = Number(a.id) === sid ? 1 : 0;
       const bSel = Number(b.id) === sid ? 1 : 0;
@@ -2459,17 +2457,44 @@ function ExplorerScreen() {
           data={prioritizedExplorerBoxes}
           scrollEnabled={false}
           keyExtractor={(item) => `${item.id}`}
+          ListHeaderComponent={
+            selectedBox ? (
+              <View style={[styles.infoBanner, { marginBottom: 10 }]}>
+                <Ionicons
+                  name="locate-outline"
+                  size={20}
+                  color={theme.primary}
+                  style={{ marginRight: 10 }}
+                />
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.infoBannerTitle}>Box ciblée sur la carte</Text>
+                  <Text style={styles.cardMeta}>
+                    {selectedBox.title || "Box"} · {selectedBox.city || "Ville inconnue"}
+                  </Text>
+                </View>
+              </View>
+            ) : null
+          }
           renderItem={({ item }) => (
             <View
               style={[
                 styles.card,
                 Number(selectedBoxId) === Number(item.id)
-                  ? { borderColor: theme.primary, borderWidth: 2 }
+                  ? {
+                      borderColor: theme.primary,
+                      borderWidth: 2,
+                      backgroundColor: "#F0FDFA",
+                    }
                   : null,
               ]}
             >
               <View style={styles.cardAccent} />
               <Text style={styles.cardTitle}>{item.title}</Text>
+              {Number(selectedBoxId) === Number(item.id) ? (
+                <Text style={[styles.cardAvailability, { color: theme.primary }]}>
+                  Cible carte active
+                </Text>
+              ) : null}
               <View
                 style={[
                   styles.selectionPill,
@@ -2799,6 +2824,27 @@ function ExplorerScreen() {
             data={prioritizedExplorerTrails}
             scrollEnabled={false}
             keyExtractor={(item) => `trail-li-${item.id}`}
+            ListHeaderComponent={
+              selectedTrail ? (
+                <View style={[styles.infoBanner, { marginBottom: 10 }]}>
+                  <Ionicons
+                    name="navigate-outline"
+                    size={20}
+                    color={theme.primary}
+                    style={{ marginRight: 10 }}
+                  />
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.infoBannerTitle}>
+                      Trace ciblée sur la carte
+                    </Text>
+                    <Text style={styles.cardMeta}>
+                      {selectedTrail.name || "Trace"} ·{" "}
+                      {selectedTrail.territory || "Territoire inconnu"}
+                    </Text>
+                  </View>
+                </View>
+              ) : null
+            }
             renderItem={({ item: trail }) => {
               const mine =
                 user && Number(trail.creator_user_id) === Number(user.id);
@@ -2809,12 +2855,21 @@ function ExplorerScreen() {
                   style={[
                     styles.card,
                     isPicked || Number(selectedTrailId) === tid
-                      ? { borderColor: theme.primary, borderWidth: 2 }
+                      ? {
+                          borderColor: theme.primary,
+                          borderWidth: 2,
+                          backgroundColor: "#F0FDFA",
+                        }
                       : null,
                   ]}
                 >
                   <View style={styles.cardAccent} />
                   <Text style={styles.cardTitle}>{trail.name}</Text>
+                  {Number(selectedTrailId) === tid ? (
+                    <Text style={[styles.cardAvailability, { color: theme.primary }]}>
+                      Cible carte active
+                    </Text>
+                  ) : null}
                   <View
                     style={[
                       styles.selectionPill,
@@ -3659,8 +3714,9 @@ function TrailsScreen() {
         >
           <Text style={styles.cardMeta}>
             {advancedTracesFiltered.length} résultat
-            {advancedTracesFiltered.length > 1 ? "s" : ""} · {advancedFilterCount}{" "}
-            filtre{advancedFilterCount > 1 ? "s actifs" : " actif"}
+            {advancedTracesFiltered.length > 1 ? "s" : ""} ·{" "}
+            {advancedFilterCount} filtre
+            {advancedFilterCount > 1 ? "s actifs" : " actif"}
           </Text>
           <TextInput
             style={styles.input}
