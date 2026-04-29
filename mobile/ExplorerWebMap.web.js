@@ -248,6 +248,7 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
   boxes,
   trails,
   selectedTrailIds = [],
+  selectedTrailId = null,
   selectedBoxId,
   onSelectBox,
   onSelectTrail,
@@ -270,11 +271,11 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
   const selectedTrailSet = useMemo(
     () =>
       new Set(
-        (selectedTrailIds || [])
+        [...(selectedTrailIds || []), selectedTrailId]
           .map((id) => Number(id))
           .filter((id) => Number.isFinite(id))
       ),
-    [selectedTrailIds]
+    [selectedTrailIds, selectedTrailId]
   );
   const containerRef = useRef(null);
   const mapRef = useRef(null);

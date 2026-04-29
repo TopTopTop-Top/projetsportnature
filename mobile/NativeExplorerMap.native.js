@@ -13,6 +13,7 @@ export default function NativeExplorerMap({
   boxes,
   trails,
   selectedTrailIds = [],
+  selectedTrailId = null,
   selectedBoxId,
   onSelectBox,
   onSelectTrail,
@@ -49,11 +50,11 @@ export default function NativeExplorerMap({
   const selectedTrailSet = useMemo(
     () =>
       new Set(
-        (selectedTrailIds || [])
+        [...(selectedTrailIds || []), selectedTrailId]
           .map((id) => Number(id))
           .filter((id) => Number.isFinite(id))
       ),
-    [selectedTrailIds]
+    [selectedTrailIds, selectedTrailId]
   );
 
   const trailPolylines = useMemo(() => {

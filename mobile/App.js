@@ -239,14 +239,8 @@ function pointInBounds(lat, lon, bounds) {
     return false;
   }
   const lonInBounds =
-    west <= east
-      ? lon >= west && lon <= east
-      : lon >= west || lon <= east;
-  return (
-    lat >= south &&
-    lat <= north &&
-    lonInBounds
-  );
+    west <= east ? lon >= west && lon <= east : lon >= west || lon <= east;
+  return lat >= south && lat <= north && lonInBounds;
 }
 
 function trailTouchesBounds(trail, bounds) {
@@ -1653,7 +1647,9 @@ function ExplorerScreen() {
   const explorerSelectionLock =
     safePickedBoxIds.length > 0 || mapTrailPickIds.length > 0;
   const prioritizedExplorerBoxes = useMemo(() => {
-    const list = Array.isArray(boxesForExplorerList) ? [...boxesForExplorerList] : [];
+    const list = Array.isArray(boxesForExplorerList)
+      ? [...boxesForExplorerList]
+      : [];
     if (selectedBoxId == null) return list;
     const sid = Number(selectedBoxId);
     list.sort((a, b) => {
@@ -2000,6 +1996,7 @@ function ExplorerScreen() {
             boxes={boxesOnMap}
             trails={trailsOnMap}
             selectedTrailIds={mapTrailPickIds}
+            selectedTrailId={selectedTrailId}
             selectedBoxId={selectedBoxId}
             onSelectBox={focusExplorerBox}
             onSelectTrail={focusExplorerTrail}
@@ -2482,9 +2479,12 @@ function ExplorerScreen() {
                   style={{ marginRight: 10 }}
                 />
                 <View style={{ flex: 1 }}>
-                  <Text style={styles.infoBannerTitle}>Box ciblée sur la carte</Text>
+                  <Text style={styles.infoBannerTitle}>
+                    Box ciblée sur la carte
+                  </Text>
                   <Text style={styles.cardMeta}>
-                    {selectedBox.title || "Box"} · {selectedBox.city || "Ville inconnue"}
+                    {selectedBox.title || "Box"} ·{" "}
+                    {selectedBox.city || "Ville inconnue"}
                   </Text>
                 </View>
               </View>
@@ -2506,7 +2506,9 @@ function ExplorerScreen() {
               <View style={styles.cardAccent} />
               <Text style={styles.cardTitle}>{item.title}</Text>
               {Number(selectedBoxId) === Number(item.id) ? (
-                <Text style={[styles.cardAvailability, { color: theme.primary }]}>
+                <Text
+                  style={[styles.cardAvailability, { color: theme.primary }]}
+                >
                   Cible carte active
                 </Text>
               ) : null}
@@ -2881,7 +2883,12 @@ function ExplorerScreen() {
                   <View style={styles.cardAccent} />
                   <Text style={styles.cardTitle}>{trail.name}</Text>
                   {Number(selectedTrailId) === tid ? (
-                    <Text style={[styles.cardAvailability, { color: theme.primary }]}>
+                    <Text
+                      style={[
+                        styles.cardAvailability,
+                        { color: theme.primary },
+                      ]}
+                    >
                       Cible carte active
                     </Text>
                   ) : null}
@@ -3013,6 +3020,7 @@ function ExplorerScreen() {
                     boxes={boxesOnMap}
                     trails={trailsOnMap}
                     selectedTrailIds={mapTrailPickIds}
+                    selectedTrailId={selectedTrailId}
                     selectedBoxId={selectedBoxId}
                     onSelectBox={focusExplorerBox}
                     onSelectTrail={focusExplorerTrail}
@@ -3063,6 +3071,7 @@ function ExplorerScreen() {
                 boxes={boxesOnMap}
                 trails={trailsOnMap}
                 selectedTrailIds={mapTrailPickIds}
+                selectedTrailId={selectedTrailId}
                 selectedBoxId={selectedBoxId}
                 onSelectBox={focusExplorerBox}
                 onSelectTrail={focusExplorerTrail}
@@ -3696,6 +3705,7 @@ function TrailsScreen() {
               boxes={[]}
               trails={trailsMapList}
               selectedTrailIds={mapTrailPickIds}
+              selectedTrailId={selectedTrailId}
               selectedBoxId={null}
               onSelectBox={() => {}}
               onSelectTrail={(id) => setSelectedTrailId(id)}
@@ -3713,6 +3723,7 @@ function TrailsScreen() {
               boxes={[]}
               trails={trailsMapList}
               selectedTrailIds={mapTrailPickIds}
+              selectedTrailId={selectedTrailId}
               selectedBoxId={null}
               onSelectBox={() => {}}
               onSelectTrail={(id) => setSelectedTrailId(id)}
