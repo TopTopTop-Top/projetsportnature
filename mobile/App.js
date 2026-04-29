@@ -1804,6 +1804,9 @@ function ExplorerScreen() {
   const { width: viewportWidth } = useWindowDimensions();
   const [showBoxFilters, setShowBoxFilters] = useState(false);
   const [showTrailFilters, setShowTrailFilters] = useState(false);
+  const [planExportIncludePending, setPlanExportIncludePending] = useState(true);
+  const [planExportIncludeRejected, setPlanExportIncludeRejected] =
+    useState(false);
 
   useEffect(() => {
     actionsRef.current.loadTrails();
@@ -2192,17 +2195,136 @@ function ExplorerScreen() {
                       : ""}
                   </Text>
                 </View>
-                <OutlineButton
-                  compact
-                  label="GPX enrichi"
-                  icon="download-outline"
-                  onPress={() =>
-                    actionsRef.current.downloadRoutePlanGpx?.(
-                      activePlanForSelectedTrail.id
-                    )
-                  }
-                />
               </View>
+            ) : null}
+            {activePlanForSelectedTrail ? (
+              <>
+                <View style={[styles.roleRow, { marginTop: 8, flexWrap: "wrap" }]}>
+                  <TouchableOpacity
+                    style={[
+                      styles.roleChip,
+                      planExportIncludePending && styles.roleChipActive,
+                    ]}
+                    onPress={() =>
+                      setPlanExportIncludePending((prev) => !prev)
+                    }
+                    activeOpacity={0.85}
+                  >
+                    <Text
+                      style={[
+                        styles.roleChipText,
+                        planExportIncludePending && styles.roleChipTextActive,
+                      ]}
+                    >
+                      Inclure en attente
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[
+                      styles.roleChip,
+                      planExportIncludeRejected && styles.roleChipActive,
+                    ]}
+                    onPress={() =>
+                      setPlanExportIncludeRejected((prev) => !prev)
+                    }
+                    activeOpacity={0.85}
+                  >
+                    <Text
+                      style={[
+                        styles.roleChipText,
+                        planExportIncludeRejected && styles.roleChipTextActive,
+                      ]}
+                    >
+                      Inclure refusées
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+                <View style={[styles.roleRow, { marginTop: 8, flexWrap: "wrap" }]}>
+                  <OutlineButton
+                    compact
+                    label="Voir box du plan sur carte"
+                    icon="map-outline"
+                    onPress={() =>
+                      actionsRef.current.showRoutePlanOnMap?.(
+                        activePlanForSelectedTrail
+                      )
+                    }
+                  />
+                  <OutlineButton
+                    compact
+                    label="GPX enrichi"
+                    icon="download-outline"
+                    onPress={() =>
+                      actionsRef.current.downloadRoutePlanGpx?.(
+                        activePlanForSelectedTrail.id,
+                        {
+                          includePending: planExportIncludePending,
+                          includeRejected: planExportIncludeRejected,
+                        }
+                      )
+                    }
+                  />
+                </View>
+                {Array.isArray(activePlanForSelectedTrail.boxes) &&
+                activePlanForSelectedTrail.boxes.length > 0 ? (
+                  <View style={{ marginTop: 8 }}>
+                    <Text style={styles.fieldLabel}>Box du plan</Text>
+                    <ScrollView
+                      style={styles.trailPickScroll}
+                      nestedScrollEnabled
+                      keyboardShouldPersistTaps="handled"
+                    >
+                      {activePlanForSelectedTrail.boxes.map((b) => {
+                        const status = String(b.validation_status || "pending");
+                        const isValidated = status === "validated";
+                        const isRejected = status === "rejected";
+                        return (
+                          <View
+                            key={`plan-box-${b.id}`}
+                            style={[
+                              styles.trailPickRow,
+                              isValidated
+                                ? { borderColor: "#34D399", backgroundColor: "#ECFDF5" }
+                                : isRejected
+                                ? { borderColor: "#FCA5A5", backgroundColor: "#FEF2F2" }
+                                : null,
+                            ]}
+                          >
+                            <Ionicons
+                              name={
+                                isValidated
+                                  ? "checkmark-circle"
+                                  : isRejected
+                                  ? "close-circle"
+                                  : "time-outline"
+                              }
+                              size={20}
+                              color={
+                                isValidated
+                                  ? "#059669"
+                                  : isRejected
+                                  ? "#DC2626"
+                                  : theme.primary
+                              }
+                            />
+                            <View style={{ flex: 1, marginLeft: 10 }}>
+                              <Text style={styles.cardTitle}>{b.title || "Box"}</Text>
+                              <Text style={styles.cardMeta}>
+                                {b.city || "Ville inconnue"} · {status}
+                                {b.latest_booking_date &&
+                                b.latest_booking_start_time &&
+                                b.latest_booking_end_time
+                                  ? ` · ${b.latest_booking_date} ${b.latest_booking_start_time}-${b.latest_booking_end_time}`
+                                  : ""}
+                              </Text>
+                            </View>
+                          </View>
+                        );
+                      })}
+                    </ScrollView>
+                  </View>
+                ) : null}
+              </>
             ) : null}
           </View>
         ) : null}
@@ -7346,14 +7468,51 @@ function RavitoApp() {
     }
   };
 
-  const downloadRoutePlanGpx = async (routePlanId) => {
+  const showRoutePlanOnMap = useCallback((routePlan) => {
+    const boxesList = Array.isArray(routePlan?.boxes) ? routePlan.boxes : [];
+    const boxIds = boxesList
+      .map((b) => Number(b.id))
+      .filter((id) => Number.isFinite(id));
+    if (boxIds.length === 0) {
+      userAlert("Plan", "Aucune box trouvée dans ce plan.");
+      return;
+    }
+    setMapShowBoxes(true);
+    setMapBoxSelectionMode("all");
+    setMapPickedBoxIds(boxIds);
+    if (Number.isFinite(Number(routePlan?.trail_id))) {
+      const tid = Number(routePlan.trail_id);
+      setSelectedTrailId(tid);
+      setMapTrailPickIds((prev) => {
+        const base = Array.isArray(prev) ? prev : [];
+        return base.includes(tid) ? base : [...base, tid];
+      });
+    }
+    setSelectedBoxId(boxIds[0]);
+    userAlert(
+      "Plan affiché",
+      "Les box du plan sont maintenant sélectionnées sur la carte."
+    );
+  }, []);
+
+  const downloadRoutePlanGpx = async (
+    routePlanId,
+    { includePending = true, includeRejected = false } = {}
+  ) => {
     if (!token) return;
     const pid = Number(routePlanId);
     if (!Number.isFinite(pid) || pid <= 0) return;
     try {
-      const resp = await fetch(`${API_BASE_URL}/route-plans/${pid}/export-gpx`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const params = new URLSearchParams();
+      if (includePending) params.set("includePending", "true");
+      if (includeRejected) params.set("includeRejected", "true");
+      const query = params.toString() ? `?${params.toString()}` : "";
+      const resp = await fetch(
+        `${API_BASE_URL}/route-plans/${pid}/export-gpx${query}`,
+        {
+          headers: { Authorization: `Bearer ${token}` },
+        }
+      );
       if (!resp.ok) {
         const text = await resp.text();
         throw new Error(text || "Export GPX impossible");
@@ -7364,7 +7523,7 @@ function RavitoApp() {
         const href = URL.createObjectURL(blob);
         const a = document.createElement("a");
         a.href = href;
-        a.download = `plan-${pid}.gpx`;
+        a.download = `plan-${pid}-enrichi.gpx`;
         document.body.appendChild(a);
         a.click();
         a.remove();
@@ -8368,6 +8527,7 @@ function RavitoApp() {
     loadRoutePlans,
     loadRoutePlanDetail,
     createRoutePlanFromSelection,
+    showRoutePlanOnMap,
     downloadRoutePlanGpx,
     bookBox,
     decideHostBooking,

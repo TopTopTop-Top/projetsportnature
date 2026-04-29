@@ -1567,11 +1567,15 @@ async function getRoutePlanDetailsForUser(routePlanId, athleteUserId) {
             b.*,
             lb.id AS latest_booking_id,
             lb.approval_status AS latest_approval_status,
-            lb.status AS latest_booking_status
+            lb.status AS latest_booking_status,
+            lb.booking_date AS latest_booking_date,
+            lb.start_time AS latest_booking_start_time,
+            lb.end_time AS latest_booking_end_time,
+            lb.amount_cents AS latest_booking_amount_cents
      FROM route_plan_boxes rpb
      JOIN boxes b ON b.id = rpb.box_id
      LEFT JOIN LATERAL (
-       SELECT id, approval_status, status
+       SELECT id, approval_status, status, booking_date, start_time, end_time, amount_cents
        FROM bookings
        WHERE athlete_user_id = $1 AND box_id = rpb.box_id
        ORDER BY created_at DESC
@@ -1725,9 +1729,16 @@ router.get("/route-plans/:id/export-gpx", requireAuth, async (req, res) => {
           Number.isFinite(Number(pt[1]))
       )
     : [];
-  const validatedBoxes = (detail.boxes || []).filter(
-    (b) => b.validation_status === "validated"
-  );
+  const includePending =
+    String(req.query.includePending || "").toLowerCase() === "true";
+  const includeRejected =
+    String(req.query.includeRejected || "").toLowerCase() === "true";
+  const exportBoxes = (detail.boxes || []).filter((b) => {
+    if (b.validation_status === "validated") return true;
+    if (includePending && b.validation_status === "pending") return true;
+    if (includeRejected && b.validation_status === "rejected") return true;
+    return false;
+  });
 
   const trackSeg = validPoints
     .map(
@@ -1737,16 +1748,29 @@ router.get("/route-plans/:id/export-gpx", requireAuth, async (req, res) => {
         )}"></trkpt>`
     )
     .join("");
-  const waypoints = validatedBoxes
+  const waypoints = exportBoxes
     .map((box) => {
       const lat = Number(box.latitude);
       const lon = Number(box.longitude);
       if (!Number.isFinite(lat) || !Number.isFinite(lon)) return "";
+      const slot =
+        box.latest_booking_date &&
+        box.latest_booking_start_time &&
+        box.latest_booking_end_time
+          ? ` · créneau ${box.latest_booking_date} ${box.latest_booking_start_time}-${box.latest_booking_end_time}`
+          : "";
+      const amount =
+        Number.isFinite(Number(box.latest_booking_amount_cents)) &&
+        Number(box.latest_booking_amount_cents) > 0
+          ? ` · ${(
+              Number(box.latest_booking_amount_cents) / 100
+            ).toFixed(2)} EUR`
+          : "";
       return `<wpt lat="${lat.toFixed(7)}" lon="${lon.toFixed(7)}"><name>${escapeXml(
         box.title || "Box"
       )}</name><desc>${escapeXml(
-        `${box.city || ""} · box validée`
-      )}</desc><type>box</type></wpt>`;
+        `${box.city || ""} · statut ${box.validation_status}${slot}${amount}`
+      )}</desc><type>box_${escapeXml(box.validation_status || "pending")}</type></wpt>`;
     })
     .join("");
   const nowIso = new Date().toISOString();
