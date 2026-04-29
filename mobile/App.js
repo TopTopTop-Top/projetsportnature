@@ -1644,8 +1644,6 @@ function ExplorerScreen() {
       null,
     [trails, selectedTrailId]
   );
-  const explorerSelectionLock =
-    safePickedBoxIds.length > 0 || mapTrailPickIds.length > 0;
   const prioritizedExplorerBoxes = useMemo(() => {
     const list = Array.isArray(boxesForExplorerList)
       ? [...boxesForExplorerList]
@@ -1676,44 +1674,55 @@ function ExplorerScreen() {
     (boxId) => {
       const bid = Number(boxId);
       if (!Number.isFinite(bid)) return;
+      const alreadyPicked = safePickedBoxIds.includes(bid);
+      if (alreadyPicked) {
+        setMapPickedBoxIds((prev) => {
+          const base = Array.isArray(prev) ? prev : [];
+          return base.filter((id) => id !== bid);
+        });
+        if (Number(selectedBoxId) === bid) setSelectedBoxId(null);
+        return;
+      }
       setSelectedBoxId(bid);
-      setMapBoxSelectionMode("picked");
       setMapPickedBoxIds((prev) => {
         const base = Array.isArray(prev) ? prev : [];
-        return base.includes(bid)
-          ? base.filter((id) => id !== bid)
-          : [...base, bid];
+        return base.includes(bid) ? base : [...base, bid];
       });
     },
-    [setMapBoxSelectionMode, setMapPickedBoxIds, setSelectedBoxId]
+    [safePickedBoxIds, selectedBoxId, setMapPickedBoxIds, setSelectedBoxId]
   );
   const toggleExplorerPickedTrail = useCallback(
     (trailId) => {
       const tid = Number(trailId);
       if (!Number.isFinite(tid)) return;
+      const alreadyPicked = mapTrailPickIds.includes(tid);
+      if (alreadyPicked) {
+        setMapTrailPickIds((prev) => prev.filter((id) => id !== tid));
+        if (Number(selectedTrailId) === tid) setSelectedTrailId(null);
+        return;
+      }
       setSelectedTrailId(tid);
-      setMapTrailsScope("picked");
       setMapTrailPickIds((prev) =>
-        prev.includes(tid) ? prev.filter((id) => id !== tid) : [...prev, tid]
+        prev.includes(tid) ? prev : [...prev, tid]
       );
     },
-    [setMapTrailsScope, setMapTrailPickIds, setSelectedTrailId]
+    [mapTrailPickIds, selectedTrailId, setMapTrailPickIds, setSelectedTrailId]
   );
   const focusExplorerBox = useCallback(
     (boxId) => {
       const bid = Number(boxId);
       if (!Number.isFinite(bid)) return;
-      setSelectedBoxId(bid);
+      toggleExplorerPickedBox(bid);
     },
-    [setSelectedBoxId]
+    [toggleExplorerPickedBox]
   );
   const focusExplorerTrail = useCallback(
     (trailId) => {
       const tid = Number(trailId);
       if (!Number.isFinite(tid)) return;
-      setSelectedTrailId(tid);
+      toggleExplorerPickedTrail(tid);
     },
-    [setSelectedTrailId]
+    [toggleExplorerPickedTrail]
   );
   const handleExplorerMapLongPress = useCallback(
     (lat, lng) => {
@@ -1746,15 +1755,11 @@ function ExplorerScreen() {
       if (!boxHit && !trailHit) return;
       if (boxHit && (!trailHit || nearestBoxDistKm <= nearestTrailDistKm)) {
         const bid = Number(nearestBox.id);
-        setSelectedBoxId(bid);
-        if (safePickedBoxIds.includes(bid) && explorerSelectionLock) return;
         toggleExplorerPickedBox(bid);
         return;
       }
       if (trailHit) {
         const tid = Number(nearestTrail.id);
-        setSelectedTrailId(tid);
-        if (mapTrailPickIds.includes(tid) && explorerSelectionLock) return;
         toggleExplorerPickedTrail(tid);
       }
     },
@@ -1763,11 +1768,8 @@ function ExplorerScreen() {
       trailsOnMap,
       safePickedBoxIds,
       mapTrailPickIds,
-      explorerSelectionLock,
       toggleExplorerPickedBox,
       toggleExplorerPickedTrail,
-      setSelectedBoxId,
-      setSelectedTrailId,
     ]
   );
   const { width: viewportWidth } = useWindowDimensions();
@@ -1998,6 +2000,7 @@ function ExplorerScreen() {
             selectedTrailIds={mapTrailPickIds}
             selectedTrailId={selectedTrailId}
             selectedBoxId={selectedBoxId}
+            selectedBoxIds={mapPickedBoxIds}
             onSelectBox={focusExplorerBox}
             onSelectTrail={focusExplorerTrail}
             onMapLongPress={handleExplorerMapLongPress}
@@ -3022,6 +3025,7 @@ function ExplorerScreen() {
                     selectedTrailIds={mapTrailPickIds}
                     selectedTrailId={selectedTrailId}
                     selectedBoxId={selectedBoxId}
+                    selectedBoxIds={mapPickedBoxIds}
                     onSelectBox={focusExplorerBox}
                     onSelectTrail={focusExplorerTrail}
                     onMapLongPress={handleExplorerMapLongPress}
@@ -3073,6 +3077,7 @@ function ExplorerScreen() {
                 selectedTrailIds={mapTrailPickIds}
                 selectedTrailId={selectedTrailId}
                 selectedBoxId={selectedBoxId}
+                selectedBoxIds={mapPickedBoxIds}
                 onSelectBox={focusExplorerBox}
                 onSelectTrail={focusExplorerTrail}
                 onMapLongPress={handleExplorerMapLongPress}
@@ -3179,7 +3184,9 @@ function TrailsScreen() {
           .map((id) => Number(id))
           .filter((id) => Number.isFinite(id))
       );
-      list = list.filter((t) => set.has(Number(t.id)));
+      if (set.size > 0) {
+        list = list.filter((t) => set.has(Number(t.id)));
+      }
     }
     if (mapTrailDifficultyFilter !== "all") {
       list = list.filter((t) => t.difficulty === mapTrailDifficultyFilter);
@@ -6173,7 +6180,9 @@ function RavitoApp() {
       const set = new Set(
         (mapTrailPickIds || []).map((x) => Number(x)).filter(Number.isFinite)
       );
-      t = t.filter((tr) => set.has(Number(tr.id)));
+      if (set.size > 0) {
+        t = t.filter((tr) => set.has(Number(tr.id)));
+      }
     }
     if (mapTrailDifficultyFilter !== "all") {
       t = t.filter((tr) => tr.difficulty === mapTrailDifficultyFilter);
@@ -6215,7 +6224,9 @@ function RavitoApp() {
       const picks = new Set(
         (mapPickedBoxIds || []).map((x) => Number(x)).filter(Number.isFinite)
       );
-      list = list.filter((b) => picks.has(Number(b.id)));
+      if (picks.size > 0) {
+        list = list.filter((b) => picks.has(Number(b.id)));
+      }
     }
     if (mapBoxesNearTrailsOnly) {
       let proximityTrails = trailsForMap;

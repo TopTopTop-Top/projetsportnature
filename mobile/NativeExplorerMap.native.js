@@ -15,6 +15,7 @@ export default function NativeExplorerMap({
   selectedTrailIds = [],
   selectedTrailId = null,
   selectedBoxId,
+  selectedBoxIds = [],
   onSelectBox,
   onSelectTrail,
   onMapLongPress,
@@ -55,6 +56,15 @@ export default function NativeExplorerMap({
           .filter((id) => Number.isFinite(id))
       ),
     [selectedTrailIds, selectedTrailId]
+  );
+  const selectedBoxSet = useMemo(
+    () =>
+      new Set(
+        (selectedBoxIds || [])
+          .map((id) => Number(id))
+          .filter((id) => Number.isFinite(id))
+      ),
+    [selectedBoxIds]
   );
 
   const trailPolylines = useMemo(() => {
@@ -159,7 +169,9 @@ export default function NativeExplorerMap({
           <View
             style={[
               styles.boxPin,
-              Number(box.id) === Number(selectedBoxId) && styles.boxPinSelected,
+              (Number(box.id) === Number(selectedBoxId) ||
+                selectedBoxSet.has(Number(box.id))) &&
+                styles.boxPinSelected,
             ]}
           />
         </Marker>

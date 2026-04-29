@@ -250,6 +250,7 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
   selectedTrailIds = [],
   selectedTrailId = null,
   selectedBoxId,
+  selectedBoxIds = [],
   onSelectBox,
   onSelectTrail,
   onMapLongPress,
@@ -276,6 +277,15 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
           .filter((id) => Number.isFinite(id))
       ),
     [selectedTrailIds, selectedTrailId]
+  );
+  const selectedBoxSet = useMemo(
+    () =>
+      new Set(
+        (selectedBoxIds || [])
+          .map((id) => Number(id))
+          .filter((id) => Number.isFinite(id))
+      ),
+    [selectedBoxIds]
   );
   const containerRef = useRef(null);
   const mapRef = useRef(null);
@@ -524,7 +534,8 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
           const lng = Number(box.longitude);
           if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
           const isSelected =
-            Number(box.id) === Number(selectedBoxIdRef.current);
+            Number(box.id) === Number(selectedBoxIdRef.current) ||
+            selectedBoxSet.has(Number(box.id));
           const status = boxVisualStatus(box);
           if (isSelected) {
             L.circleMarker([lat, lng], {
@@ -538,7 +549,9 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
           const labelIcon = L.divIcon({
             className: "ravitobox-status-pin",
             html: `<div style="
-              width:${isSelected ? 18 : 14}px;height:${isSelected ? 18 : 14}px;border-radius:999px;
+              width:${isSelected ? 18 : 14}px;height:${
+              isSelected ? 18 : 14
+            }px;border-radius:999px;
               border:2px solid ${isSelected ? "#0F172A" : status.stroke};
               background:${isSelected ? "#14B8A6" : "#FFFFFF"};
               box-shadow:0 3px 10px rgba(2,6,23,.20);
@@ -593,7 +606,17 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
     } catch (_e) {
       // Keep current viewport if bounds computation fails.
     }
-  }, [boxes, trails, staticOrigin, draftPoint, pickerMode, autoFitToData, selectedBoxId, selectedTrailSet]);
+  }, [
+    boxes,
+    trails,
+    staticOrigin,
+    draftPoint,
+    pickerMode,
+    autoFitToData,
+    selectedBoxId,
+    selectedBoxSet,
+    selectedTrailSet,
+  ]);
 
   if (Platform.OS !== "web") {
     return null;
