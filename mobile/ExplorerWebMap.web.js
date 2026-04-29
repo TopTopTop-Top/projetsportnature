@@ -41,7 +41,12 @@ function patchLeafletIcons(L) {
   });
 }
 
-const TRAIL_STYLE = { color: "#0F766E", weight: 4, opacity: 0.88 };
+const TRAIL_STYLE = { color: "#0F766E", weight: 4, opacity: 0.82 };
+const TRAIL_DIFFICULTY_STYLES = {
+  easy: { color: "#16A34A", casing: "#DCFCE7" },
+  medium: { color: "#D97706", casing: "#FEF3C7" },
+  hard: { color: "#DC2626", casing: "#FEE2E2" },
+};
 
 const DIFFICULTY_LABELS = {
   easy: "Facile",
@@ -82,6 +87,24 @@ function escapeHtml(text) {
 function boxWaterLabel(box) {
   const w = box.has_water;
   return w === 1 || w === true || w === "1" ? "Oui" : "Non";
+}
+
+function boxVisualStatus(box) {
+  const active = Number(box?.is_active ?? 1) !== 0;
+  if (!active) {
+    return {
+      label: "Indisponible",
+      bg: "#E2E8F0",
+      fg: "#334155",
+      stroke: "#94A3B8",
+    };
+  }
+  return {
+    label: "Disponible",
+    bg: "#D1FAE5",
+    fg: "#065F46",
+    stroke: "#10B981",
+  };
 }
 
 function truncateForPopup(text, max) {
@@ -410,13 +433,44 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
         }
         if (positions.length < 2) return;
         const isSelected = selectedTrailSet.has(Number(trail.id));
-        const line = L.polyline(
-          positions,
-          isSelected
-            ? { color: "#14B8A6", weight: 6, opacity: 0.95 }
-            : TRAIL_STYLE
-        );
+        const diffStyle = TRAIL_DIFFICULTY_STYLES[trail.difficulty] || {
+          color: TRAIL_STYLE.color,
+          casing: "#CCFBF1",
+        };
+        if (isSelected) {
+          L.polyline(positions, {
+            color: diffStyle.casing,
+            weight: 10,
+            opacity: 0.88,
+          }).addTo(group);
+        }
+        const line = L.polyline(positions, {
+          color: diffStyle.color,
+          weight: isSelected ? 6 : 4,
+          opacity: isSelected ? 0.98 : TRAIL_STYLE.opacity,
+          dashArray: isSelected ? undefined : "7 7",
+          lineCap: "round",
+          lineJoin: "round",
+        });
         line.on("click", () => onSelectTrailRef.current?.(trail.id));
+        if (isSelected) {
+          const start = positions[0];
+          const end = positions[positions.length - 1];
+          L.circleMarker(start, {
+            radius: 5,
+            color: "#0F172A",
+            weight: 2,
+            fillColor: "#fff",
+            fillOpacity: 1,
+          }).addTo(group);
+          L.circleMarker(end, {
+            radius: 5,
+            color: "#0F172A",
+            weight: 2,
+            fillColor: diffStyle.color,
+            fillOpacity: 1,
+          }).addTo(group);
+        }
         line.addTo(group);
       } catch (_e) {
         // Ignore a malformed trail instead of crashing the whole map.
@@ -470,22 +524,41 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
           if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
           const isSelected =
             Number(box.id) === Number(selectedBoxIdRef.current);
+          const status = boxVisualStatus(box);
           if (isSelected) {
-            const m = L.circleMarker([lat, lng], {
-              radius: 10,
-              color: "#0F766E",
-              weight: 3,
-              fillColor: "#14B8A6",
-              fillOpacity: 0.9,
-            });
-            m.on("click", () => onSelectBoxRef.current?.(box.id));
-            m.addTo(group);
-            selectedLayer = m;
-          } else {
-            const m = L.marker([lat, lng]);
-            m.on("click", () => onSelectBoxRef.current?.(box.id));
-            m.addTo(group);
+            L.circleMarker([lat, lng], {
+              radius: 15,
+              color: "#0F172A",
+              weight: 2,
+              fillColor: "#99F6E4",
+              fillOpacity: 0.35,
+            }).addTo(group);
           }
+          const price =
+            Number.isFinite(Number(box.price_cents)) && Number(box.price_cents) >= 0
+              ? `${(Number(box.price_cents) / 100).toFixed(0)}€`
+              : "€";
+          const labelIcon = L.divIcon({
+            className: "ravitobox-price-pin",
+            html: `<div style="
+              display:flex;align-items:center;justify-content:center;
+              min-width:34px;height:30px;padding:0 8px;border-radius:999px;
+              border:2px solid ${isSelected ? "#0F172A" : status.stroke};
+              background:${isSelected ? "#14B8A6" : status.bg};
+              color:${isSelected ? "#ffffff" : status.fg};
+              font-size:12px;font-weight:700;box-shadow:0 4px 14px rgba(2,6,23,.22);
+            ">${escapeHtml(price)}</div>`,
+            iconSize: [42, 30],
+            iconAnchor: [21, 15],
+          });
+          const m = L.marker([lat, lng], { icon: labelIcon });
+          m.on("click", () => onSelectBoxRef.current?.(box.id));
+          m.bindTooltip(`${price} · ${status.label}`, {
+            direction: "top",
+            offset: [0, -12],
+          });
+          m.addTo(group);
+          if (isSelected) selectedLayer = m;
         } catch (_e) {
           // Ignore a malformed host point instead of crashing the whole map.
         }
