@@ -6739,7 +6739,13 @@ function RavitoApp() {
           );
           if (reqId !== explorerSearchSeqRef.current) return;
           setBoxes(rows);
-          setSelectedBoxId(rows.length > 0 ? rows[0].id : null);
+          setSelectedBoxId((prev) =>
+            prev != null && rows.some((b) => Number(b.id) === Number(prev))
+              ? prev
+              : rows.length > 0
+              ? rows[0].id
+              : null
+          );
           setMapExplorerLastSearchAt(Date.now());
           setMapExplorerLastSearchSource(source);
           return;
@@ -6792,7 +6798,21 @@ function RavitoApp() {
             });
           }
           if (reqId !== explorerSearchSeqRef.current) return;
-          setBoxes(rows);
+          if (Array.isArray(rows) && rows.length === 0) {
+            setBoxes((prev) => {
+              const base = Array.isArray(prev) ? prev : [];
+              const fallback = base.filter((box) =>
+                pointInBounds(
+                  Number(box.latitude),
+                  Number(box.longitude),
+                  bounds
+                )
+              );
+              return fallback.length > 0 ? fallback : rows;
+            });
+          } else {
+            setBoxes(rows);
+          }
           setSelectedBoxId((prev) =>
             prev != null && rows.some((b) => b.id === prev) ? prev : null
           );
@@ -6804,7 +6824,13 @@ function RavitoApp() {
         const rows = await apiFetch(`/boxes?city=${encodeURIComponent(q)}`);
         if (reqId !== explorerSearchSeqRef.current) return;
         setBoxes(rows);
-        setSelectedBoxId(rows.length > 0 ? rows[0].id : null);
+        setSelectedBoxId((prev) =>
+          prev != null && rows.some((b) => Number(b.id) === Number(prev))
+            ? prev
+            : rows.length > 0
+            ? rows[0].id
+            : null
+        );
         setMapExplorerLastSearchAt(Date.now());
         setMapExplorerLastSearchSource(source);
         return;
