@@ -6205,7 +6205,11 @@ function RavitoApp() {
   const boxesForMap = useMemo(() => {
     if (!mapShowBoxes) return [];
     let list = boxes;
-    if (mapListSource === "viewport" && mapViewportBounds) {
+    if (
+      mapListSource === "viewport" &&
+      mapViewportBounds &&
+      mapExplorerLastSearchSource !== "viewport"
+    ) {
       list = list.filter((box) =>
         pointInBounds(
           Number(box.latitude),
@@ -6249,6 +6253,7 @@ function RavitoApp() {
   }, [
     boxes,
     mapViewportBounds,
+    mapExplorerLastSearchSource,
     mapListSource,
     mapShowBoxes,
     mapBoxCriteriaTags,
@@ -6750,13 +6755,42 @@ function RavitoApp() {
           ) {
             return;
           }
-          const rows = await apiFetch(
-            `/boxes/bounds?south=${encodeURIComponent(
-              south
-            )}&west=${encodeURIComponent(west)}&north=${encodeURIComponent(
-              north
-            )}&east=${encodeURIComponent(east)}&limit=200`
-          );
+          let rows = [];
+          if (west <= east) {
+            rows = await apiFetch(
+              `/boxes/bounds?south=${encodeURIComponent(
+                south
+              )}&west=${encodeURIComponent(west)}&north=${encodeURIComponent(
+                north
+              )}&east=${encodeURIComponent(east)}&limit=200`
+            );
+          } else {
+            const [rowsA, rowsB] = await Promise.all([
+              apiFetch(
+                `/boxes/bounds?south=${encodeURIComponent(
+                  south
+                )}&west=${encodeURIComponent(west)}&north=${encodeURIComponent(
+                  north
+                )}&east=${encodeURIComponent(180)}&limit=200`
+              ),
+              apiFetch(
+                `/boxes/bounds?south=${encodeURIComponent(
+                  south
+                )}&west=${encodeURIComponent(-180)}&north=${encodeURIComponent(
+                  north
+                )}&east=${encodeURIComponent(east)}&limit=200`
+              ),
+            ]);
+            const merged = [...(rowsA || []), ...(rowsB || [])];
+            const seen = new Set();
+            rows = merged.filter((b) => {
+              const id = Number(b?.id);
+              if (!Number.isFinite(id)) return false;
+              if (seen.has(id)) return false;
+              seen.add(id);
+              return true;
+            });
+          }
           if (reqId !== explorerSearchSeqRef.current) return;
           setBoxes(rows);
           setSelectedBoxId((prev) =>
