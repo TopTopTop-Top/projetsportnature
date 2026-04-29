@@ -2620,7 +2620,7 @@ function ExplorerScreen() {
               {filteredRoutePlans.map((plan) => {
                 const active = Number(selectedRoutePlanId) === Number(plan.id);
                 return (
-                  <SwipeableRow
+                  <SwipeActionRow
                     key={`saved-plan-${plan.id}`}
                     onDelete={async () => {
                       const ok = await confirmDestructive(
@@ -2659,7 +2659,7 @@ function ExplorerScreen() {
                         </Text>
                       </View>
                     </TouchableOpacity>
-                  </SwipeableRow>
+                  </SwipeActionRow>
                 );
               })}
             </ScrollView>
