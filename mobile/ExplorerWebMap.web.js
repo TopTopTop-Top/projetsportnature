@@ -251,6 +251,10 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
   selectedTrailId = null,
   selectedBoxId,
   selectedBoxIds = [],
+  compatibleBoxIds = [],
+  proximityTrailIds = [],
+  trailCorridorKm = 2,
+  dimIncompatibleBoxes = false,
   onSelectBox,
   onSelectTrail,
   onMapLongPress,
@@ -286,6 +290,24 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
           .filter((id) => Number.isFinite(id))
       ),
     [selectedBoxIds]
+  );
+  const compatibleBoxSet = useMemo(
+    () =>
+      new Set(
+        (compatibleBoxIds || [])
+          .map((id) => Number(id))
+          .filter((id) => Number.isFinite(id))
+      ),
+    [compatibleBoxIds]
+  );
+  const proximityTrailSet = useMemo(
+    () =>
+      new Set(
+        (proximityTrailIds || [])
+          .map((id) => Number(id))
+          .filter((id) => Number.isFinite(id))
+      ),
+    [proximityTrailIds]
   );
   const containerRef = useRef(null);
   const mapRef = useRef(null);
@@ -444,10 +466,21 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
         }
         if (positions.length < 2) return;
         const isSelected = selectedTrailSet.has(Number(trail.id));
+        const isProximityTrail = proximityTrailSet.has(Number(trail.id));
         const diffStyle = TRAIL_DIFFICULTY_STYLES[trail.difficulty] || {
           color: TRAIL_STYLE.color,
           casing: "#CCFBF1",
         };
+        if (isProximityTrail) {
+          const corridorWeight = Math.max(14, Math.min(44, trailCorridorKm * 10));
+          L.polyline(positions, {
+            color: "#0EA5E9",
+            weight: corridorWeight,
+            opacity: 0.14,
+            lineCap: "round",
+            lineJoin: "round",
+          }).addTo(group);
+        }
         if (isSelected) {
           L.polyline(positions, {
             color: diffStyle.casing,
@@ -536,6 +569,8 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
           const isSelected =
             Number(box.id) === Number(selectedBoxIdRef.current) ||
             selectedBoxSet.has(Number(box.id));
+          const isCompatible =
+            compatibleBoxSet.size === 0 || compatibleBoxSet.has(Number(box.id));
           const status = boxVisualStatus(box);
           if (isSelected) {
             L.circleMarker([lat, lng], {
@@ -552,8 +587,21 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
               width:${isSelected ? 18 : 14}px;height:${
               isSelected ? 18 : 14
             }px;border-radius:999px;
-              border:2px solid ${isSelected ? "#0F172A" : status.stroke};
-              background:${isSelected ? "#14B8A6" : "#FFFFFF"};
+              border:2px solid ${
+                isSelected
+                  ? "#0F172A"
+                  : dimIncompatibleBoxes && !isCompatible
+                  ? "#94A3B8"
+                  : status.stroke
+              };
+              background:${
+                isSelected
+                  ? "#14B8A6"
+                  : dimIncompatibleBoxes && !isCompatible
+                  ? "#E2E8F0"
+                  : "#FFFFFF"
+              };
+              opacity:${dimIncompatibleBoxes && !isCompatible ? "0.6" : "1"};
               box-shadow:0 3px 10px rgba(2,6,23,.20);
             "></div>`,
             iconSize: [isSelected ? 18 : 14, isSelected ? 18 : 14],
@@ -616,6 +664,10 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
     selectedBoxId,
     selectedBoxSet,
     selectedTrailSet,
+    compatibleBoxSet,
+    proximityTrailSet,
+    trailCorridorKm,
+    dimIncompatibleBoxes,
   ]);
 
   if (Platform.OS !== "web") {

@@ -1597,8 +1597,13 @@ function ExplorerScreen() {
     setMapBoxCriteriaTags,
     mapNearTrailsMode,
     setMapNearTrailsMode,
-    mapNearTrailPickIds,
-    setMapNearTrailPickIds,
+    mapNearSingleTrailId,
+    setMapNearSingleTrailId,
+    mapNearShowAllOnMap,
+    setMapNearShowAllOnMap,
+    nearTrailReferenceTrails,
+    nearTrailCompatibleBoxIds,
+    nearTrailDistanceByBoxId,
     mapListSource,
     setMapListSource,
     mapBoxesNearTrailsOnly,
@@ -2001,6 +2006,10 @@ function ExplorerScreen() {
             selectedTrailId={selectedTrailId}
             selectedBoxId={selectedBoxId}
             selectedBoxIds={mapPickedBoxIds}
+            compatibleBoxIds={nearTrailCompatibleBoxIds}
+            proximityTrailIds={nearTrailReferenceTrails.map((t) => Number(t.id))}
+            trailCorridorKm={Number(mapTrailProximityKm) || 2}
+            dimIncompatibleBoxes={mapBoxesNearTrailsOnly && mapNearShowAllOnMap}
             onSelectBox={focusExplorerBox}
             onSelectTrail={focusExplorerTrail}
             onMapLongPress={handleExplorerMapLongPress}
@@ -2341,33 +2350,29 @@ function ExplorerScreen() {
                 </View>
                 {mapBoxesNearTrailsOnly ? (
                   <>
-                    <TextInput
-                      style={styles.input}
-                      placeholder="Distance max. au tracé (km)"
-                      placeholderTextColor={theme.inkMuted}
-                      value={mapTrailProximityKm}
-                      onChangeText={setMapTrailProximityKm}
-                      keyboardType="decimal-pad"
-                    />
+                    <Text style={styles.helperText}>
+                      Mode recommandé: choisis tes traces, règle un rayon, puis
+                      réserve directement les box les plus proches.
+                    </Text>
                     <Text style={styles.fieldLabel}>Tracés de référence</Text>
                     <View style={styles.roleRow}>
                       <TouchableOpacity
                         style={[
                           styles.roleChip,
-                          mapNearTrailsMode === "visible" &&
+                          mapNearTrailsMode === "mine" &&
                             styles.roleChipActive,
                         ]}
-                        onPress={() => setMapNearTrailsMode("visible")}
+                        onPress={() => setMapNearTrailsMode("mine")}
                         activeOpacity={0.85}
                       >
                         <Text
                           style={[
                             styles.roleChipText,
-                            mapNearTrailsMode === "visible" &&
+                            mapNearTrailsMode === "mine" &&
                               styles.roleChipTextActive,
                           ]}
                         >
-                          Tracés visibles
+                          Toutes mes traces
                         </Text>
                       </TouchableOpacity>
                       <TouchableOpacity
@@ -2386,11 +2391,29 @@ function ExplorerScreen() {
                               styles.roleChipTextActive,
                           ]}
                         >
-                          Tracés choisis
+                          Traces sélectionnées
+                        </Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={[
+                          styles.roleChip,
+                          mapNearTrailsMode === "one" && styles.roleChipActive,
+                        ]}
+                        onPress={() => setMapNearTrailsMode("one")}
+                        activeOpacity={0.85}
+                      >
+                        <Text
+                          style={[
+                            styles.roleChipText,
+                            mapNearTrailsMode === "one" &&
+                              styles.roleChipTextActive,
+                          ]}
+                        >
+                          Une trace précise
                         </Text>
                       </TouchableOpacity>
                     </View>
-                    {mapNearTrailsMode === "picked" ? (
+                    {mapNearTrailsMode === "one" ? (
                       <ScrollView
                         style={styles.trailPickScroll}
                         nestedScrollEnabled
@@ -2398,7 +2421,7 @@ function ExplorerScreen() {
                       >
                         {trailsForPickList.map((trail) => {
                           const tid = Number(trail.id);
-                          const sel = mapNearTrailPickIds.includes(tid);
+                          const sel = Number(mapNearSingleTrailId) === tid;
                           return (
                             <TouchableOpacity
                               key={`near-pick-tr-${trail.id}`}
@@ -2407,11 +2430,7 @@ function ExplorerScreen() {
                                 sel && styles.trailPickRowActive,
                               ]}
                               onPress={() => {
-                                setMapNearTrailPickIds((prev) =>
-                                  prev.includes(tid)
-                                    ? prev.filter((x) => x !== tid)
-                                    : [...prev, tid]
-                                );
+                                setMapNearSingleTrailId(tid);
                               }}
                               activeOpacity={0.85}
                             >
@@ -2433,6 +2452,88 @@ function ExplorerScreen() {
                         })}
                       </ScrollView>
                     ) : null}
+                    <Text style={styles.fieldLabel}>Rayon autour des traces</Text>
+                    <View style={[styles.roleRow, { flexWrap: "wrap" }]}>
+                      {["0.5", "1", "2", "3", "5"].map((km) => (
+                        <TouchableOpacity
+                          key={`near-km-${km}`}
+                          style={[
+                            styles.roleChip,
+                            String(mapTrailProximityKm) === km &&
+                              styles.roleChipActive,
+                          ]}
+                          onPress={() => setMapTrailProximityKm(km)}
+                          activeOpacity={0.85}
+                        >
+                          <Text
+                            style={[
+                              styles.roleChipText,
+                              String(mapTrailProximityKm) === km &&
+                                styles.roleChipTextActive,
+                            ]}
+                          >
+                            {km} km
+                          </Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                    <Text style={styles.fieldLabel}>Affichage carte</Text>
+                    <View style={styles.roleRow}>
+                      <TouchableOpacity
+                        style={[
+                          styles.roleChip,
+                          !mapNearShowAllOnMap && styles.roleChipActive,
+                        ]}
+                        onPress={() => setMapNearShowAllOnMap(false)}
+                        activeOpacity={0.85}
+                      >
+                        <Text
+                          style={[
+                            styles.roleChipText,
+                            !mapNearShowAllOnMap && styles.roleChipTextActive,
+                          ]}
+                        >
+                          Compatibles uniquement
+                        </Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={[
+                          styles.roleChip,
+                          mapNearShowAllOnMap && styles.roleChipActive,
+                        ]}
+                        onPress={() => setMapNearShowAllOnMap(true)}
+                        activeOpacity={0.85}
+                      >
+                        <Text
+                          style={[
+                            styles.roleChipText,
+                            mapNearShowAllOnMap && styles.roleChipTextActive,
+                          ]}
+                        >
+                          Toutes (fond grisé)
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
+                    <View style={styles.infoBanner}>
+                      <Ionicons
+                        name="sparkles-outline"
+                        size={20}
+                        color={theme.primary}
+                        style={{ marginRight: 10 }}
+                      />
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.infoBannerTitle}>
+                          {nearTrailCompatibleBoxIds.length} box réservable
+                          {nearTrailCompatibleBoxIds.length > 1 ? "s" : ""} dans{" "}
+                          {mapTrailProximityKm} km
+                        </Text>
+                        <Text style={styles.cardMeta}>
+                          Référence: {nearTrailReferenceTrails.length} trace
+                          {nearTrailReferenceTrails.length > 1 ? "s" : ""} ·
+                          tri distance puis disponibilité
+                        </Text>
+                      </View>
+                    </View>
                   </>
                 ) : null}
               </>
@@ -2558,6 +2659,20 @@ function ExplorerScreen() {
               <Text style={styles.cardAvailability}>
                 {formatHostRatingLine(item)}
               </Text>
+              {mapBoxesNearTrailsOnly ? (
+                <View
+                  style={[
+                    styles.selectionPill,
+                    styles.selectionPillActive,
+                    { marginBottom: 8 },
+                  ]}
+                >
+                  <Text style={[styles.selectionPillText, styles.selectionPillTextActive]}>
+                    {(Number(nearTrailDistanceByBoxId[Number(item.id)]) || 0).toFixed(1)} km de ta trace ·{" "}
+                    {canBook ? "Réservable" : "Voir en compte athlète"}
+                  </Text>
+                </View>
+              ) : null}
               <Text style={styles.cardDetailLine}>
                 {item.capacity_liters ?? "?"} L · Eau : {boxWaterLabel(item)}
               </Text>
@@ -3026,6 +3141,14 @@ function ExplorerScreen() {
                     selectedTrailId={selectedTrailId}
                     selectedBoxId={selectedBoxId}
                     selectedBoxIds={mapPickedBoxIds}
+                    compatibleBoxIds={nearTrailCompatibleBoxIds}
+                    proximityTrailIds={nearTrailReferenceTrails.map((t) =>
+                      Number(t.id)
+                    )}
+                    trailCorridorKm={Number(mapTrailProximityKm) || 2}
+                    dimIncompatibleBoxes={
+                      mapBoxesNearTrailsOnly && mapNearShowAllOnMap
+                    }
                     onSelectBox={focusExplorerBox}
                     onSelectTrail={focusExplorerTrail}
                     onMapLongPress={handleExplorerMapLongPress}
@@ -3078,6 +3201,12 @@ function ExplorerScreen() {
                 selectedTrailId={selectedTrailId}
                 selectedBoxId={selectedBoxId}
                 selectedBoxIds={mapPickedBoxIds}
+                compatibleBoxIds={nearTrailCompatibleBoxIds}
+                proximityTrailIds={nearTrailReferenceTrails.map((t) =>
+                  Number(t.id)
+                )}
+                trailCorridorKm={Number(mapTrailProximityKm) || 2}
+                dimIncompatibleBoxes={mapBoxesNearTrailsOnly && mapNearShowAllOnMap}
                 onSelectBox={focusExplorerBox}
                 onSelectTrail={focusExplorerTrail}
                 onMapLongPress={handleExplorerMapLongPress}
@@ -6119,8 +6248,7 @@ function RavitoApp() {
   const [mapTrailListSort, setMapTrailListSort] = useState("default");
   const [mapShowBoxes, setMapShowBoxes] = useState(true);
   const [mapBoxCriteriaTags, setMapBoxCriteriaTags] = useState([]);
-  const [mapNearTrailsMode, setMapNearTrailsMode] = useState("visible");
-  const [mapNearTrailPickIds, setMapNearTrailPickIds] = useState([]);
+  const [mapNearTrailsMode, setMapNearTrailsMode] = useState("mine");
   const [mapListSource, setMapListSource] = useState("viewport");
   const [mapViewportBounds, setMapViewportBounds] = useState(null);
   /** Incrémenté pour forcer un recentrage carte (ex. sync depuis Mes box). */
@@ -6133,6 +6261,8 @@ function RavitoApp() {
     useState(null);
   const [mapBoxesNearTrailsOnly, setMapBoxesNearTrailsOnly] = useState(false);
   const [mapTrailProximityKm, setMapTrailProximityKm] = useState("3");
+  const [mapNearSingleTrailId, setMapNearSingleTrailId] = useState(null);
+  const [mapNearShowAllOnMap, setMapNearShowAllOnMap] = useState(true);
 
   useEffect(() => {
     if (!user) {
@@ -6202,6 +6332,70 @@ function RavitoApp() {
     user?.id,
   ]);
 
+  const nearTrailReferenceTrails = useMemo(() => {
+    if (!mapBoxesNearTrailsOnly) return [];
+    const allTrails = Array.isArray(trailsForMap) ? trailsForMap : [];
+    if (allTrails.length === 0) return [];
+    const uid = user?.id != null ? Number(user.id) : null;
+    if (mapNearTrailsMode === "mine" && Number.isFinite(uid)) {
+      return allTrails.filter((trail) => Number(trail.creator_user_id) === uid);
+    }
+    if (mapNearTrailsMode === "picked") {
+      const picks = new Set(
+        (mapTrailPickIds || []).map((x) => Number(x)).filter(Number.isFinite)
+      );
+      const pickedTrails = allTrails.filter((trail) =>
+        picks.has(Number(trail.id))
+      );
+      return pickedTrails.length > 0
+        ? pickedTrails
+        : allTrails.filter((trail) => Number(trail.id) === Number(selectedTrailId));
+    }
+    if (mapNearTrailsMode === "one") {
+      return allTrails.filter(
+        (trail) => Number(trail.id) === Number(mapNearSingleTrailId)
+      );
+    }
+    return allTrails;
+  }, [
+    mapBoxesNearTrailsOnly,
+    trailsForMap,
+    user?.id,
+    mapNearTrailsMode,
+    mapTrailPickIds,
+    selectedTrailId,
+    mapNearSingleTrailId,
+  ]);
+
+  const nearTrailDistanceByBoxId = useMemo(() => {
+    const byId = {};
+    if (!mapBoxesNearTrailsOnly || nearTrailReferenceTrails.length === 0) {
+      return byId;
+    }
+    for (const box of boxes || []) {
+      const bid = Number(box.id);
+      if (!Number.isFinite(bid)) continue;
+      byId[bid] = minDistanceKmFromBoxToTrails(box, nearTrailReferenceTrails);
+    }
+    return byId;
+  }, [mapBoxesNearTrailsOnly, boxes, nearTrailReferenceTrails]);
+
+  const nearTrailCompatibleBoxIds = useMemo(() => {
+    if (!mapBoxesNearTrailsOnly || nearTrailReferenceTrails.length === 0) {
+      return [];
+    }
+    const km = Math.max(0.1, parseFloat(mapTrailProximityKm) || 2);
+    return Object.entries(nearTrailDistanceByBoxId)
+      .filter(([, distance]) => Number(distance) <= km)
+      .map(([id]) => Number(id))
+      .filter(Number.isFinite);
+  }, [
+    mapBoxesNearTrailsOnly,
+    nearTrailReferenceTrails,
+    mapTrailProximityKm,
+    nearTrailDistanceByBoxId,
+  ]);
+
   const boxesForMap = useMemo(() => {
     if (!mapShowBoxes) return [];
     let list = boxes;
@@ -6233,21 +6427,12 @@ function RavitoApp() {
       }
     }
     if (mapBoxesNearTrailsOnly) {
-      let proximityTrails = trailsForMap;
-      if (mapNearTrailsMode === "picked") {
-        const tset = new Set(
-          (mapNearTrailPickIds || [])
-            .map((x) => Number(x))
-            .filter(Number.isFinite)
-        );
-        proximityTrails = trailsForMap.filter((t) => tset.has(Number(t.id)));
+      const nearSet = new Set(
+        nearTrailCompatibleBoxIds.map((x) => Number(x)).filter(Number.isFinite)
+      );
+      if (!mapNearShowAllOnMap) {
+        list = list.filter((box) => nearSet.has(Number(box.id)));
       }
-      if (proximityTrails.length === 0) return [];
-      const km = Math.max(0.1, parseFloat(mapTrailProximityKm) || 3);
-      list = list.filter((box) => {
-        const d = minDistanceKmFromBoxToTrails(box, proximityTrails);
-        return d <= km;
-      });
     }
     return list;
   }, [
@@ -6260,14 +6445,19 @@ function RavitoApp() {
     mapBoxSelectionMode,
     mapPickedBoxIds,
     mapBoxesNearTrailsOnly,
-    mapNearTrailsMode,
-    mapNearTrailPickIds,
     mapTrailProximityKm,
-    trailsForMap,
+    nearTrailCompatibleBoxIds,
+    mapNearShowAllOnMap,
   ]);
 
   const boxesForExplorerList = useMemo(() => {
-    const list = [...boxesForMap];
+    const compatibleSet = new Set(
+      nearTrailCompatibleBoxIds.map((x) => Number(x)).filter(Number.isFinite)
+    );
+    const source = mapBoxesNearTrailsOnly
+      ? boxesForMap.filter((b) => compatibleSet.has(Number(b.id)))
+      : boxesForMap;
+    const list = [...source];
     const avg = (b) => Number(b.host_avg_score) || 0;
     const cnt = (b) => Number(b.host_review_count) || 0;
     switch (mapBoxSort) {
@@ -6292,7 +6482,17 @@ function RavitoApp() {
         list.sort((a, b) => (b.price_cents || 0) - (a.price_cents || 0));
         break;
       default:
-        if (list.some((b) => b.distance_km != null)) {
+        if (mapBoxesNearTrailsOnly) {
+          list.sort((a, b) => {
+            const da = Number(nearTrailDistanceByBoxId[Number(a.id)]);
+            const db = Number(nearTrailDistanceByBoxId[Number(b.id)]);
+            if (da !== db) return da - db;
+            const aReservable = canBook ? 1 : 0;
+            const bReservable = canBook ? 1 : 0;
+            if (aReservable !== bReservable) return bReservable - aReservable;
+            return (Number(a.distance_km) || 1e9) - (Number(b.distance_km) || 1e9);
+          });
+        } else if (list.some((b) => b.distance_km != null)) {
           list.sort(
             (a, b) =>
               (Number(a.distance_km) || 1e9) - (Number(b.distance_km) || 1e9)
@@ -6301,7 +6501,14 @@ function RavitoApp() {
         break;
     }
     return list;
-  }, [boxesForMap, mapBoxSort]);
+  }, [
+    boxesForMap,
+    mapBoxSort,
+    mapBoxesNearTrailsOnly,
+    nearTrailCompatibleBoxIds,
+    nearTrailDistanceByBoxId,
+    canBook,
+  ]);
 
   const trailsForExplorerList = useMemo(() => {
     const list = [...(trailsForMap || [])];
@@ -8033,8 +8240,13 @@ function RavitoApp() {
       setMapTrailListSort,
       mapNearTrailsMode,
       setMapNearTrailsMode,
-      mapNearTrailPickIds,
-      setMapNearTrailPickIds,
+      mapNearSingleTrailId,
+      setMapNearSingleTrailId,
+      mapNearShowAllOnMap,
+      setMapNearShowAllOnMap,
+      nearTrailReferenceTrails,
+      nearTrailCompatibleBoxIds,
+      nearTrailDistanceByBoxId,
       boxesForExplorerList,
       trailsForExplorerList,
       mapViewportBounds,
@@ -8105,7 +8317,11 @@ function RavitoApp() {
       mapBoxSort,
       mapTrailListSort,
       mapNearTrailsMode,
-      mapNearTrailPickIds,
+      mapNearSingleTrailId,
+      mapNearShowAllOnMap,
+      nearTrailReferenceTrails,
+      nearTrailCompatibleBoxIds,
+      nearTrailDistanceByBoxId,
       boxesForExplorerList,
       trailsForExplorerList,
       mapViewportBounds,

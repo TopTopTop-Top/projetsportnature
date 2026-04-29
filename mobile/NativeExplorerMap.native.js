@@ -16,6 +16,10 @@ export default function NativeExplorerMap({
   selectedTrailId = null,
   selectedBoxId,
   selectedBoxIds = [],
+  compatibleBoxIds = [],
+  proximityTrailIds = [],
+  trailCorridorKm = 2,
+  dimIncompatibleBoxes = false,
   onSelectBox,
   onSelectTrail,
   onMapLongPress,
@@ -66,6 +70,24 @@ export default function NativeExplorerMap({
       ),
     [selectedBoxIds]
   );
+  const compatibleBoxSet = useMemo(
+    () =>
+      new Set(
+        (compatibleBoxIds || [])
+          .map((id) => Number(id))
+          .filter((id) => Number.isFinite(id))
+      ),
+    [compatibleBoxIds]
+  );
+  const proximityTrailSet = useMemo(
+    () =>
+      new Set(
+        (proximityTrailIds || [])
+          .map((id) => Number(id))
+          .filter((id) => Number.isFinite(id))
+      ),
+    [proximityTrailIds]
+  );
 
   const trailPolylines = useMemo(() => {
     return trails
@@ -85,10 +107,11 @@ export default function NativeExplorerMap({
           difficulty: trail.difficulty || "medium",
           coordinates,
           isSelected: selectedTrailSet.has(Number(trail.id)),
+          isProximityTrail: proximityTrailSet.has(Number(trail.id)),
         };
       })
       .filter((t) => t.coordinates.length > 1);
-  }, [trails, selectedTrailSet]);
+  }, [trails, selectedTrailSet, proximityTrailSet]);
 
   const reportBounds = (r) => {
     if (typeof onVisibleBoundsChange !== "function" || !r) return;
@@ -118,6 +141,13 @@ export default function NativeExplorerMap({
     >
       {trailPolylines.map((t) => (
         <React.Fragment key={t.id}>
+          {t.isProximityTrail ? (
+            <Polyline
+              coordinates={t.coordinates}
+              strokeColor="rgba(14, 165, 233, 0.20)"
+              strokeWidth={Math.max(10, Math.min(30, trailCorridorKm * 7))}
+            />
+          ) : null}
           {t.isSelected ? (
             <Polyline
               coordinates={t.coordinates}
@@ -156,26 +186,31 @@ export default function NativeExplorerMap({
           ) : null}
         </React.Fragment>
       ))}
-      {boxes.map((box) => (
-        <Marker
-          key={box.id}
-          coordinate={{
-            latitude: box.latitude,
-            longitude: box.longitude,
-          }}
-          tracksViewChanges={false}
-          onPress={() => onSelectBox(box.id)}
-        >
-          <View
-            style={[
-              styles.boxPin,
-              (Number(box.id) === Number(selectedBoxId) ||
-                selectedBoxSet.has(Number(box.id))) &&
-                styles.boxPinSelected,
-            ]}
-          />
-        </Marker>
-      ))}
+      {boxes.map((box) => {
+        const isCompatible =
+          compatibleBoxSet.size === 0 || compatibleBoxSet.has(Number(box.id));
+        return (
+          <Marker
+            key={box.id}
+            coordinate={{
+              latitude: box.latitude,
+              longitude: box.longitude,
+            }}
+            tracksViewChanges={false}
+            onPress={() => onSelectBox(box.id)}
+          >
+            <View
+              style={[
+                styles.boxPin,
+                dimIncompatibleBoxes && !isCompatible && styles.boxPinDimmed,
+                (Number(box.id) === Number(selectedBoxId) ||
+                  selectedBoxSet.has(Number(box.id))) &&
+                  styles.boxPinSelected,
+              ]}
+            />
+          </Marker>
+        );
+      })}
     </MapView>
   );
 }
@@ -206,6 +241,11 @@ const styles = StyleSheet.create({
     borderColor: "#0F172A",
     backgroundColor: "#14B8A6",
     transform: [{ scale: 1.25 }],
+  },
+  boxPinDimmed: {
+    borderColor: "#94A3B8",
+    backgroundColor: "#E2E8F0",
+    opacity: 0.65,
   },
   trailPointStart: {
     width: 10,
