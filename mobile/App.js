@@ -1807,6 +1807,24 @@ function ExplorerScreen() {
   const [planExportIncludePending, setPlanExportIncludePending] = useState(true);
   const [planExportIncludeRejected, setPlanExportIncludeRejected] =
     useState(false);
+  const [planSearchQuery, setPlanSearchQuery] = useState("");
+  const filteredRoutePlans = useMemo(() => {
+    const base = Array.isArray(routePlans) ? routePlans : [];
+    const q = String(planSearchQuery || "")
+      .trim()
+      .toLowerCase();
+    if (!q) return base.slice(0, 30);
+    return base
+      .filter((plan) => {
+        const name = String(plan.name || "").toLowerCase();
+        const trailName = String(plan.trail_name || "").toLowerCase();
+        const territory = String(plan.territory || "").toLowerCase();
+        return (
+          name.includes(q) || trailName.includes(q) || territory.includes(q)
+        );
+      })
+      .slice(0, 30);
+  }, [routePlans, planSearchQuery]);
 
   useEffect(() => {
     actionsRef.current.loadTrails();
@@ -2328,6 +2346,63 @@ function ExplorerScreen() {
             ) : null}
           </View>
         ) : null}
+        <View style={[styles.selectedHostCard, { marginTop: 8 }]}>
+          <Text style={styles.selectedLabel}>Mes plans enregistrés</Text>
+          <Text style={styles.helperText}>
+            Retrouve un plan même si tu n'es plus sur la même trace.
+          </Text>
+          <TextInput
+            style={styles.input}
+            placeholder="Rechercher un plan (nom, trace, territoire)"
+            placeholderTextColor={theme.inkMuted}
+            value={planSearchQuery}
+            onChangeText={setPlanSearchQuery}
+          />
+          {filteredRoutePlans.length === 0 ? (
+            <Text style={styles.emptyText}>Aucun plan trouvé avec ce filtre.</Text>
+          ) : (
+            <ScrollView
+              style={styles.trailPickScroll}
+              nestedScrollEnabled
+              keyboardShouldPersistTaps="handled"
+            >
+              {filteredRoutePlans.map((plan) => {
+                const active = Number(selectedRoutePlanId) === Number(plan.id);
+                return (
+                  <TouchableOpacity
+                    key={`saved-plan-${plan.id}`}
+                    style={[
+                      styles.trailPickRow,
+                      active ? styles.trailPickRowActive : null,
+                    ]}
+                    onPress={() => {
+                      setSelectedRoutePlanId(Number(plan.id));
+                      actionsRef.current.loadRoutePlanDetail?.(plan.id);
+                      if (Number.isFinite(Number(plan.trail_id))) {
+                        setSelectedTrailId(Number(plan.trail_id));
+                      }
+                    }}
+                    activeOpacity={0.85}
+                  >
+                    <Ionicons
+                      name={active ? "bookmark" : "bookmark-outline"}
+                      size={20}
+                      color={theme.primary}
+                    />
+                    <View style={{ flex: 1, marginLeft: 10 }}>
+                      <Text style={styles.cardTitle}>{plan.name}</Text>
+                      <Text style={styles.cardMeta}>
+                        {plan.trail_name || "Trace"} ·{" "}
+                        {plan.territory || "Territoire inconnu"} ·{" "}
+                        {plan.selected_box_count || 0} box
+                      </Text>
+                    </View>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+          )}
+        </View>
       </Section>
 
       {canBook ? (
@@ -7452,7 +7527,7 @@ function RavitoApp() {
         token,
         body: { trailId: tid, boxIds: ids, ...(name ? { name } : {}) },
       });
-      await loadRoutePlans({ trailId: tid });
+      await loadRoutePlans();
       setSelectedRoutePlanId(Number(detail?.id) || null);
       setSelectedRoutePlanDetail(detail || null);
       userAlert(
@@ -7478,6 +7553,7 @@ function RavitoApp() {
       return;
     }
     setMapShowBoxes(true);
+    setMapBoxesNearTrailsOnly(false);
     setMapBoxSelectionMode("all");
     setMapPickedBoxIds(boxIds);
     if (Number.isFinite(Number(routePlan?.trail_id))) {
