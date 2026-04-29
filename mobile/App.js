@@ -1604,6 +1604,11 @@ function ExplorerScreen() {
     nearTrailReferenceTrails,
     nearTrailCompatibleBoxIds,
     nearTrailDistanceByBoxId,
+    routePlans,
+    selectedRoutePlanId,
+    setSelectedRoutePlanId,
+    selectedRoutePlanDetail,
+    routePlanBusy,
     mapListSource,
     setMapListSource,
     mapBoxesNearTrailsOnly,
@@ -1649,6 +1654,25 @@ function ExplorerScreen() {
       null,
     [trails, selectedTrailId]
   );
+  const plansForSelectedTrail = useMemo(() => {
+    const tid = Number(selectedTrailId);
+    if (!Number.isFinite(tid)) return [];
+    return (Array.isArray(routePlans) ? routePlans : []).filter(
+      (p) => Number(p.trail_id) === tid
+    );
+  }, [routePlans, selectedTrailId]);
+  const activePlanForSelectedTrail = useMemo(() => {
+    const detail = selectedRoutePlanDetail;
+    const tid = Number(selectedTrailId);
+    if (
+      detail &&
+      Number(detail.trail_id) === tid &&
+      Number(detail.id) === Number(selectedRoutePlanId)
+    ) {
+      return detail;
+    }
+    return null;
+  }, [selectedRoutePlanDetail, selectedTrailId, selectedRoutePlanId]);
   const prioritizedExplorerBoxes = useMemo(() => {
     const list = Array.isArray(boxesForExplorerList)
       ? [...boxesForExplorerList]
@@ -1783,6 +1807,7 @@ function ExplorerScreen() {
 
   useEffect(() => {
     actionsRef.current.loadTrails();
+    actionsRef.current.loadRoutePlans?.();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -2096,6 +2121,89 @@ function ExplorerScreen() {
                 actionsRef.current.isolateTrailOnMap(selectedTrail.id)
               }
             />
+            <OutlineButton
+              compact
+              stretch
+              label={
+                routePlanBusy
+                  ? "Enregistrement du plan..."
+                  : "Enregistrer plan (trace + box sélectionnées)"
+              }
+              icon="save-outline"
+              onPress={() =>
+                actionsRef.current.createRoutePlanFromSelection?.({
+                  trailId: selectedTrail.id,
+                  boxIds: safePickedBoxIds,
+                })
+              }
+            />
+            {plansForSelectedTrail.length > 0 ? (
+              <View style={{ marginTop: 8 }}>
+                <Text style={styles.fieldLabel}>Plans de cette trace</Text>
+                <View style={[styles.roleRow, { flexWrap: "wrap" }]}>
+                  {plansForSelectedTrail.slice(0, 5).map((plan) => {
+                    const active = Number(selectedRoutePlanId) === Number(plan.id);
+                    return (
+                      <TouchableOpacity
+                        key={`route-plan-chip-${plan.id}`}
+                        style={[styles.roleChip, active && styles.roleChipActive]}
+                        onPress={() => {
+                          setSelectedRoutePlanId(Number(plan.id));
+                          actionsRef.current.loadRoutePlanDetail?.(plan.id);
+                        }}
+                        activeOpacity={0.85}
+                      >
+                        <Text
+                          style={[
+                            styles.roleChipText,
+                            active && styles.roleChipTextActive,
+                          ]}
+                        >
+                          {plan.name}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              </View>
+            ) : null}
+            {activePlanForSelectedTrail ? (
+              <View style={[styles.infoBanner, { marginTop: 8 }]}>
+                <Ionicons
+                  name="flag-outline"
+                  size={20}
+                  color={theme.primary}
+                  style={{ marginRight: 10 }}
+                />
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.infoBannerTitle}>
+                    Plan actif: {activePlanForSelectedTrail.name}
+                  </Text>
+                  <Text style={styles.cardMeta}>
+                    {activePlanForSelectedTrail.validated_box_count || 0} validée
+                    {(activePlanForSelectedTrail.validated_box_count || 0) > 1
+                      ? "s"
+                      : ""}{" "}
+                    · {activePlanForSelectedTrail.pending_box_count || 0} en
+                    attente · {activePlanForSelectedTrail.rejected_box_count || 0}{" "}
+                    refusée
+                    {(activePlanForSelectedTrail.rejected_box_count || 0) > 1
+                      ? "s"
+                      : ""}
+                  </Text>
+                </View>
+                <OutlineButton
+                  compact
+                  label="GPX enrichi"
+                  icon="download-outline"
+                  onPress={() =>
+                    actionsRef.current.downloadRoutePlanGpx?.(
+                      activePlanForSelectedTrail.id
+                    )
+                  }
+                />
+              </View>
+            ) : null}
           </View>
         ) : null}
       </Section>
@@ -6263,6 +6371,10 @@ function RavitoApp() {
   const [mapTrailProximityKm, setMapTrailProximityKm] = useState("3");
   const [mapNearSingleTrailId, setMapNearSingleTrailId] = useState(null);
   const [mapNearShowAllOnMap, setMapNearShowAllOnMap] = useState(true);
+  const [routePlans, setRoutePlans] = useState([]);
+  const [selectedRoutePlanId, setSelectedRoutePlanId] = useState(null);
+  const [selectedRoutePlanDetail, setSelectedRoutePlanDetail] = useState(null);
+  const [routePlanBusy, setRoutePlanBusy] = useState(false);
 
   useEffect(() => {
     if (!user) {
@@ -6708,6 +6820,9 @@ function RavitoApp() {
       setHostRefunds([]);
       setHostBookings([]);
       setAthleteBookings([]);
+      setRoutePlans([]);
+      setSelectedRoutePlanId(null);
+      setSelectedRoutePlanDetail(null);
       setAuthMode("login");
     }
   };
@@ -7154,6 +7269,112 @@ function RavitoApp() {
     try {
       const rows = await apiFetch("/trails");
       setTrails(Array.isArray(rows) ? rows : []);
+    } catch (error) {
+      userAlert("Erreur", error.message);
+    }
+  };
+
+  const loadRoutePlans = async ({ trailId } = {}) => {
+    if (!token) return [];
+    try {
+      const suffix =
+        Number.isFinite(Number(trailId)) && Number(trailId) > 0
+          ? `?trailId=${Number(trailId)}`
+          : "";
+      const rows = await apiFetch(`/route-plans${suffix}`, { token });
+      const list = Array.isArray(rows) ? rows : [];
+      setRoutePlans(list);
+      return list;
+    } catch (error) {
+      userAlert("Erreur", error.message);
+      return [];
+    }
+  };
+
+  const loadRoutePlanDetail = async (routePlanId) => {
+    if (!token) return null;
+    const pid = Number(routePlanId);
+    if (!Number.isFinite(pid) || pid <= 0) return null;
+    try {
+      const detail = await apiFetch(`/route-plans/${pid}`, { token });
+      setSelectedRoutePlanId(pid);
+      setSelectedRoutePlanDetail(detail || null);
+      return detail || null;
+    } catch (error) {
+      userAlert("Erreur", error.message);
+      return null;
+    }
+  };
+
+  const createRoutePlanFromSelection = async ({
+    trailId,
+    boxIds,
+    name,
+  } = {}) => {
+    if (!token) return null;
+    const tid = Number(trailId);
+    const ids = Array.isArray(boxIds)
+      ? boxIds.map((x) => Number(x)).filter(Number.isFinite)
+      : [];
+    if (!Number.isFinite(tid) || tid <= 0 || ids.length === 0) {
+      userAlert(
+        "Planification",
+        "Sélectionne une trace et au moins une box pour créer ton plan."
+      );
+      return null;
+    }
+    setRoutePlanBusy(true);
+    try {
+      const detail = await apiFetch("/route-plans", {
+        method: "POST",
+        token,
+        body: { trailId: tid, boxIds: ids, ...(name ? { name } : {}) },
+      });
+      await loadRoutePlans({ trailId: tid });
+      setSelectedRoutePlanId(Number(detail?.id) || null);
+      setSelectedRoutePlanDetail(detail || null);
+      userAlert(
+        "Plan enregistré",
+        "Plan créé. Tu peux suivre les validations puis exporter le GPX enrichi."
+      );
+      return detail || null;
+    } catch (error) {
+      userAlert("Erreur", error.message);
+      return null;
+    } finally {
+      setRoutePlanBusy(false);
+    }
+  };
+
+  const downloadRoutePlanGpx = async (routePlanId) => {
+    if (!token) return;
+    const pid = Number(routePlanId);
+    if (!Number.isFinite(pid) || pid <= 0) return;
+    try {
+      const resp = await fetch(`${API_BASE_URL}/route-plans/${pid}/export-gpx`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!resp.ok) {
+        const text = await resp.text();
+        throw new Error(text || "Export GPX impossible");
+      }
+      const gpxText = await resp.text();
+      if (Platform.OS === "web") {
+        const blob = new Blob([gpxText], { type: "application/gpx+xml" });
+        const href = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = href;
+        a.download = `plan-${pid}.gpx`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(href);
+        return;
+      }
+      userAlert(
+        "Export GPX",
+        "Export prêt côté serveur. Sur mobile natif, utilise la version web pour télécharger le fichier GPX."
+      );
     } catch (error) {
       userAlert("Erreur", error.message);
     }
@@ -8089,6 +8310,7 @@ function RavitoApp() {
     if (canBook) {
       if (typeof a.loadAthleteBookings === "function")
         jobs.push(a.loadAthleteBookings());
+      if (typeof a.loadRoutePlans === "function") jobs.push(a.loadRoutePlans());
     }
     await Promise.allSettled(jobs);
   }, [token, canHost, canBook]);
@@ -8143,6 +8365,10 @@ function RavitoApp() {
     markExplorerMapUserGesture,
     recenterExplorerMapOnResults,
     loadTrails,
+    loadRoutePlans,
+    loadRoutePlanDetail,
+    createRoutePlanFromSelection,
+    downloadRoutePlanGpx,
     bookBox,
     decideHostBooking,
     decideAthleteBookingChange,
@@ -8247,6 +8473,11 @@ function RavitoApp() {
       nearTrailReferenceTrails,
       nearTrailCompatibleBoxIds,
       nearTrailDistanceByBoxId,
+      routePlans,
+      selectedRoutePlanId,
+      setSelectedRoutePlanId,
+      selectedRoutePlanDetail,
+      routePlanBusy,
       boxesForExplorerList,
       trailsForExplorerList,
       mapViewportBounds,
@@ -8322,6 +8553,10 @@ function RavitoApp() {
       nearTrailReferenceTrails,
       nearTrailCompatibleBoxIds,
       nearTrailDistanceByBoxId,
+      routePlans,
+      selectedRoutePlanId,
+      selectedRoutePlanDetail,
+      routePlanBusy,
       boxesForExplorerList,
       trailsForExplorerList,
       mapViewportBounds,

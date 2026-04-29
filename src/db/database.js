@@ -293,6 +293,26 @@ async function migrate() {
       )`
     );
     await client.query(
+      `CREATE TABLE IF NOT EXISTS route_plans (
+        id SERIAL PRIMARY KEY,
+        athlete_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        trail_id INTEGER NOT NULL REFERENCES trails(id) ON DELETE CASCADE,
+        name TEXT NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )`
+    );
+    await client.query(
+      `CREATE TABLE IF NOT EXISTS route_plan_boxes (
+        id SERIAL PRIMARY KEY,
+        route_plan_id INTEGER NOT NULL REFERENCES route_plans(id) ON DELETE CASCADE,
+        box_id INTEGER NOT NULL REFERENCES boxes(id) ON DELETE CASCADE,
+        sort_index INTEGER NOT NULL DEFAULT 0,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        UNIQUE(route_plan_id, box_id)
+      )`
+    );
+    await client.query(
       `CREATE INDEX IF NOT EXISTS idx_notifications_recipient_created ON notifications(recipient_user_id, created_at DESC)`
     );
     await client.query(
@@ -312,6 +332,12 @@ async function migrate() {
     );
     await client.query(
       `CREATE INDEX IF NOT EXISTS idx_access_incidents_box_created ON access_incidents(box_id, created_at DESC)`
+    );
+    await client.query(
+      `CREATE INDEX IF NOT EXISTS idx_route_plans_user_trail ON route_plans(athlete_user_id, trail_id, updated_at DESC)`
+    );
+    await client.query(
+      `CREATE INDEX IF NOT EXISTS idx_route_plan_boxes_plan_sort ON route_plan_boxes(route_plan_id, sort_index, created_at)`
     );
 
     await client.query("COMMIT");

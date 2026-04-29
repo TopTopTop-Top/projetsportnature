@@ -217,6 +217,12 @@ const updateMyRoleSchema = z.object({
   role: z.enum(["athlete", "host", "both"]),
 });
 
+const createRoutePlanSchema = z.object({
+  trailId: z.number().int().positive(),
+  boxIds: z.array(z.number().int().positive()).min(1).max(100),
+  name: z.string().min(3).max(200).optional(),
+});
+
 const nearbyQuerySchema = z.object({
   lat: z.coerce.number().min(-90).max(90),
   lon: z.coerce.number().min(-180).max(180),
@@ -246,6 +252,15 @@ function haversineKm(lat1, lon1, lat2, lon2) {
     Math.sin(dLat / 2) ** 2 +
     Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
   return 2 * earthRadiusKm * Math.asin(Math.sqrt(a));
+}
+
+function escapeXml(value) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&apos;");
 }
 
 function simplifyLatLngs(points, maxPoints) {
@@ -1535,6 +1550,226 @@ router.post(
     }
   }
 );
+
+async function getRoutePlanDetailsForUser(routePlanId, athleteUserId) {
+  const { rows: planRows } = await pool.query(
+    `SELECT rp.*, t.name AS trail_name, t.polyline_json, t.gpx_url, t.territory
+     FROM route_plans rp
+     JOIN trails t ON t.id = rp.trail_id
+     WHERE rp.id = $1 AND rp.athlete_user_id = $2`,
+    [routePlanId, athleteUserId]
+  );
+  const plan = planRows[0];
+  if (!plan) return null;
+
+  const { rows: boxRows } = await pool.query(
+    `SELECT rpb.sort_index,
+            b.*,
+            lb.id AS latest_booking_id,
+            lb.approval_status AS latest_approval_status,
+            lb.status AS latest_booking_status
+     FROM route_plan_boxes rpb
+     JOIN boxes b ON b.id = rpb.box_id
+     LEFT JOIN LATERAL (
+       SELECT id, approval_status, status
+       FROM bookings
+       WHERE athlete_user_id = $1 AND box_id = rpb.box_id
+       ORDER BY created_at DESC
+       LIMIT 1
+     ) lb ON TRUE
+     WHERE rpb.route_plan_id = $2
+     ORDER BY rpb.sort_index ASC, rpb.created_at ASC`,
+    [athleteUserId, routePlanId]
+  );
+
+  const boxes = boxRows.map((b) => {
+    const approval = String(b.latest_approval_status || "pending");
+    const bookingStatus = String(b.latest_booking_status || "");
+    let validationStatus = "pending";
+    if (approval === "accepted" && bookingStatus !== "cancelled") {
+      validationStatus = "validated";
+    } else if (approval === "rejected") {
+      validationStatus = "rejected";
+    }
+    return {
+      ...b,
+      validation_status: validationStatus,
+    };
+  });
+
+  return {
+    ...plan,
+    boxes,
+    validated_box_count: boxes.filter((b) => b.validation_status === "validated")
+      .length,
+    pending_box_count: boxes.filter((b) => b.validation_status === "pending")
+      .length,
+    rejected_box_count: boxes.filter((b) => b.validation_status === "rejected")
+      .length,
+  };
+}
+
+router.post("/route-plans", requireAuth, async (req, res) => {
+  const parsed = createRoutePlanSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error.flatten() });
+  }
+  const input = parsed.data;
+  const athleteUserId = req.auth.sub;
+  const uniqBoxIds = Array.from(
+    new Set(input.boxIds.map((x) => Number(x)).filter(Number.isFinite))
+  );
+  if (uniqBoxIds.length === 0) {
+    return res.status(400).json({ error: "Select at least one box" });
+  }
+
+  const { rows: trailRows } = await pool.query(
+    `SELECT id, name FROM trails WHERE id = $1`,
+    [input.trailId]
+  );
+  const trail = trailRows[0];
+  if (!trail) return res.status(404).json({ error: "Trail not found" });
+
+  const { rows: validBoxRows } = await pool.query(
+    `SELECT id FROM boxes WHERE id = ANY($1::int[]) AND is_active = 1`,
+    [uniqBoxIds]
+  );
+  const validSet = new Set(validBoxRows.map((r) => Number(r.id)));
+  const filteredBoxIds = uniqBoxIds.filter((id) => validSet.has(Number(id)));
+  if (filteredBoxIds.length === 0) {
+    return res.status(400).json({ error: "No active box selected" });
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const planName =
+      input.name?.trim() ||
+      `Plan ${trail.name || "trace"} · ${new Date().toLocaleDateString("fr-FR")}`;
+    const { rows: createdRows } = await client.query(
+      `INSERT INTO route_plans (athlete_user_id, trail_id, name, updated_at)
+       VALUES ($1, $2, $3, NOW())
+       RETURNING *`,
+      [athleteUserId, input.trailId, planName]
+    );
+    const plan = createdRows[0];
+    for (let i = 0; i < filteredBoxIds.length; i += 1) {
+      await client.query(
+        `INSERT INTO route_plan_boxes (route_plan_id, box_id, sort_index)
+         VALUES ($1, $2, $3)
+         ON CONFLICT (route_plan_id, box_id) DO NOTHING`,
+        [plan.id, filteredBoxIds[i], i]
+      );
+    }
+    await client.query("COMMIT");
+    const detail = await getRoutePlanDetailsForUser(plan.id, athleteUserId);
+    return res.status(201).json(detail);
+  } catch (error) {
+    await client.query("ROLLBACK");
+    return res.status(500).json({ error: "Failed to create route plan" });
+  } finally {
+    client.release();
+  }
+});
+
+router.get("/route-plans", requireAuth, async (req, res) => {
+  const athleteUserId = req.auth.sub;
+  const trailId = Number(req.query.trailId);
+  const hasTrail = Number.isInteger(trailId) && trailId > 0;
+  const { rows } = await pool.query(
+    `SELECT rp.id, rp.name, rp.trail_id, rp.created_at, rp.updated_at,
+            t.name AS trail_name, t.territory,
+            COUNT(rpb.id)::int AS selected_box_count
+     FROM route_plans rp
+     JOIN trails t ON t.id = rp.trail_id
+     LEFT JOIN route_plan_boxes rpb ON rpb.route_plan_id = rp.id
+     WHERE rp.athlete_user_id = $1
+       ${hasTrail ? "AND rp.trail_id = $2" : ""}
+     GROUP BY rp.id, t.id
+     ORDER BY rp.updated_at DESC`,
+    hasTrail ? [athleteUserId, trailId] : [athleteUserId]
+  );
+  return res.json(rows);
+});
+
+router.get("/route-plans/:id", requireAuth, async (req, res) => {
+  const routePlanId = Number(req.params.id);
+  if (!Number.isInteger(routePlanId) || routePlanId <= 0) {
+    return res.status(400).json({ error: "Invalid route plan id" });
+  }
+  const detail = await getRoutePlanDetailsForUser(routePlanId, req.auth.sub);
+  if (!detail) return res.status(404).json({ error: "Route plan not found" });
+  return res.json(detail);
+});
+
+router.get("/route-plans/:id/export-gpx", requireAuth, async (req, res) => {
+  const routePlanId = Number(req.params.id);
+  if (!Number.isInteger(routePlanId) || routePlanId <= 0) {
+    return res.status(400).json({ error: "Invalid route plan id" });
+  }
+  const detail = await getRoutePlanDetailsForUser(routePlanId, req.auth.sub);
+  if (!detail) return res.status(404).json({ error: "Route plan not found" });
+
+  let polyline = [];
+  try {
+    polyline = detail.polyline_json ? JSON.parse(detail.polyline_json) : [];
+  } catch (_e) {
+    polyline = [];
+  }
+  const validPoints = Array.isArray(polyline)
+    ? polyline.filter(
+        (pt) =>
+          Array.isArray(pt) &&
+          pt.length >= 2 &&
+          Number.isFinite(Number(pt[0])) &&
+          Number.isFinite(Number(pt[1]))
+      )
+    : [];
+  const validatedBoxes = (detail.boxes || []).filter(
+    (b) => b.validation_status === "validated"
+  );
+
+  const trackSeg = validPoints
+    .map(
+      (pt) =>
+        `<trkpt lat="${Number(pt[0]).toFixed(7)}" lon="${Number(pt[1]).toFixed(
+          7
+        )}"></trkpt>`
+    )
+    .join("");
+  const waypoints = validatedBoxes
+    .map((box) => {
+      const lat = Number(box.latitude);
+      const lon = Number(box.longitude);
+      if (!Number.isFinite(lat) || !Number.isFinite(lon)) return "";
+      return `<wpt lat="${lat.toFixed(7)}" lon="${lon.toFixed(7)}"><name>${escapeXml(
+        box.title || "Box"
+      )}</name><desc>${escapeXml(
+        `${box.city || ""} · box validée`
+      )}</desc><type>box</type></wpt>`;
+    })
+    .join("");
+  const nowIso = new Date().toISOString();
+  const gpx = `<?xml version="1.0" encoding="UTF-8"?>
+<gpx version="1.1" creator="RavitoBox" xmlns="http://www.topografix.com/GPX/1/1">
+  <metadata>
+    <name>${escapeXml(detail.name || "Plan de course")}</name>
+    <time>${nowIso}</time>
+  </metadata>
+  ${waypoints}
+  <trk>
+    <name>${escapeXml(detail.trail_name || "Trace")}</name>
+    <trkseg>${trackSeg}</trkseg>
+  </trk>
+</gpx>`;
+
+  res.setHeader("Content-Type", "application/gpx+xml; charset=utf-8");
+  res.setHeader(
+    "Content-Disposition",
+    `attachment; filename="plan-${routePlanId}.gpx"`
+  );
+  return res.send(gpx);
+});
 
 router.post("/bookings", requireAuth, async (req, res) => {
   const parsed = createBookingSchema.safeParse(req.body);
