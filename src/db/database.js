@@ -298,6 +298,7 @@ async function migrate() {
         athlete_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
         trail_id INTEGER NOT NULL REFERENCES trails(id) ON DELETE CASCADE,
         name TEXT NOT NULL,
+        notes TEXT,
         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
       )`
@@ -335,6 +336,9 @@ async function migrate() {
     );
     await client.query(
       `CREATE INDEX IF NOT EXISTS idx_route_plans_user_trail ON route_plans(athlete_user_id, trail_id, updated_at DESC)`
+    );
+    await client.query(
+      `ALTER TABLE route_plans ADD COLUMN IF NOT EXISTS notes TEXT`
     );
     await client.query(
       `CREATE INDEX IF NOT EXISTS idx_route_plan_boxes_plan_sort ON route_plan_boxes(route_plan_id, sort_index, created_at)`

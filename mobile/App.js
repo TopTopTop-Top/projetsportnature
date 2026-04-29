@@ -1808,6 +1808,7 @@ function ExplorerScreen() {
   const [planExportIncludeRejected, setPlanExportIncludeRejected] =
     useState(false);
   const [planSearchQuery, setPlanSearchQuery] = useState("");
+  const [routePlanDraftNotes, setRoutePlanDraftNotes] = useState("");
   const filteredRoutePlans = useMemo(() => {
     const base = Array.isArray(routePlans) ? routePlans : [];
     const q = String(planSearchQuery || "")
@@ -2152,11 +2153,24 @@ function ExplorerScreen() {
               }
               icon="save-outline"
               onPress={() =>
-                actionsRef.current.createRoutePlanFromSelection?.({
-                  trailId: selectedTrail.id,
-                  boxIds: safePickedBoxIds,
-                })
+                (async () => {
+                  const created =
+                    await actionsRef.current.createRoutePlanFromSelection?.({
+                      trailId: selectedTrail.id,
+                      boxIds: safePickedBoxIds,
+                      notes: routePlanDraftNotes,
+                    });
+                  if (created) setRoutePlanDraftNotes("");
+                })()
               }
+            />
+            <TextInput
+              style={[styles.input, styles.textArea, { marginTop: 8 }]}
+              placeholder="Notes plan (ravito, stratégie, checkpoints...)"
+              placeholderTextColor={theme.inkMuted}
+              value={routePlanDraftNotes}
+              onChangeText={setRoutePlanDraftNotes}
+              multiline
             />
             {plansForSelectedTrail.length > 0 ? (
               <View style={{ marginTop: 8 }}>
@@ -2212,6 +2226,11 @@ function ExplorerScreen() {
                       ? "s"
                       : ""}
                   </Text>
+                  {activePlanForSelectedTrail.notes ? (
+                    <Text style={styles.cardAvailability} numberOfLines={4}>
+                      {activePlanForSelectedTrail.notes}
+                    </Text>
+                  ) : null}
                 </View>
               </View>
             ) : null}
@@ -7507,6 +7526,7 @@ function RavitoApp() {
     trailId,
     boxIds,
     name,
+    notes,
   } = {}) => {
     if (!token) return null;
     const tid = Number(trailId);
@@ -7525,7 +7545,12 @@ function RavitoApp() {
       const detail = await apiFetch("/route-plans", {
         method: "POST",
         token,
-        body: { trailId: tid, boxIds: ids, ...(name ? { name } : {}) },
+        body: {
+          trailId: tid,
+          boxIds: ids,
+          ...(name ? { name } : {}),
+          ...(notes ? { notes } : {}),
+        },
       });
       await loadRoutePlans();
       setSelectedRoutePlanId(Number(detail?.id) || null);
@@ -7554,6 +7579,8 @@ function RavitoApp() {
     }
     setMapShowBoxes(true);
     setMapBoxesNearTrailsOnly(false);
+    setMapShowTrails(true);
+    setMapTrailsScope("picked");
     setMapBoxSelectionMode("all");
     setMapPickedBoxIds(boxIds);
     if (Number.isFinite(Number(routePlan?.trail_id))) {

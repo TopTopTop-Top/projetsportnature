@@ -221,6 +221,7 @@ const createRoutePlanSchema = z.object({
   trailId: z.number().int().positive(),
   boxIds: z.array(z.number().int().positive()).min(1).max(100),
   name: z.string().min(3).max(200).optional(),
+  notes: z.string().max(4000).optional(),
 });
 
 const nearbyQuerySchema = z.object({
@@ -1650,11 +1651,15 @@ router.post("/route-plans", requireAuth, async (req, res) => {
     const planName =
       input.name?.trim() ||
       `Plan ${trail.name || "trace"} · ${new Date().toLocaleDateString("fr-FR")}`;
+    const notes =
+      input.notes != null && String(input.notes).trim()
+        ? String(input.notes).trim().slice(0, 4000)
+        : null;
     const { rows: createdRows } = await client.query(
-      `INSERT INTO route_plans (athlete_user_id, trail_id, name, updated_at)
-       VALUES ($1, $2, $3, NOW())
+      `INSERT INTO route_plans (athlete_user_id, trail_id, name, notes, updated_at)
+       VALUES ($1, $2, $3, $4, NOW())
        RETURNING *`,
-      [athleteUserId, input.trailId, planName]
+      [athleteUserId, input.trailId, planName, notes]
     );
     const plan = createdRows[0];
     for (let i = 0; i < filteredBoxIds.length; i += 1) {
@@ -1766,9 +1771,15 @@ router.get("/route-plans/:id/export-gpx", requireAuth, async (req, res) => {
               Number(box.latest_booking_amount_cents) / 100
             ).toFixed(2)} EUR`
           : "";
+      const sym =
+        box.validation_status === "validated"
+          ? "Flag, Green"
+          : box.validation_status === "rejected"
+          ? "Flag, Red"
+          : "Flag, Blue";
       return `<wpt lat="${lat.toFixed(7)}" lon="${lon.toFixed(7)}"><name>${escapeXml(
         box.title || "Box"
-      )}</name><desc>${escapeXml(
+      )}</name><sym>${escapeXml(sym)}</sym><desc>${escapeXml(
         `${box.city || ""} · statut ${box.validation_status}${slot}${amount}`
       )}</desc><type>box_${escapeXml(box.validation_status || "pending")}</type></wpt>`;
     })
@@ -1778,11 +1789,23 @@ router.get("/route-plans/:id/export-gpx", requireAuth, async (req, res) => {
 <gpx version="1.1" creator="RavitoBox" xmlns="http://www.topografix.com/GPX/1/1">
   <metadata>
     <name>${escapeXml(detail.name || "Plan de course")}</name>
+    <desc>${escapeXml(
+      `${detail.trail_name || "Trace"} · ${detail.territory || ""}${
+        detail.notes ? ` · Notes: ${detail.notes}` : ""
+      }`
+    )}</desc>
     <time>${nowIso}</time>
   </metadata>
   ${waypoints}
   <trk>
     <name>${escapeXml(detail.trail_name || "Trace")}</name>
+    ${
+      detail.notes
+        ? `<cmt>${escapeXml(detail.notes)}</cmt><desc>${escapeXml(
+            detail.notes
+          )}</desc>`
+        : ""
+    }
     <trkseg>${trackSeg}</trkseg>
   </trk>
 </gpx>`;
