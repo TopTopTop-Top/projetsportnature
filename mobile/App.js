@@ -452,8 +452,14 @@ function parseBookingDateTimeLocal(dateStr, timeStr) {
 function bookingAgendaPhase(booking, now = new Date()) {
   const approval = String(booking?.approval_status || "pending");
   const status = String(booking?.status || "");
-  const start = parseBookingDateTimeLocal(booking?.booking_date, booking?.start_time);
-  const end = parseBookingDateTimeLocal(booking?.booking_date, booking?.end_time);
+  const start = parseBookingDateTimeLocal(
+    booking?.booking_date,
+    booking?.start_time
+  );
+  const end = parseBookingDateTimeLocal(
+    booking?.booking_date,
+    booking?.end_time
+  );
   if (
     status === "cancelled" ||
     approval === "cancelled_by_athlete" ||
@@ -483,7 +489,11 @@ function bookingAgendaPhase(booking, now = new Date()) {
   ) {
     return { key: "pending", label: "En attente", color: "#7C3AED" };
   }
-  return { key: "other", label: bookingApprovalLabel(approval), color: "#334155" };
+  return {
+    key: "other",
+    label: bookingApprovalLabel(approval),
+    color: "#334155",
+  };
 }
 
 function buildBookingAgendaEntries(bookings, { hostView = false } = {}) {
@@ -739,7 +749,11 @@ function timeToMinutes(hhmm) {
 function hasTimeOverlapWithSlots(startTime, endTime, slots) {
   const startMin = timeToMinutes(startTime);
   const endMin = timeToMinutes(endTime);
-  if (!Number.isFinite(startMin) || !Number.isFinite(endMin) || endMin <= startMin)
+  if (
+    !Number.isFinite(startMin) ||
+    !Number.isFinite(endMin) ||
+    endMin <= startMin
+  )
     return false;
   const list = Array.isArray(slots) ? slots : [];
   for (const slot of list) {
@@ -1534,7 +1548,9 @@ function BookingConfirmModal({
             </Text>
             {unavailableSlots.length > 0 ? (
               <View style={[styles.infoBanner, { marginTop: 8 }]}>
-                <Text style={styles.infoBannerTitle}>Créneaux indisponibles</Text>
+                <Text style={styles.infoBannerTitle}>
+                  Créneaux indisponibles
+                </Text>
                 <Text style={styles.infoBannerText}>
                   {unavailableSlots
                     .map((s) => `${s.startTime}-${s.endTime}`)
@@ -1787,6 +1803,22 @@ function ExplorerScreen() {
     }
     return null;
   }, [selectedRoutePlanDetail, selectedTrailId, selectedRoutePlanId]);
+  const activePlanOnMap = useMemo(() => {
+    const detail = selectedRoutePlanDetail;
+    if (!detail) return null;
+    const pid = Number(detail.id);
+    if (!Number.isFinite(pid) || Number(selectedRoutePlanId) !== pid)
+      return null;
+    const boxes = Array.isArray(detail.boxes) ? detail.boxes : [];
+    if (boxes.length === 0) return null;
+    return detail;
+  }, [selectedRoutePlanDetail, selectedRoutePlanId]);
+  const activePlanBoxIds = useMemo(() => {
+    const boxes = Array.isArray(activePlanOnMap?.boxes)
+      ? activePlanOnMap.boxes
+      : [];
+    return boxes.map((b) => Number(b.id)).filter((id) => Number.isFinite(id));
+  }, [activePlanOnMap]);
   const prioritizedExplorerBoxes = useMemo(() => {
     const list = Array.isArray(boxesForExplorerList)
       ? [...boxesForExplorerList]
@@ -2185,6 +2217,66 @@ function ExplorerScreen() {
             actif automatiquement dès qu'au moins 1 élément est sélectionné.
           </Text>
         </View>
+        {activePlanOnMap ? (
+          <View style={[styles.infoBanner, { marginTop: 8 }]}>
+            <Ionicons
+              name="bookmark-outline"
+              size={20}
+              color={theme.primary}
+              style={{ marginRight: 10 }}
+            />
+            <View style={{ flex: 1 }}>
+              <Text style={styles.infoBannerTitle}>
+                Plan carte actif: {activePlanOnMap.name || "Plan"}
+              </Text>
+              <Text style={styles.infoBannerText}>
+                {mapBoxSelectionMode === "picked"
+                  ? `Tu vois uniquement les box du plan (${activePlanBoxIds.length}).`
+                  : `Tu vois toutes les box de la zone ; ${activePlanBoxIds.length} box du plan restent sélectionnées.`}
+              </Text>
+              <View
+                style={[styles.roleRow, { marginTop: 6, flexWrap: "wrap" }]}
+              >
+                <TouchableOpacity
+                  style={[
+                    styles.roleChip,
+                    mapBoxSelectionMode === "picked" && styles.roleChipActive,
+                  ]}
+                  onPress={() => setMapBoxSelectionMode("picked")}
+                  activeOpacity={0.85}
+                >
+                  <Text
+                    style={[
+                      styles.roleChipText,
+                      mapBoxSelectionMode === "picked" &&
+                        styles.roleChipTextActive,
+                    ]}
+                  >
+                    Voir uniquement les box du plan
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[
+                    styles.roleChip,
+                    mapBoxSelectionMode === "all" && styles.roleChipActive,
+                  ]}
+                  onPress={() => setMapBoxSelectionMode("all")}
+                  activeOpacity={0.85}
+                >
+                  <Text
+                    style={[
+                      styles.roleChipText,
+                      mapBoxSelectionMode === "all" &&
+                        styles.roleChipTextActive,
+                    ]}
+                  >
+                    Voir toute la zone
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        ) : null}
         {!webSplit ? (
           <NativeExplorerMap
             center={webMapCenter}
@@ -2723,7 +2815,11 @@ function ExplorerScreen() {
                     ]}
                   >
                     <TouchableOpacity
-                      style={{ flex: 1, flexDirection: "row", alignItems: "center" }}
+                      style={{
+                        flex: 1,
+                        flexDirection: "row",
+                        alignItems: "center",
+                      }}
                       onPress={() => {
                         setSelectedRoutePlanId(Number(plan.id));
                         actionsRef.current.loadRoutePlanDetail?.(plan.id);
@@ -2751,7 +2847,9 @@ function ExplorerScreen() {
                       onPress={async () => {
                         const ok = await confirmDestructive(
                           "Supprimer ce plan ?",
-                          `Le plan « ${plan.name || "sans nom"} » sera supprimé.`
+                          `Le plan « ${
+                            plan.name || "sans nom"
+                          } » sera supprimé.`
                         );
                         if (!ok) return;
                         await deleteRoutePlan?.(plan.id);
@@ -2759,7 +2857,11 @@ function ExplorerScreen() {
                       style={{ marginLeft: 8, padding: 6 }}
                       activeOpacity={0.8}
                     >
-                      <Ionicons name="trash-outline" size={18} color="#DC2626" />
+                      <Ionicons
+                        name="trash-outline"
+                        size={18}
+                        color="#DC2626"
+                      />
                     </TouchableOpacity>
                   </View>
                 );
@@ -6042,9 +6144,12 @@ function ReservationsScreen() {
   const hostViewActive = canHost && reservationTab !== "athlete";
   const agendaEntries = useMemo(
     () =>
-      buildBookingAgendaEntries(hostViewActive ? hostBookings : athleteBookings, {
-        hostView: hostViewActive,
-      }),
+      buildBookingAgendaEntries(
+        hostViewActive ? hostBookings : athleteBookings,
+        {
+          hostView: hostViewActive,
+        }
+      ),
     [hostViewActive, hostBookings, athleteBookings]
   );
   const agendaPhaseCounts = useMemo(() => {
@@ -6594,7 +6699,9 @@ function ReservationsScreen() {
                         compact
                         label="Annuler ma réservation"
                         icon="close-circle-outline"
-                        onPress={() => actionsRef.current.deleteAthleteBooking(b.id)}
+                        onPress={() =>
+                          actionsRef.current.deleteAthleteBooking(b.id)
+                        }
                       />
                     ) : null}
                     <Text style={styles.cardDetailLine}>
@@ -8153,11 +8260,14 @@ function RavitoApp() {
           body: payload,
         });
       } catch (_e) {
-        detail = await apiFetch(`/route-plans/${pid}/trail-notes/${nid}/update`, {
-          method: "POST",
-          token,
-          body: payload,
-        });
+        detail = await apiFetch(
+          `/route-plans/${pid}/trail-notes/${nid}/update`,
+          {
+            method: "POST",
+            token,
+            body: payload,
+          }
+        );
       }
       setSelectedRoutePlanDetail(detail || null);
       return detail || null;
@@ -8180,10 +8290,13 @@ function RavitoApp() {
           token,
         });
       } catch (_e) {
-        detail = await apiFetch(`/route-plans/${pid}/trail-notes/${nid}/delete`, {
-          method: "POST",
-          token,
-        });
+        detail = await apiFetch(
+          `/route-plans/${pid}/trail-notes/${nid}/delete`,
+          {
+            method: "POST",
+            token,
+          }
+        );
       }
       setSelectedRoutePlanDetail(detail || null);
       return true;
@@ -8206,7 +8319,7 @@ function RavitoApp() {
     setMapBoxesNearTrailsOnly(false);
     setMapShowTrails(true);
     setMapTrailsScope("picked");
-    setMapBoxSelectionMode("all");
+    setMapBoxSelectionMode("picked");
     setMapPickedBoxIds(boxIds);
     if (Number.isFinite(Number(routePlan?.trail_id))) {
       const tid = Number(routePlan.trail_id);
@@ -8411,7 +8524,11 @@ function RavitoApp() {
   };
 
   useEffect(() => {
-    if (!bookingConfirm.visible || bookingConfirm.boxId == null || !bookingDate) {
+    if (
+      !bookingConfirm.visible ||
+      bookingConfirm.boxId == null ||
+      !bookingDate
+    ) {
       setBookingUnavailableSlots([]);
       return;
     }
