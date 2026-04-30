@@ -27,6 +27,8 @@ export default function NativeExplorerMap({
   onPickLocation,
   onVisibleBoundsChange,
   onPanDrag,
+  /** Repère du dernier clic carte (explorateur). */
+  pickedMapPoint = null,
   followExternalCenter = true,
   recenterNonce = 0,
 }) {
@@ -203,6 +205,23 @@ export default function NativeExplorerMap({
           ) : null}
         </React.Fragment>
       ))}
+      {pickedMapPoint &&
+      Number.isFinite(Number(pickedMapPoint.latitude ?? pickedMapPoint.lat)) &&
+      Number.isFinite(Number(pickedMapPoint.longitude ?? pickedMapPoint.lng)) ? (
+        <Marker
+          coordinate={{
+            latitude: Number(pickedMapPoint.latitude ?? pickedMapPoint.lat),
+            longitude: Number(pickedMapPoint.longitude ?? pickedMapPoint.lng),
+          }}
+          tracksViewChanges={false}
+          anchor={{ x: 0.5, y: 0.5 }}
+          zIndex={1000}
+        >
+          <View style={styles.mapTapPinOuter}>
+            <View style={styles.mapTapPinInner} />
+          </View>
+        </Marker>
+      ) : null}
       {boxes.map((box) => {
         const isCompatible =
           compatibleBoxSet.size === 0 || compatibleBoxSet.has(Number(box.id));
@@ -291,5 +310,23 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: "#0F766E",
     backgroundColor: "#0F172A",
+  },
+  mapTapPinOuter: {
+    width: 22,
+    height: 22,
+    borderRadius: 999,
+    borderWidth: 2,
+    borderColor: "#C2410C",
+    backgroundColor: "rgba(251, 191, 36, 0.45)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  mapTapPinInner: {
+    width: 8,
+    height: 8,
+    borderRadius: 999,
+    backgroundColor: "#EA580C",
+    borderWidth: 1,
+    borderColor: "#fff",
   },
 });

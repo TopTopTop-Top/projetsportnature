@@ -264,6 +264,8 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
   /** Appelé après un déplacement manuel (drag) — pour découpler la caméra de la recherche. */
   onUserMapGesture,
   draftPoint,
+  /** Repère visuel du dernier clic (coordonnées) — explorateur carte. */
+  pickedMapPoint = null,
   pickerMode = false,
   staticOrigin = "",
   inFixedPane = false,
@@ -660,6 +662,30 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
       }
     }
 
+    const tap = normalizePoint(pickedMapPoint);
+    if (tap) {
+      try {
+        L.circleMarker(tap, {
+          radius: 14,
+          color: "#C2410C",
+          weight: 2,
+          fillColor: "#FBBF24",
+          fillOpacity: 0.35,
+        })
+          .bindTooltip("Point choisi sur la carte", { direction: "top" })
+          .addTo(group);
+        L.circleMarker(tap, {
+          radius: 6,
+          color: "#9A3412",
+          weight: 2,
+          fillColor: "#F97316",
+          fillOpacity: 1,
+        }).addTo(group);
+      } catch (_e) {
+        /* ignore */
+      }
+    }
+
     try {
       if (
         autoFitToData &&
@@ -681,6 +707,7 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
     trails,
     staticOrigin,
     draftPoint,
+    pickedMapPoint,
     pickerMode,
     autoFitToData,
     selectedBoxId,

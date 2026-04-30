@@ -2427,6 +2427,7 @@ function ExplorerScreen() {
               !(mapListSource === "viewport" && selectedBoxId == null)
             }
             recenterNonce={mapExplorerRecenterNonce}
+            pickedMapPoint={lastMapTapCoords || undefined}
           />
         ) : null}
         {lastMapTapCoords ? (
@@ -4142,6 +4143,7 @@ function ExplorerScreen() {
                       !(mapListSource === "viewport" && selectedBoxId == null)
                     }
                     recenterNonce={mapExplorerRecenterNonce}
+                    pickedMapPoint={lastMapTapCoords || undefined}
                     staticOrigin={API_STATIC_ORIGIN}
                     inFixedPane
                   />
@@ -4205,6 +4207,7 @@ function ExplorerScreen() {
                   !(mapListSource === "viewport" && selectedBoxId == null)
                 }
                 recenterNonce={mapExplorerRecenterNonce}
+                pickedMapPoint={lastMapTapCoords || undefined}
                 staticOrigin={API_STATIC_ORIGIN}
                 inFixedPane
               />
