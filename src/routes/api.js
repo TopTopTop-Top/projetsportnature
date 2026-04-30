@@ -300,6 +300,52 @@ function haversineKm(lat1, lon1, lat2, lon2) {
   return 2 * earthRadiusKm * Math.asin(Math.sqrt(a));
 }
 
+function nearestPointOnSegment(ax, ay, bx, by, px, py) {
+  const abx = bx - ax;
+  const aby = by - ay;
+  const apx = px - ax;
+  const apy = py - ay;
+  const denom = abx * abx + aby * aby;
+  if (denom <= 0) return { x: ax, y: ay, t: 0 };
+  const t = Math.max(0, Math.min(1, (apx * abx + apy * aby) / denom));
+  return {
+    x: ax + abx * t,
+    y: ay + aby * t,
+    t,
+  };
+}
+
+function nearestPointOnPolyline(polyPoints, targetLat, targetLon) {
+  if (!Array.isArray(polyPoints) || polyPoints.length === 0) return null;
+  if (polyPoints.length === 1) {
+    const only = polyPoints[0];
+    return { lat: Number(only[0]), lon: Number(only[1]), distanceKm: 0 };
+  }
+  let best = null;
+  for (let i = 0; i < polyPoints.length - 1; i += 1) {
+    const a = polyPoints[i];
+    const b = polyPoints[i + 1];
+    const ay = Number(a[0]);
+    const ax = Number(a[1]);
+    const by = Number(b[0]);
+    const bx = Number(b[1]);
+    if (
+      !Number.isFinite(ax) ||
+      !Number.isFinite(ay) ||
+      !Number.isFinite(bx) ||
+      !Number.isFinite(by)
+    ) {
+      continue;
+    }
+    const proj = nearestPointOnSegment(ax, ay, bx, by, targetLon, targetLat);
+    const d = haversineKm(targetLat, targetLon, proj.y, proj.x);
+    if (!best || d < best.distanceKm) {
+      best = { lat: proj.y, lon: proj.x, distanceKm: d };
+    }
+  }
+  return best;
+}
+
 function escapeXml(value) {
   return String(value ?? "")
     .replace(/&/g, "&amp;")
@@ -2172,6 +2218,10 @@ router.get("/route-plans/:id/export-gpx", requireAuth, async (req, res) => {
     String(req.query.includePending || "").toLowerCase() === "true";
   const includeRejected =
     String(req.query.includeRejected || "").toLowerCase() === "true";
+  const includeConnectorPaths =
+    String(
+      req.query.includeConnectorPaths || req.query.includeAccessPaths || ""
+    ).toLowerCase() === "true";
   const exportBoxes = (detail.boxes || []).filter((b) => {
     if (b.validation_status === "validated") return true;
     if (includePending && b.validation_status === "pending") return true;
@@ -2238,6 +2288,24 @@ router.get("/route-plans/:id/export-gpx", requireAuth, async (req, res) => {
       )}</desc><type>trail_note</type></wpt>`;
     })
     .join("");
+  const connectorSegments = includeConnectorPaths
+    ? exportBoxes
+        .map((box) => {
+          const lat = Number(box.latitude);
+          const lon = Number(box.longitude);
+          if (!Number.isFinite(lat) || !Number.isFinite(lon)) return "";
+          const nearest = nearestPointOnPolyline(validPoints, lat, lon);
+          if (!nearest) return "";
+          return `<trkseg><trkpt lat="${nearest.lat.toFixed(
+            7
+          )}" lon="${nearest.lon.toFixed(7)}"></trkpt><trkpt lat="${lat.toFixed(
+            7
+          )}" lon="${lon.toFixed(7)}"></trkpt><trkpt lat="${nearest.lat.toFixed(
+            7
+          )}" lon="${nearest.lon.toFixed(7)}"></trkpt></trkseg>`;
+        })
+        .join("")
+    : "";
   const trailNotesNoPoint = (detail.trail_notes || [])
     .filter(
       (n) =>
@@ -2277,6 +2345,7 @@ router.get("/route-plans/:id/export-gpx", requireAuth, async (req, res) => {
         : ""
     }
     <trkseg>${trackSeg}</trkseg>
+    ${connectorSegments}
   </trk>
 </gpx>`;
 

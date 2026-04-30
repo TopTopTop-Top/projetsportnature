@@ -1962,6 +1962,8 @@ function ExplorerScreen() {
     useState(true);
   const [planExportIncludeRejected, setPlanExportIncludeRejected] =
     useState(false);
+  const [planExportIncludeConnectorPaths, setPlanExportIncludeConnectorPaths] =
+    useState(false);
   const [planSearchQuery, setPlanSearchQuery] = useState("");
   const [routePlanDraftNotes, setRoutePlanDraftNotes] = useState("");
   const [planNameDraft, setPlanNameDraft] = useState("");
@@ -2648,6 +2650,26 @@ function ExplorerScreen() {
                       Inclure refusées
                     </Text>
                   </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[
+                      styles.roleChip,
+                      planExportIncludeConnectorPaths && styles.roleChipActive,
+                    ]}
+                    onPress={() =>
+                      setPlanExportIncludeConnectorPaths((prev) => !prev)
+                    }
+                    activeOpacity={0.85}
+                  >
+                    <Text
+                      style={[
+                        styles.roleChipText,
+                        planExportIncludeConnectorPaths &&
+                          styles.roleChipTextActive,
+                      ]}
+                    >
+                      Chemin trace → waypoint → trace
+                    </Text>
+                  </TouchableOpacity>
                 </View>
                 <View
                   style={[styles.roleRow, { marginTop: 8, flexWrap: "wrap" }]}
@@ -2672,6 +2694,7 @@ function ExplorerScreen() {
                         {
                           includePending: planExportIncludePending,
                           includeRejected: planExportIncludeRejected,
+                          includeConnectorPaths: planExportIncludeConnectorPaths,
                         }
                       )
                     }
@@ -8643,7 +8666,11 @@ function RavitoApp() {
 
   const downloadRoutePlanGpx = async (
     routePlanId,
-    { includePending = true, includeRejected = false } = {}
+    {
+      includePending = true,
+      includeRejected = false,
+      includeConnectorPaths = false,
+    } = {}
   ) => {
     if (!token) return;
     const pid = Number(routePlanId);
@@ -8652,6 +8679,8 @@ function RavitoApp() {
       const params = new URLSearchParams();
       if (includePending) params.set("includePending", "true");
       if (includeRejected) params.set("includeRejected", "true");
+      if (includeConnectorPaths)
+        params.set("includeConnectorPaths", "true");
       const query = params.toString() ? `?${params.toString()}` : "";
       const resp = await fetch(
         `${API_BASE_URL}/route-plans/${pid}/export-gpx${query}`,
