@@ -1747,6 +1747,7 @@ function ExplorerScreen() {
     setMapTrailProximityKm,
     setMapViewportBounds,
     mapExplorerRecenterNonce,
+    setMapExplorerRecenterNonce,
     mapExplorerCameraFollowSearch,
     setMapExplorerCameraFollowSearch,
     mapExplorerLastSearchAt,
@@ -1980,13 +1981,33 @@ function ExplorerScreen() {
     (boxId) => {
       const bid = Number(boxId);
       if (!Number.isFinite(bid)) return;
+      const box = boxes.find((b) => Number(b.id) === bid);
+      const bl = Number(box?.latitude);
+      const bLng = Number(box?.longitude);
+      if (Number.isFinite(bl) && Number.isFinite(bLng)) {
+        setMapLat(bl.toFixed(6));
+        setMapLon(bLng.toFixed(6));
+      }
       setSelectedBoxId(bid);
-      explorerScrollRef.current?.scrollTo?.({
-        y: Math.max(0, bookingSectionYRef.current - 16),
-        animated: true,
+      setMapExplorerCameraFollowSearch(true);
+      setMapExplorerRecenterNonce((n) => n + 1);
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          explorerScrollRef.current?.scrollTo?.({
+            y: Math.max(0, bookingSectionYRef.current - 16),
+            animated: true,
+          });
+        });
       });
     },
-    [setSelectedBoxId]
+    [
+      boxes,
+      setSelectedBoxId,
+      setMapLat,
+      setMapLon,
+      setMapExplorerCameraFollowSearch,
+      setMapExplorerRecenterNonce,
+    ]
   );
   const { width: viewportWidth } = useWindowDimensions();
   const [showBoxFilters, setShowBoxFilters] = useState(false);
@@ -4065,6 +4086,7 @@ function ExplorerScreen() {
           <View style={styles.explorerWebSplitRow}>
             <View style={styles.explorerWebPanel}>
               <ScrollView
+                ref={explorerScrollRef}
                 style={styles.explorerWebPanelScroll}
                 contentContainerStyle={styles.explorerWebPanelContent}
                 showsVerticalScrollIndicator
@@ -4135,6 +4157,7 @@ function ExplorerScreen() {
       <SafeAreaView style={styles.screen} edges={["left", "right"]}>
         <View style={styles.explorerWebColumn}>
           <ScrollView
+            ref={explorerScrollRef}
             style={styles.explorerWebScroll}
             contentContainerStyle={[
               styles.content,
@@ -4195,6 +4218,7 @@ function ExplorerScreen() {
   return (
     <SafeAreaView style={styles.screen} edges={["left", "right"]}>
       <ScrollView
+        ref={explorerScrollRef}
         style={styles.scrollFlex}
         contentContainerStyle={[
           styles.content,
@@ -9912,6 +9936,7 @@ function RavitoApp() {
       mapViewportBounds,
       setMapViewportBounds,
       mapExplorerRecenterNonce,
+      setMapExplorerRecenterNonce,
       mapExplorerCameraFollowSearch,
       setMapExplorerCameraFollowSearch,
       mapExplorerLastSearchAt,
@@ -9997,6 +10022,7 @@ function RavitoApp() {
       trailsForExplorerList,
       mapViewportBounds,
       mapExplorerRecenterNonce,
+      setMapExplorerRecenterNonce,
       mapExplorerCameraFollowSearch,
       setMapExplorerCameraFollowSearch,
       mapExplorerLastSearchAt,
