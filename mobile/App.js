@@ -222,6 +222,46 @@ function minDistanceKmPointToTrail(trail, lat, lon) {
   return minD;
 }
 
+function nearestPointOnSegmentLonLat(ax, ay, bx, by, px, py) {
+  const abx = bx - ax;
+  const aby = by - ay;
+  const apx = px - ax;
+  const apy = py - ay;
+  const denom = abx * abx + aby * aby;
+  if (denom <= 0) return { x: ax, y: ay };
+  const t = Math.max(0, Math.min(1, (apx * abx + apy * aby) / denom));
+  return { x: ax + abx * t, y: ay + aby * t };
+}
+
+function nearestPointOnTrailPolyline(polyline, lat, lon) {
+  if (!Array.isArray(polyline) || polyline.length === 0) return null;
+  let best = null;
+  for (let i = 0; i < polyline.length - 1; i += 1) {
+    const a = polyline[i];
+    const b = polyline[i + 1];
+    if (!Array.isArray(a) || !Array.isArray(b) || a.length < 2 || b.length < 2)
+      continue;
+    const ay = Number(a[0]);
+    const ax = Number(a[1]);
+    const by = Number(b[0]);
+    const bx = Number(b[1]);
+    if (
+      !Number.isFinite(ax) ||
+      !Number.isFinite(ay) ||
+      !Number.isFinite(bx) ||
+      !Number.isFinite(by)
+    ) {
+      continue;
+    }
+    const proj = nearestPointOnSegmentLonLat(ax, ay, bx, by, lon, lat);
+    const d = haversineKm(lat, lon, proj.y, proj.x);
+    if (!best || d < best.distanceKm) {
+      best = { lat: proj.y, lon: proj.x, distanceKm: d };
+    }
+  }
+  return best;
+}
+
 function pointInBounds(lat, lon, bounds) {
   if (!bounds) return true;
   const south = Number(bounds.south);
@@ -1827,6 +1867,37 @@ function ExplorerScreen() {
     const bid = Number(selectedBoxId);
     return Number.isFinite(bid) && activePlanBoxIdSet.has(bid);
   }, [selectedBoxId, activePlanBoxIdSet]);
+  const activePlanConnectorPaths = useMemo(() => {
+    if (!activePlanOnMap) return [];
+    const trailId = Number(activePlanOnMap.trail_id);
+    if (!Number.isFinite(trailId)) return [];
+    const trail =
+      trailsOnMap.find((t) => Number(t.id) === trailId) ||
+      trails.find((t) => Number(t.id) === trailId);
+    if (!trail) return [];
+    let polyline = [];
+    try {
+      polyline = trail.polyline_json ? JSON.parse(trail.polyline_json) : [];
+    } catch (_e) {
+      polyline = [];
+    }
+    if (!Array.isArray(polyline) || polyline.length < 2) return [];
+    const paths = [];
+    for (const box of activePlanOnMap.boxes || []) {
+      const lat = Number(box.latitude);
+      const lon = Number(box.longitude);
+      if (!Number.isFinite(lat) || !Number.isFinite(lon)) continue;
+      const nearest = nearestPointOnTrailPolyline(polyline, lat, lon);
+      if (!nearest || !Number.isFinite(nearest.distanceKm)) continue;
+      if (nearest.distanceKm > 1) continue;
+      paths.push([
+        [nearest.lat, nearest.lon],
+        [lat, lon],
+        [nearest.lat, nearest.lon],
+      ]);
+    }
+    return paths;
+  }, [activePlanOnMap, trailsOnMap, trails]);
   const prioritizedExplorerBoxes = useMemo(() => {
     const list = Array.isArray(boxesForExplorerList)
       ? [...boxesForExplorerList]
@@ -2355,6 +2426,7 @@ function ExplorerScreen() {
             selectedBoxId={selectedBoxId}
             selectedBoxIds={mapPickedBoxIds}
             planBoxIds={activePlanBoxIds}
+            connectorPaths={activePlanConnectorPaths}
             compatibleBoxIds={nearTrailCompatibleBoxIds}
             proximityTrailIds={nearTrailReferenceTrails.map((t) =>
               Number(t.id)
@@ -4065,6 +4137,7 @@ function ExplorerScreen() {
                     selectedBoxId={selectedBoxId}
                     selectedBoxIds={mapPickedBoxIds}
                     planBoxIds={activePlanBoxIds}
+                    connectorPaths={activePlanConnectorPaths}
                     compatibleBoxIds={nearTrailCompatibleBoxIds}
                     proximityTrailIds={nearTrailReferenceTrails.map((t) =>
                       Number(t.id)
@@ -4126,6 +4199,7 @@ function ExplorerScreen() {
                 selectedBoxId={selectedBoxId}
                 selectedBoxIds={mapPickedBoxIds}
                 planBoxIds={activePlanBoxIds}
+                connectorPaths={activePlanConnectorPaths}
                 compatibleBoxIds={nearTrailCompatibleBoxIds}
                 proximityTrailIds={nearTrailReferenceTrails.map((t) =>
                   Number(t.id)

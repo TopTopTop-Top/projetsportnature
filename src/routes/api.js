@@ -319,7 +319,12 @@ function nearestPointOnPolyline(polyPoints, targetLat, targetLon) {
   if (!Array.isArray(polyPoints) || polyPoints.length === 0) return null;
   if (polyPoints.length === 1) {
     const only = polyPoints[0];
-    return { lat: Number(only[0]), lon: Number(only[1]), distanceKm: 0 };
+    return {
+      lat: Number(only[0]),
+      lon: Number(only[1]),
+      distanceKm: 0,
+      segmentIndex: 0,
+    };
   }
   let best = null;
   for (let i = 0; i < polyPoints.length - 1; i += 1) {
@@ -340,7 +345,7 @@ function nearestPointOnPolyline(polyPoints, targetLat, targetLon) {
     const proj = nearestPointOnSegment(ax, ay, bx, by, targetLon, targetLat);
     const d = haversineKm(targetLat, targetLon, proj.y, proj.x);
     if (!best || d < best.distanceKm) {
-      best = { lat: proj.y, lon: proj.x, distanceKm: d };
+      best = { lat: proj.y, lon: proj.x, distanceKm: d, segmentIndex: i };
     }
   }
   return best;
@@ -2233,7 +2238,44 @@ router.get("/route-plans/:id/export-gpx", requireAuth, async (req, res) => {
     return false;
   });
 
-  const trackSeg = validPoints
+  const connectorBySegment = new Map();
+  if (includeConnectorPaths) {
+    for (const box of exportBoxes) {
+      const lat = Number(box.latitude);
+      const lon = Number(box.longitude);
+      if (!Number.isFinite(lat) || !Number.isFinite(lon)) continue;
+      const nearest = nearestPointOnPolyline(validPoints, lat, lon);
+      if (!nearest) continue;
+      if (!Number.isFinite(nearest.distanceKm)) continue;
+      if (nearest.distanceKm > connectorMaxKm) continue;
+      const seg = Number.isFinite(nearest.segmentIndex)
+        ? nearest.segmentIndex
+        : 0;
+      const list = connectorBySegment.get(seg) || [];
+      list.push([
+        [nearest.lat, nearest.lon],
+        [lat, lon],
+        [nearest.lat, nearest.lon],
+      ]);
+      connectorBySegment.set(seg, list);
+    }
+  }
+  const enhancedTrackPoints = [];
+  for (let i = 0; i < validPoints.length; i += 1) {
+    const pt = validPoints[i];
+    enhancedTrackPoints.push([Number(pt[0]), Number(pt[1])]);
+    const detours = connectorBySegment.get(i);
+    if (Array.isArray(detours)) {
+      detours.forEach((detour) => {
+        detour.forEach((p) => enhancedTrackPoints.push([Number(p[0]), Number(p[1])]));
+      });
+    }
+  }
+  const finalTrackPoints =
+    enhancedTrackPoints.length > 1
+      ? enhancedTrackPoints
+      : validPoints.map((pt) => [Number(pt[0]), Number(pt[1])]);
+  const trackSeg = finalTrackPoints
     .map(
       (pt) =>
         `<trkpt lat="${Number(pt[0]).toFixed(7)}" lon="${Number(pt[1]).toFixed(
@@ -2292,26 +2334,6 @@ router.get("/route-plans/:id/export-gpx", requireAuth, async (req, res) => {
       )}</desc><type>trail_note</type></wpt>`;
     })
     .join("");
-  const connectorSegments = includeConnectorPaths
-    ? exportBoxes
-        .map((box) => {
-          const lat = Number(box.latitude);
-          const lon = Number(box.longitude);
-          if (!Number.isFinite(lat) || !Number.isFinite(lon)) return "";
-          const nearest = nearestPointOnPolyline(validPoints, lat, lon);
-          if (!nearest) return "";
-          if (!Number.isFinite(nearest.distanceKm)) return "";
-          if (nearest.distanceKm > connectorMaxKm) return "";
-          return `<trkseg><trkpt lat="${nearest.lat.toFixed(
-            7
-          )}" lon="${nearest.lon.toFixed(7)}"></trkpt><trkpt lat="${lat.toFixed(
-            7
-          )}" lon="${lon.toFixed(7)}"></trkpt><trkpt lat="${nearest.lat.toFixed(
-            7
-          )}" lon="${nearest.lon.toFixed(7)}"></trkpt></trkseg>`;
-        })
-        .join("")
-    : "";
   const trailNotesNoPoint = (detail.trail_notes || [])
     .filter(
       (n) =>
@@ -2351,7 +2373,6 @@ router.get("/route-plans/:id/export-gpx", requireAuth, async (req, res) => {
         : ""
     }
     <trkseg>${trackSeg}</trkseg>
-    ${connectorSegments}
   </trk>
 </gpx>`;
 

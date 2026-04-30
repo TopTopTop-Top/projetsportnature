@@ -17,6 +17,7 @@ export default function NativeExplorerMap({
   selectedBoxId,
   selectedBoxIds = [],
   planBoxIds = [],
+  connectorPaths = [],
   compatibleBoxIds = [],
   proximityTrailIds = [],
   trailCorridorKm = 2,
@@ -203,6 +204,32 @@ export default function NativeExplorerMap({
           ) : null}
         </React.Fragment>
       ))}
+      {(connectorPaths || []).map((path, idx) => {
+        const coordinates = Array.isArray(path)
+          ? path
+              .map((pt) =>
+                Array.isArray(pt) && pt.length >= 2
+                  ? { latitude: Number(pt[0]), longitude: Number(pt[1]) }
+                  : null
+              )
+              .filter(
+                (pt) =>
+                  pt &&
+                  Number.isFinite(pt.latitude) &&
+                  Number.isFinite(pt.longitude)
+              )
+          : [];
+        if (coordinates.length < 2) return null;
+        return (
+          <Polyline
+            key={`connector-${idx}`}
+            coordinates={coordinates}
+            strokeColor="rgba(30, 136, 229, 0.90)"
+            strokeWidth={2}
+            lineDashPattern={[5, 8]}
+          />
+        );
+      })}
       {boxes.map((box) => {
         const isCompatible =
           compatibleBoxSet.size === 0 || compatibleBoxSet.has(Number(box.id));
