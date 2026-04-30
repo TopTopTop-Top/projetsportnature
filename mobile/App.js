@@ -2250,7 +2250,14 @@ function ExplorerScreen() {
                     styles.roleChip,
                     mapBoxSelectionMode === "picked" && styles.roleChipActive,
                   ]}
-                  onPress={() => setMapBoxSelectionMode("picked")}
+                  onPress={() => {
+                    // Plan-only view must stay strict even after ad-hoc selections.
+                    setMapPickedBoxIds(activePlanBoxIds);
+                    setMapBoxSelectionMode("picked");
+                    if (!activePlanBoxIdSet.has(Number(selectedBoxId))) {
+                      setSelectedBoxId(activePlanBoxIds[0] || null);
+                    }
+                  }}
                   activeOpacity={0.85}
                 >
                   <Text
