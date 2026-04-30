@@ -672,6 +672,26 @@ function timeToMinutes(hhmm) {
   return h * 60 + m;
 }
 
+function hasTimeOverlapWithSlots(startTime, endTime, slots) {
+  const startMin = timeToMinutes(startTime);
+  const endMin = timeToMinutes(endTime);
+  if (!Number.isFinite(startMin) || !Number.isFinite(endMin) || endMin <= startMin)
+    return false;
+  const list = Array.isArray(slots) ? slots : [];
+  for (const slot of list) {
+    const slotStart = timeToMinutes(slot?.startTime);
+    const slotEnd = timeToMinutes(slot?.endTime);
+    if (
+      !Number.isFinite(slotStart) ||
+      !Number.isFinite(slotEnd) ||
+      slotEnd <= slotStart
+    )
+      continue;
+    if (startMin < slotEnd && slotStart < endMin) return true;
+  }
+  return false;
+}
+
 function todayIsoDate() {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(
@@ -1393,6 +1413,7 @@ function BookingConfirmModal({
   startTime,
   endTime,
   specialRequest,
+  unavailableSlots = [],
   submitting,
   onClose,
   onConfirm,
@@ -1404,6 +1425,11 @@ function BookingConfirmModal({
     startTime,
     endTime,
     specialRequest
+  );
+  const overlapConflict = hasTimeOverlapWithSlots(
+    startTime,
+    endTime,
+    unavailableSlots
   );
   return (
     <Modal
@@ -1442,6 +1468,24 @@ function BookingConfirmModal({
             <Text style={styles.cardMeta}>
               Date : {formatDateLongFr(bookingDate)} · {startTime} → {endTime}
             </Text>
+            {unavailableSlots.length > 0 ? (
+              <View style={[styles.infoBanner, { marginTop: 8 }]}>
+                <Text style={styles.infoBannerTitle}>Créneaux indisponibles</Text>
+                <Text style={styles.infoBannerText}>
+                  {unavailableSlots
+                    .map((s) => `${s.startTime}-${s.endTime}`)
+                    .join(" · ")}
+                </Text>
+              </View>
+            ) : null}
+            {overlapConflict ? (
+              <View style={[styles.infoBanner, { borderColor: "#FECACA" }]}>
+                <Text style={styles.infoBannerTitle}>Conflit détecté</Text>
+                <Text style={styles.infoBannerText}>
+                  Le créneau choisi est déjà réservé.
+                </Text>
+              </View>
+            ) : null}
             {specialRequest?.trim() ? (
               <Text style={styles.cardAvailability}>
                 Demande : {specialRequest.trim()}
@@ -1489,7 +1533,7 @@ function BookingConfirmModal({
               label={submitting ? "Envoi…" : "Confirmer l'envoi"}
               icon="checkmark-circle-outline"
               onPress={onConfirm}
-              disabled={submitting || blocking.length > 0}
+              disabled={submitting || blocking.length > 0 || overlapConflict}
               loading={submitting}
             />
           </View>
@@ -6407,6 +6451,14 @@ function ReservationsScreen() {
                         ? ` · code ${b.access_code}`
                         : ""}
                     </Text>
+                    {b.status !== "cancelled" ? (
+                      <OutlineButton
+                        compact
+                        label="Annuler ma réservation"
+                        icon="close-circle-outline"
+                        onPress={() => actionsRef.current.deleteAthleteBooking(b.id)}
+                      />
+                    ) : null}
                     <Text style={styles.cardDetailLine}>
                       Paiement: {b.payment_status || "simulated_unpaid"} ·
                       remboursement: {b.refund_status || "none"}
@@ -6804,6 +6856,7 @@ function RavitoApp() {
     visible: false,
     boxId: null,
   });
+  const [bookingUnavailableSlots, setBookingUnavailableSlots] = useState([]);
   const [bookingSubmitting, setBookingSubmitting] = useState(false);
   const [mapLat, setMapLat] = useState("45.8992");
   const [mapLon, setMapLon] = useState("6.1294");
@@ -8216,7 +8269,39 @@ function RavitoApp() {
   const cancelBookBoxConfirm = () => {
     if (bookingSubmitting) return;
     setBookingConfirm({ visible: false, boxId: null });
+    setBookingUnavailableSlots([]);
   };
+
+  useEffect(() => {
+    if (!bookingConfirm.visible || bookingConfirm.boxId == null || !bookingDate) {
+      setBookingUnavailableSlots([]);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const data = await apiFetch(
+          `/boxes/${bookingConfirm.boxId}/unavailable?date=${encodeURIComponent(
+            bookingDate
+          )}`
+        );
+        if (cancelled) return;
+        setBookingUnavailableSlots(
+          Array.isArray(data?.slots)
+            ? data.slots.map((slot) => ({
+                startTime: slot.startTime,
+                endTime: slot.endTime,
+              }))
+            : []
+        );
+      } catch (_error) {
+        if (!cancelled) setBookingUnavailableSlots([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [bookingConfirm.visible, bookingConfirm.boxId, bookingDate]);
 
   const uploadGpxWithFormData = async (formData) => {
     const response = await fetch(`${API_BASE_URL}/trails/upload-gpx`, {
@@ -9349,6 +9434,7 @@ function RavitoApp() {
                       startTime={startTime}
                       endTime={endTime}
                       specialRequest={specialRequest}
+                      unavailableSlots={bookingUnavailableSlots}
                       submitting={bookingSubmitting}
                       onClose={cancelBookBoxConfirm}
                       onConfirm={confirmBookBox}

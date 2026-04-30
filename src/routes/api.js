@@ -1319,6 +1319,43 @@ router.get("/boxes", async (req, res) => {
   res.json(rows);
 });
 
+router.get("/boxes/:id/unavailable", async (req, res) => {
+  const boxId = Number(req.params.id);
+  if (!Number.isInteger(boxId) || boxId <= 0) {
+    return res.status(400).json({ error: "Invalid box id" });
+  }
+  const date = String(req.query.date || "").trim();
+  if (!date) {
+    return res.status(400).json({ error: "Missing date query parameter" });
+  }
+  const { rows: boxRows } = await pool.query(
+    `SELECT id FROM boxes WHERE id = $1 AND is_active = 1`,
+    [boxId]
+  );
+  if (!boxRows[0]) return res.status(404).json({ error: "Box not found" });
+  const { rows } = await pool.query(
+    `SELECT id, booking_date, start_time, end_time, approval_status, status
+     FROM bookings
+     WHERE box_id = $1
+       AND booking_date = $2
+       AND status <> 'cancelled'
+       AND status <> 'completed'
+     ORDER BY start_time ASC`,
+    [boxId, date]
+  );
+  return res.json({
+    boxId,
+    bookingDate: date,
+    slots: rows.map((r) => ({
+      id: r.id,
+      startTime: r.start_time,
+      endTime: r.end_time,
+      approvalStatus: r.approval_status || "pending",
+      status: r.status || "confirmed",
+    })),
+  });
+});
+
 router.post("/trails", requireAuth, async (req, res) => {
   const parsed = createTrailSchema.safeParse(req.body);
   if (!parsed.success) {
