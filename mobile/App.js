@@ -2671,6 +2671,14 @@ function ExplorerScreen() {
                     </Text>
                   </TouchableOpacity>
                 </View>
+                {planExportIncludeConnectorPaths ? (
+                  <Text style={styles.helperText}>
+                    Chemin d'aide en ligne directe (aller/retour) depuis la trace
+                    vers la box. Les segments sont générés seulement pour les box
+                    proches de la trace (max ~1 km). Pour un recalcul sentiers
+                    précis, ouvre le GPX dans une app de routing.
+                  </Text>
+                ) : null}
                 <View
                   style={[styles.roleRow, { marginTop: 8, flexWrap: "wrap" }]}
                 >
@@ -8681,6 +8689,7 @@ function RavitoApp() {
       if (includeRejected) params.set("includeRejected", "true");
       if (includeConnectorPaths)
         params.set("includeConnectorPaths", "true");
+      if (includeConnectorPaths) params.set("connectorMaxKm", "1");
       const query = params.toString() ? `?${params.toString()}` : "";
       const resp = await fetch(
         `${API_BASE_URL}/route-plans/${pid}/export-gpx${query}`,

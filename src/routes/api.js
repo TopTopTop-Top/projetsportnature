@@ -2222,6 +2222,10 @@ router.get("/route-plans/:id/export-gpx", requireAuth, async (req, res) => {
     String(
       req.query.includeConnectorPaths || req.query.includeAccessPaths || ""
     ).toLowerCase() === "true";
+  const connectorMaxKm = Math.max(
+    0.05,
+    Math.min(5, Number.parseFloat(String(req.query.connectorMaxKm || "1")) || 1)
+  );
   const exportBoxes = (detail.boxes || []).filter((b) => {
     if (b.validation_status === "validated") return true;
     if (includePending && b.validation_status === "pending") return true;
@@ -2296,6 +2300,8 @@ router.get("/route-plans/:id/export-gpx", requireAuth, async (req, res) => {
           if (!Number.isFinite(lat) || !Number.isFinite(lon)) return "";
           const nearest = nearestPointOnPolyline(validPoints, lat, lon);
           if (!nearest) return "";
+          if (!Number.isFinite(nearest.distanceKm)) return "";
+          if (nearest.distanceKm > connectorMaxKm) return "";
           return `<trkseg><trkpt lat="${nearest.lat.toFixed(
             7
           )}" lon="${nearest.lon.toFixed(7)}"></trkpt><trkpt lat="${lat.toFixed(
