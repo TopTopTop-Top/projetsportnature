@@ -449,6 +449,70 @@ function parseBookingDateTimeLocal(dateStr, timeStr) {
   return Number.isNaN(dt.getTime()) ? null : dt;
 }
 
+function bookingAgendaPhase(booking, now = new Date()) {
+  const approval = String(booking?.approval_status || "pending");
+  const status = String(booking?.status || "");
+  const start = parseBookingDateTimeLocal(booking?.booking_date, booking?.start_time);
+  const end = parseBookingDateTimeLocal(booking?.booking_date, booking?.end_time);
+  if (
+    status === "cancelled" ||
+    approval === "cancelled_by_athlete" ||
+    approval === "cancelled_box_deleted"
+  ) {
+    return { key: "cancelled", label: "Annulée", color: "#B91C1C" };
+  }
+  if (approval === "rejected") {
+    return { key: "rejected", label: "Refusée", color: "#B45309" };
+  }
+  if (approval === "accepted") {
+    if (start && end && now >= start && now <= end) {
+      return { key: "ongoing", label: "En cours", color: "#0F766E" };
+    }
+    if (start && now < start) {
+      return { key: "upcoming", label: "Validée et prévue", color: "#0369A1" };
+    }
+    if (end && now > end) {
+      return { key: "past", label: "Passée", color: "#6B7280" };
+    }
+    return { key: "accepted", label: "Validée", color: "#0369A1" };
+  }
+  if (
+    approval === "pending" ||
+    approval === "pending_host_confirmation" ||
+    approval === "pending_athlete_confirmation"
+  ) {
+    return { key: "pending", label: "En attente", color: "#7C3AED" };
+  }
+  return { key: "other", label: bookingApprovalLabel(approval), color: "#334155" };
+}
+
+function buildBookingAgendaEntries(bookings, { hostView = false } = {}) {
+  const now = new Date();
+  return (Array.isArray(bookings) ? bookings : [])
+    .map((b) => {
+      const start = parseBookingDateTimeLocal(b?.booking_date, b?.start_time);
+      const phase = bookingAgendaPhase(b, now);
+      const who = hostView
+        ? b?.athlete_full_name || "Athlète"
+        : b?.host_full_name || "Hôte";
+      const place = b?.box_city ? ` · ${b.box_city}` : "";
+      return {
+        id: b.id,
+        dateKey: b?.booking_date || "9999-12-31",
+        sortStamp: start ? start.getTime() : Number.MAX_SAFE_INTEGER,
+        title: b?.box_title || `Box #${b?.box_id || "?"}`,
+        subline: `${who}${place}`,
+        slot: `${b?.start_time || "?"}–${b?.end_time || "?"}`,
+        phase,
+      };
+    })
+    .sort((a, b) => {
+      if (a.dateKey !== b.dateKey) return a.dateKey.localeCompare(b.dateKey);
+      if (a.sortStamp !== b.sortStamp) return a.sortStamp - b.sortStamp;
+      return Number(a.id || 0) - Number(b.id || 0);
+    });
+}
+
 function canShowBookingAccessInfo(booking, now = new Date()) {
   const start = parseBookingDateTimeLocal(
     booking?.booking_date,
@@ -5975,6 +6039,24 @@ function ReservationsScreen() {
     canHost && !canBook ? "host" : "athlete"
   );
   const [notifUnreadOnly, setNotifUnreadOnly] = useState(false);
+  const hostViewActive = canHost && reservationTab !== "athlete";
+  const agendaEntries = useMemo(
+    () =>
+      buildBookingAgendaEntries(hostViewActive ? hostBookings : athleteBookings, {
+        hostView: hostViewActive,
+      }),
+    [hostViewActive, hostBookings, athleteBookings]
+  );
+  const agendaPhaseCounts = useMemo(() => {
+    const counts = { ongoing: 0, upcoming: 0, pending: 0, other: 0 };
+    for (const item of agendaEntries) {
+      if (item.phase.key === "ongoing") counts.ongoing += 1;
+      else if (item.phase.key === "upcoming") counts.upcoming += 1;
+      else if (item.phase.key === "pending") counts.pending += 1;
+      else counts.other += 1;
+    }
+    return counts;
+  }, [agendaEntries]);
 
   useEffect(() => {
     if (canHost && canBook) return;
@@ -6136,6 +6218,62 @@ function ReservationsScreen() {
                 </Text>
               </View>
             ))}
+          </Section>
+        ) : null}
+
+        {(canHost || canBook) && agendaEntries.length > 0 ? (
+          <Section
+            title="Planning des réservations"
+            subtitle="Vue agenda claire de tes réservations en cours, validées et prévues."
+            icon="calendar-clear-outline"
+          >
+            <View style={styles.agendaLegendRow}>
+              <View style={styles.agendaLegendChip}>
+                <Text style={styles.agendaLegendText}>
+                  En cours: {agendaPhaseCounts.ongoing}
+                </Text>
+              </View>
+              <View style={styles.agendaLegendChip}>
+                <Text style={styles.agendaLegendText}>
+                  Validées à venir: {agendaPhaseCounts.upcoming}
+                </Text>
+              </View>
+              <View style={styles.agendaLegendChip}>
+                <Text style={styles.agendaLegendText}>
+                  En attente: {agendaPhaseCounts.pending}
+                </Text>
+              </View>
+            </View>
+            {agendaEntries.slice(0, 24).map((item, idx) => {
+              const prev = idx > 0 ? agendaEntries[idx - 1] : null;
+              const newDay = !prev || prev.dateKey !== item.dateKey;
+              return (
+                <View key={`agenda-${item.id}-${idx}`}>
+                  {newDay ? (
+                    <Text style={styles.agendaDayTitle}>
+                      {formatDateLongFr(item.dateKey)}
+                    </Text>
+                  ) : null}
+                  <View style={styles.agendaItemRow}>
+                    <View
+                      style={[
+                        styles.agendaItemDot,
+                        { backgroundColor: item.phase.color },
+                      ]}
+                    />
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.cardTitle}>
+                        {item.slot} · {item.title}
+                      </Text>
+                      <Text style={styles.cardMeta}>{item.subline}</Text>
+                      <Text style={styles.cardDetailLine}>
+                        Statut agenda: {item.phase.label}
+                      </Text>
+                    </View>
+                  </View>
+                </View>
+              );
+            })}
           </Section>
         ) : null}
 
@@ -10189,6 +10327,49 @@ const styles = StyleSheet.create({
     color: theme.inkMuted,
     fontSize: 13,
     lineHeight: 18,
+  },
+  agendaLegendRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    marginBottom: 8,
+    gap: 8,
+  },
+  agendaLegendChip: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: theme.borderSoft,
+    backgroundColor: theme.surfaceMuted,
+  },
+  agendaLegendText: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: theme.ink,
+  },
+  agendaDayTitle: {
+    marginTop: 10,
+    marginBottom: 6,
+    fontSize: 13,
+    fontWeight: "700",
+    color: theme.primary,
+  },
+  agendaItemRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 10,
+    marginBottom: 10,
+    padding: 10,
+    borderWidth: 1,
+    borderColor: theme.borderSoft,
+    borderRadius: 12,
+    backgroundColor: "#FFFFFF",
+  },
+  agendaItemDot: {
+    marginTop: 6,
+    width: 10,
+    height: 10,
+    borderRadius: 999,
   },
   selectedHostCard: {
     marginTop: 14,
