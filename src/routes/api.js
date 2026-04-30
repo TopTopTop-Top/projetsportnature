@@ -239,6 +239,9 @@ const updateRoutePlanSchema = z
 const updateRoutePlanBoxSchema = z.object({
   comment: z.union([z.string().max(2000), z.literal("")]).optional(),
 });
+const updateRoutePlanBoxesSchema = z.object({
+  boxIds: z.array(z.number().int().positive()).min(1).max(100),
+});
 const createRoutePlanTrailNoteSchema = z.object({
   note: z.string().min(1).max(2000),
   pointLat: z.number().min(-90).max(90).optional(),
@@ -1916,8 +1919,77 @@ async function applyRoutePlanBoxUpdate(req, res) {
   return res.json(detail);
 }
 
+async function applyRoutePlanBoxesUpdate(req, res) {
+  const routePlanId = Number(req.params.id);
+  if (!Number.isInteger(routePlanId) || routePlanId <= 0) {
+    return res.status(400).json({ error: "Invalid route plan id" });
+  }
+  const parsed = updateRoutePlanBoxesSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error.flatten() });
+  }
+  const uniqBoxIds = Array.from(
+    new Set(parsed.data.boxIds.map((x) => Number(x)).filter(Number.isFinite))
+  );
+  if (uniqBoxIds.length === 0) {
+    return res.status(400).json({ error: "Select at least one box" });
+  }
+  const { rows: ownRows } = await pool.query(
+    `SELECT id FROM route_plans WHERE id = $1 AND athlete_user_id = $2`,
+    [routePlanId, req.auth.sub]
+  );
+  if (!ownRows[0]) {
+    return res.status(404).json({ error: "Route plan not found" });
+  }
+  const { rows: validBoxRows } = await pool.query(
+    `SELECT id FROM boxes WHERE id = ANY($1::int[]) AND is_active = 1`,
+    [uniqBoxIds]
+  );
+  const validSet = new Set(validBoxRows.map((r) => Number(r.id)));
+  const filteredBoxIds = uniqBoxIds.filter((id) => validSet.has(Number(id)));
+  if (filteredBoxIds.length === 0) {
+    return res.status(400).json({ error: "No active box selected" });
+  }
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query(
+      `DELETE FROM route_plan_boxes
+       WHERE route_plan_id = $1
+         AND box_id <> ALL($2::int[])`,
+      [routePlanId, filteredBoxIds]
+    );
+    for (let i = 0; i < filteredBoxIds.length; i += 1) {
+      await client.query(
+        `INSERT INTO route_plan_boxes (route_plan_id, box_id, sort_index)
+         VALUES ($1, $2, $3)
+         ON CONFLICT (route_plan_id, box_id)
+         DO UPDATE SET sort_index = EXCLUDED.sort_index, updated_at = NOW()`,
+        [routePlanId, filteredBoxIds[i], i]
+      );
+    }
+    await client.query(
+      `UPDATE route_plans
+       SET updated_at = NOW()
+       WHERE id = $1`,
+      [routePlanId]
+    );
+    await client.query("COMMIT");
+  } catch (_error) {
+    await client.query("ROLLBACK");
+    return res.status(500).json({ error: "Failed to update route plan boxes" });
+  } finally {
+    client.release();
+  }
+  const detail = await getRoutePlanDetailsForUser(routePlanId, req.auth.sub);
+  return res.json(detail);
+}
+
 router.patch("/route-plans/:id/boxes/:boxId", requireAuth, async (req, res) => {
   return applyRoutePlanBoxUpdate(req, res);
+});
+router.patch("/route-plans/:id/boxes", requireAuth, async (req, res) => {
+  return applyRoutePlanBoxesUpdate(req, res);
 });
 router.post(
   "/route-plans/:id/boxes/:boxId/update",
@@ -1926,6 +1998,9 @@ router.post(
     return applyRoutePlanBoxUpdate(req, res);
   }
 );
+router.post("/route-plans/:id/boxes/update", requireAuth, async (req, res) => {
+  return applyRoutePlanBoxesUpdate(req, res);
+});
 
 router.post("/route-plans/:id/trail-notes", requireAuth, async (req, res) => {
   const routePlanId = Number(req.params.id);

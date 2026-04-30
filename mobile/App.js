@@ -2422,12 +2422,24 @@ function ExplorerScreen() {
               stretch
               label={
                 routePlanBusy
-                  ? "Enregistrement du plan..."
-                  : "Enregistrer plan (trace + box sélectionnées)"
+                  ? "Mise à jour du plan..."
+                  : activePlanForSelectedTrail
+                  ? "Ajouter les box sélectionnées au plan actif"
+                  : "Créer plan (trace + box sélectionnées)"
               }
               icon="save-outline"
               onPress={() =>
                 (async () => {
+                  if (activePlanForSelectedTrail) {
+                    await actionsRef.current.upsertRoutePlanBoxes?.(
+                      activePlanForSelectedTrail.id,
+                      {
+                        boxIds: safePickedBoxIds,
+                        mergeWithExisting: true,
+                      }
+                    );
+                    return;
+                  }
                   const created =
                     await actionsRef.current.createRoutePlanFromSelection?.({
                       trailId: selectedTrail.id,
@@ -8311,6 +8323,75 @@ function RavitoApp() {
     }
   };
 
+  const upsertRoutePlanBoxes = async (
+    routePlanId,
+    { boxIds = [], mergeWithExisting = true } = {}
+  ) => {
+    if (!token) return null;
+    const pid = Number(routePlanId);
+    const incomingIds = Array.isArray(boxIds)
+      ? boxIds.map((x) => Number(x)).filter(Number.isFinite)
+      : [];
+    if (!Number.isFinite(pid) || pid <= 0 || incomingIds.length === 0) {
+      userAlert("Planification", "Sélectionne au moins une box à ajouter.");
+      return null;
+    }
+    let baseDetail = null;
+    if (Number(selectedRoutePlanId) === pid && selectedRoutePlanDetail) {
+      baseDetail = selectedRoutePlanDetail;
+    } else {
+      baseDetail = await loadRoutePlanDetail(pid);
+    }
+    const existingIds = Array.isArray(baseDetail?.boxes)
+      ? baseDetail.boxes
+          .map((b) => Number(b.id))
+          .filter((id) => Number.isFinite(id))
+      : [];
+    const finalIds = mergeWithExisting
+      ? Array.from(new Set([...existingIds, ...incomingIds]))
+      : Array.from(new Set(incomingIds));
+    if (finalIds.length === 0) {
+      userAlert("Planification", "Le plan doit garder au moins une box.");
+      return null;
+    }
+    setRoutePlanBusy(true);
+    try {
+      let detail = null;
+      try {
+        detail = await apiFetch(`/route-plans/${pid}/boxes`, {
+          method: "PATCH",
+          token,
+          body: { boxIds: finalIds },
+        });
+      } catch (_e) {
+        detail = await apiFetch(`/route-plans/${pid}/boxes/update`, {
+          method: "POST",
+          token,
+          body: { boxIds: finalIds },
+        });
+      }
+      setSelectedRoutePlanId(pid);
+      setSelectedRoutePlanDetail(detail || null);
+      setMapPickedBoxIds(finalIds);
+      await loadRoutePlans().catch(() => {});
+      const addedCount = Math.max(0, finalIds.length - existingIds.length);
+      userAlert(
+        "Plan mis à jour",
+        addedCount > 0
+          ? `${addedCount} box ajoutée${
+              addedCount > 1 ? "s" : ""
+            } au plan existant.`
+          : "Aucune nouvelle box à ajouter (déjà présentes dans le plan)."
+      );
+      return detail || null;
+    } catch (error) {
+      userAlert("Erreur", error.message);
+      return null;
+    } finally {
+      setRoutePlanBusy(false);
+    }
+  };
+
   const updateRoutePlan = async (routePlanId, { name, notes } = {}) => {
     if (!token) return null;
     const pid = Number(routePlanId);
@@ -9593,6 +9674,7 @@ function RavitoApp() {
     loadRoutePlans,
     loadRoutePlanDetail,
     createRoutePlanFromSelection,
+    upsertRoutePlanBoxes,
     updateRoutePlan,
     deleteRoutePlan,
     updateRoutePlanBoxComment,
@@ -9710,6 +9792,7 @@ function RavitoApp() {
       setSelectedRoutePlanId,
       selectedRoutePlanDetail,
       routePlanBusy,
+      upsertRoutePlanBoxes,
       updateRoutePlan,
       deleteRoutePlan,
       updateRoutePlanBoxComment,
@@ -9795,6 +9878,7 @@ function RavitoApp() {
       selectedRoutePlanId,
       selectedRoutePlanDetail,
       routePlanBusy,
+      upsertRoutePlanBoxes,
       updateRoutePlan,
       deleteRoutePlan,
       updateRoutePlanBoxComment,
