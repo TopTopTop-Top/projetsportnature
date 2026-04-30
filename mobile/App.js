@@ -222,46 +222,6 @@ function minDistanceKmPointToTrail(trail, lat, lon) {
   return minD;
 }
 
-function nearestPointOnSegmentLonLat(ax, ay, bx, by, px, py) {
-  const abx = bx - ax;
-  const aby = by - ay;
-  const apx = px - ax;
-  const apy = py - ay;
-  const denom = abx * abx + aby * aby;
-  if (denom <= 0) return { x: ax, y: ay };
-  const t = Math.max(0, Math.min(1, (apx * abx + apy * aby) / denom));
-  return { x: ax + abx * t, y: ay + aby * t };
-}
-
-function nearestPointOnTrailPolyline(polyline, lat, lon) {
-  if (!Array.isArray(polyline) || polyline.length === 0) return null;
-  let best = null;
-  for (let i = 0; i < polyline.length - 1; i += 1) {
-    const a = polyline[i];
-    const b = polyline[i + 1];
-    if (!Array.isArray(a) || !Array.isArray(b) || a.length < 2 || b.length < 2)
-      continue;
-    const ay = Number(a[0]);
-    const ax = Number(a[1]);
-    const by = Number(b[0]);
-    const bx = Number(b[1]);
-    if (
-      !Number.isFinite(ax) ||
-      !Number.isFinite(ay) ||
-      !Number.isFinite(bx) ||
-      !Number.isFinite(by)
-    ) {
-      continue;
-    }
-    const proj = nearestPointOnSegmentLonLat(ax, ay, bx, by, lon, lat);
-    const d = haversineKm(lat, lon, proj.y, proj.x);
-    if (!best || d < best.distanceKm) {
-      best = { lat: proj.y, lon: proj.x, distanceKm: d };
-    }
-  }
-  return best;
-}
-
 function pointInBounds(lat, lon, bounds) {
   if (!bounds) return true;
   const south = Number(bounds.south);
@@ -994,9 +954,9 @@ function confirmDestructive(title, message) {
   });
 }
 
-function Section({ title, subtitle, icon, children }) {
+function Section({ title, subtitle, icon, children, onLayout }) {
   return (
-    <View style={styles.section}>
+    <View style={styles.section} onLayout={onLayout}>
       <View style={styles.sectionHeader}>
         {icon ? (
           <View style={styles.sectionIconWrap}>
@@ -1867,37 +1827,17 @@ function ExplorerScreen() {
     const bid = Number(selectedBoxId);
     return Number.isFinite(bid) && activePlanBoxIdSet.has(bid);
   }, [selectedBoxId, activePlanBoxIdSet]);
-  const activePlanConnectorPaths = useMemo(() => {
-    if (!activePlanOnMap) return [];
-    const trailId = Number(activePlanOnMap.trail_id);
-    if (!Number.isFinite(trailId)) return [];
-    const trail =
-      trailsOnMap.find((t) => Number(t.id) === trailId) ||
-      trails.find((t) => Number(t.id) === trailId);
-    if (!trail) return [];
-    let polyline = [];
-    try {
-      polyline = trail.polyline_json ? JSON.parse(trail.polyline_json) : [];
-    } catch (_e) {
-      polyline = [];
-    }
-    if (!Array.isArray(polyline) || polyline.length < 2) return [];
-    const paths = [];
-    for (const box of activePlanOnMap.boxes || []) {
-      const lat = Number(box.latitude);
-      const lon = Number(box.longitude);
-      if (!Number.isFinite(lat) || !Number.isFinite(lon)) continue;
-      const nearest = nearestPointOnTrailPolyline(polyline, lat, lon);
-      if (!nearest || !Number.isFinite(nearest.distanceKm)) continue;
-      if (nearest.distanceKm > 1) continue;
-      paths.push([
-        [nearest.lat, nearest.lon],
-        [lat, lon],
-        [nearest.lat, nearest.lon],
-      ]);
-    }
-    return paths;
-  }, [activePlanOnMap, trailsOnMap, trails]);
+  const plansForSelectedTrailSorted = useMemo(() => {
+    const list = Array.isArray(plansForSelectedTrail)
+      ? [...plansForSelectedTrail]
+      : [];
+    list.sort((a, b) => {
+      const aTs = new Date(a?.updated_at || a?.created_at || 0).getTime() || 0;
+      const bTs = new Date(b?.updated_at || b?.created_at || 0).getTime() || 0;
+      return bTs - aTs;
+    });
+    return list;
+  }, [plansForSelectedTrail]);
   const prioritizedExplorerBoxes = useMemo(() => {
     const list = Array.isArray(boxesForExplorerList)
       ? [...boxesForExplorerList]
@@ -2026,6 +1966,28 @@ function ExplorerScreen() {
       toggleExplorerPickedTrail,
     ]
   );
+  const handleExplorerMapTap = useCallback((lat, lng) => {
+    const plat = Number(lat);
+    const plng = Number(lng);
+    if (!Number.isFinite(plat) || !Number.isFinite(plng)) return;
+    setLastMapTapCoords({
+      lat: plat,
+      lng: plng,
+      at: Date.now(),
+    });
+  }, []);
+  const startBookingFromExplorer = useCallback(
+    (boxId) => {
+      const bid = Number(boxId);
+      if (!Number.isFinite(bid)) return;
+      setSelectedBoxId(bid);
+      explorerScrollRef.current?.scrollTo?.({
+        y: Math.max(0, bookingSectionYRef.current - 16),
+        animated: true,
+      });
+    },
+    [setSelectedBoxId]
+  );
   const { width: viewportWidth } = useWindowDimensions();
   const [showBoxFilters, setShowBoxFilters] = useState(false);
   const [showTrailFilters, setShowTrailFilters] = useState(false);
@@ -2033,8 +1995,9 @@ function ExplorerScreen() {
     useState(true);
   const [planExportIncludeRejected, setPlanExportIncludeRejected] =
     useState(false);
-  const [planExportIncludeConnectorPaths, setPlanExportIncludeConnectorPaths] =
-    useState(false);
+  const [lastMapTapCoords, setLastMapTapCoords] = useState(null);
+  const explorerScrollRef = useRef(null);
+  const bookingSectionYRef = useRef(0);
   const [planSearchQuery, setPlanSearchQuery] = useState("");
   const [routePlanDraftNotes, setRoutePlanDraftNotes] = useState("");
   const [planNameDraft, setPlanNameDraft] = useState("");
@@ -2426,7 +2389,6 @@ function ExplorerScreen() {
             selectedBoxId={selectedBoxId}
             selectedBoxIds={mapPickedBoxIds}
             planBoxIds={activePlanBoxIds}
-            connectorPaths={activePlanConnectorPaths}
             compatibleBoxIds={nearTrailCompatibleBoxIds}
             proximityTrailIds={nearTrailReferenceTrails.map((t) =>
               Number(t.id)
@@ -2436,6 +2398,7 @@ function ExplorerScreen() {
             onSelectBox={focusExplorerBox}
             onSelectTrail={focusExplorerTrail}
             onMapLongPress={handleExplorerMapLongPress}
+            onPickLocation={handleExplorerMapTap}
             onVisibleBoundsChange={setMapViewportBounds}
             onPanDrag={() => actionsRef.current.markExplorerMapUserGesture?.()}
             followExternalCenter={
@@ -2444,6 +2407,19 @@ function ExplorerScreen() {
             }
             recenterNonce={mapExplorerRecenterNonce}
           />
+        ) : null}
+        {lastMapTapCoords ? (
+          <View style={styles.mapCoordCard}>
+            <Text style={styles.mapCoordTitle}>Coordonnées sélectionnées</Text>
+            <Text style={styles.mapCoordValue}>
+              Lat {Number(lastMapTapCoords.lat).toFixed(6)} · Lon{" "}
+              {Number(lastMapTapCoords.lng).toFixed(6)}
+            </Text>
+            <Text style={styles.helperText}>
+              Astuce: copie ces coordonnées dans une note de parcours pour
+              positionner un repère précis.
+            </Text>
+          </View>
         ) : null}
         {selectedBox ? (
           <View style={styles.selectedHostCard}>
@@ -2506,9 +2482,9 @@ function ExplorerScreen() {
                 </Text>
                 <PrimaryButton
                   compact
-                  label="Réserver ce box (avec le créneau ci-dessous)"
+                  label="Aller au formulaire de réservation"
                   icon="calendar-outline"
-                  onPress={() => actionsRef.current.bookBox(selectedBox.id)}
+                  onPress={() => startBookingFromExplorer(selectedBox.id)}
                 />
               </>
             ) : (
@@ -2584,10 +2560,10 @@ function ExplorerScreen() {
               multiline
             />
             {plansForSelectedTrail.length > 0 ? (
-              <View style={{ marginTop: 8 }}>
+              <View style={styles.planListCard}>
                 <Text style={styles.fieldLabel}>Plans de cette trace</Text>
                 <View style={[styles.roleRow, { flexWrap: "wrap" }]}>
-                  {plansForSelectedTrail.slice(0, 5).map((plan) => {
+                  {plansForSelectedTrailSorted.slice(0, 6).map((plan) => {
                     const active =
                       Number(selectedRoutePlanId) === Number(plan.id);
                     return (
@@ -2618,7 +2594,7 @@ function ExplorerScreen() {
               </View>
             ) : null}
             {activePlanForSelectedTrail ? (
-              <View style={[styles.infoBanner, { marginTop: 8 }]}>
+              <View style={[styles.infoBanner, styles.planSummaryCard]}>
                 <Ionicons
                   name="flag-outline"
                   size={20}
@@ -2651,7 +2627,7 @@ function ExplorerScreen() {
               </View>
             ) : null}
             {activePlanForSelectedTrail ? (
-              <View style={{ marginTop: 8 }}>
+              <View style={[styles.planEditCard, { marginTop: 8 }]}>
                 <TextInput
                   style={styles.input}
                   placeholder="Nom du plan"
@@ -2723,34 +2699,17 @@ function ExplorerScreen() {
                     </Text>
                   </TouchableOpacity>
                   <TouchableOpacity
-                    style={[
-                      styles.roleChip,
-                      planExportIncludeConnectorPaths && styles.roleChipActive,
-                    ]}
-                    onPress={() =>
-                      setPlanExportIncludeConnectorPaths((prev) => !prev)
-                    }
-                    activeOpacity={0.85}
+                    style={styles.roleChip}
+                    activeOpacity={1}
                   >
-                    <Text
-                      style={[
-                        styles.roleChipText,
-                        planExportIncludeConnectorPaths &&
-                          styles.roleChipTextActive,
-                      ]}
-                    >
-                      Chemin trace → waypoint → trace
-                    </Text>
+                    <Text style={styles.roleChipText}>Connecteurs: désactivés</Text>
                   </TouchableOpacity>
                 </View>
-                {planExportIncludeConnectorPaths ? (
-                  <Text style={styles.helperText}>
-                    Chemin d'aide en ligne directe (aller/retour) depuis la trace
-                    vers la box. Les segments sont générés seulement pour les box
-                    proches de la trace (max ~1 km). Pour un recalcul sentiers
-                    précis, ouvre le GPX dans une app de routing.
-                  </Text>
-                ) : null}
+                <Text style={styles.helperText}>
+                  Le GPX exporté reste propre (trace + waypoints box). Une fois tes
+                  box validées, refais le tracé final si besoin dans un outil
+                  dédié de routing.
+                </Text>
                 <View
                   style={[styles.roleRow, { marginTop: 8, flexWrap: "wrap" }]}
                 >
@@ -2774,7 +2733,6 @@ function ExplorerScreen() {
                         {
                           includePending: planExportIncludePending,
                           includeRejected: planExportIncludeRejected,
-                          includeConnectorPaths: planExportIncludeConnectorPaths,
                         }
                       )
                     }
@@ -3066,6 +3024,9 @@ function ExplorerScreen() {
             title="Créneau & demande"
             subtitle="Horaires et message optionnel pour l’hôte (allergies, groupe, etc.)."
             icon="time-outline"
+            onLayout={(event) => {
+              bookingSectionYRef.current = event?.nativeEvent?.layout?.y || 0;
+            }}
           >
             <DateTimeSelector
               dateValue={bookingDate}
@@ -3718,9 +3679,9 @@ function ExplorerScreen() {
                   </Text>
                   <PrimaryButton
                     compact
-                    label="Réserver"
+                    label="Préparer réservation"
                     icon="checkmark-circle-outline"
-                    onPress={() => actionsRef.current.bookBox(item.id)}
+                    onPress={() => startBookingFromExplorer(item.id)}
                   />
                 </>
               ) : null}
@@ -4137,7 +4098,6 @@ function ExplorerScreen() {
                     selectedBoxId={selectedBoxId}
                     selectedBoxIds={mapPickedBoxIds}
                     planBoxIds={activePlanBoxIds}
-                    connectorPaths={activePlanConnectorPaths}
                     compatibleBoxIds={nearTrailCompatibleBoxIds}
                     proximityTrailIds={nearTrailReferenceTrails.map((t) =>
                       Number(t.id)
@@ -4149,6 +4109,7 @@ function ExplorerScreen() {
                     onSelectBox={focusExplorerBox}
                     onSelectTrail={focusExplorerTrail}
                     onMapLongPress={handleExplorerMapLongPress}
+                    onPickLocation={handleExplorerMapTap}
                     onVisibleBoundsChange={setMapViewportBounds}
                     onUserMapGesture={() =>
                       actionsRef.current.markExplorerMapUserGesture?.()
@@ -4199,7 +4160,6 @@ function ExplorerScreen() {
                 selectedBoxId={selectedBoxId}
                 selectedBoxIds={mapPickedBoxIds}
                 planBoxIds={activePlanBoxIds}
-                connectorPaths={activePlanConnectorPaths}
                 compatibleBoxIds={nearTrailCompatibleBoxIds}
                 proximityTrailIds={nearTrailReferenceTrails.map((t) =>
                   Number(t.id)
@@ -4211,6 +4171,7 @@ function ExplorerScreen() {
                 onSelectBox={focusExplorerBox}
                 onSelectTrail={focusExplorerTrail}
                 onMapLongPress={handleExplorerMapLongPress}
+                onPickLocation={handleExplorerMapTap}
                 onVisibleBoundsChange={setMapViewportBounds}
                 onUserMapGesture={() =>
                   actionsRef.current.markExplorerMapUserGesture?.()
@@ -10238,9 +10199,55 @@ const styles = StyleSheet.create({
     flexGrow: 1,
     paddingBottom: 24,
   },
+  authScrollContentWeb: {
+    minHeight: "100vh",
+    justifyContent: "center",
+    paddingVertical: 24,
+  },
   authColumn: {
     flex: 1,
     paddingHorizontal: 16,
+  },
+  mapCoordCard: {
+    marginTop: 8,
+    borderWidth: 1,
+    borderColor: theme.border,
+    backgroundColor: theme.surface,
+    borderRadius: 14,
+    padding: 12,
+  },
+  mapCoordTitle: {
+    fontSize: 12,
+    fontWeight: "800",
+    color: theme.inkMuted,
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+    marginBottom: 4,
+  },
+  mapCoordValue: {
+    fontSize: 15,
+    fontWeight: "700",
+    color: theme.ink,
+    marginBottom: 4,
+  },
+  planListCard: {
+    marginTop: 8,
+    padding: 10,
+    borderWidth: 1,
+    borderColor: theme.borderSoft,
+    borderRadius: 14,
+    backgroundColor: theme.surfaceMuted,
+  },
+  planSummaryCard: {
+    marginTop: 8,
+    borderRadius: 14,
+  },
+  planEditCard: {
+    borderWidth: 1,
+    borderColor: theme.borderSoft,
+    borderRadius: 14,
+    backgroundColor: theme.surface,
+    padding: 10,
   },
   authSegment: {
     flexDirection: "row",
@@ -11221,7 +11228,10 @@ function AuthScreen() {
       <StatusBar style="light" />
       <ScrollView
         keyboardShouldPersistTaps="always"
-        contentContainerStyle={styles.authScrollContent}
+        contentContainerStyle={[
+          styles.authScrollContent,
+          Platform.OS === "web" ? styles.authScrollContentWeb : null,
+        ]}
         showsVerticalScrollIndicator={false}
       >
         <View style={[styles.authColumn, AUTH_COLUMN]}>

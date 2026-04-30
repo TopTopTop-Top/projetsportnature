@@ -252,7 +252,6 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
   selectedBoxId,
   selectedBoxIds = [],
   planBoxIds = [],
-  connectorPaths = [],
   compatibleBoxIds = [],
   proximityTrailIds = [],
   trailCorridorKm = 2,
@@ -531,24 +530,6 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
         // Ignore a malformed trail instead of crashing the whole map.
       }
     });
-    (connectorPaths || []).forEach((path) => {
-      try {
-        if (!Array.isArray(path)) return;
-        const points = path.map(normalizePoint).filter(Boolean);
-        if (points.length < 2) return;
-        L.polyline(points, {
-          color: "#1E88E5",
-          weight: 2,
-          opacity: 0.9,
-          dashArray: "5 8",
-          lineCap: "round",
-          lineJoin: "round",
-        }).addTo(group);
-      } catch (_e) {
-        // Ignore malformed connector paths.
-      }
-    });
-
     let selectedLayer = null;
     const map = mapRef.current;
     const shouldCluster = boxes.length > 30 && map && map.getZoom() < 14;
@@ -707,7 +688,6 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
     selectedTrailSet,
     compatibleBoxSet,
     planBoxSet,
-    connectorPaths,
     proximityTrailSet,
     trailCorridorKm,
     dimIncompatibleBoxes,
