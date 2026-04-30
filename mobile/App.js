@@ -2303,19 +2303,6 @@ function ExplorerScreen() {
                       });
                     }}
                   />
-                  <OutlineButton
-                    compact
-                    label="Supprimer ce plan"
-                    icon="trash-outline"
-                    onPress={async () => {
-                      const ok = await confirmDestructive(
-                        "Supprimer ce plan ?",
-                        "Cette action supprime le plan et ses commentaires."
-                      );
-                      if (!ok) return;
-                      await deleteRoutePlan?.(activePlanForSelectedTrail.id);
-                    }}
-                  />
                 </View>
               </View>
             ) : null}
@@ -2620,22 +2607,15 @@ function ExplorerScreen() {
               {filteredRoutePlans.map((plan) => {
                 const active = Number(selectedRoutePlanId) === Number(plan.id);
                 return (
-                  <SwipeActionRow
+                  <View
                     key={`saved-plan-${plan.id}`}
-                    onDelete={async () => {
-                      const ok = await confirmDestructive(
-                        "Supprimer ce plan ?",
-                        `Le plan « ${plan.name || "sans nom"} » sera supprimé.`
-                      );
-                      if (!ok) return;
-                      await deleteRoutePlan?.(plan.id);
-                    }}
+                    style={[
+                      styles.trailPickRow,
+                      active ? styles.trailPickRowActive : null,
+                    ]}
                   >
                     <TouchableOpacity
-                      style={[
-                        styles.trailPickRow,
-                        active ? styles.trailPickRowActive : null,
-                      ]}
+                      style={{ flex: 1, flexDirection: "row", alignItems: "center" }}
                       onPress={() => {
                         setSelectedRoutePlanId(Number(plan.id));
                         actionsRef.current.loadRoutePlanDetail?.(plan.id);
@@ -2659,7 +2639,21 @@ function ExplorerScreen() {
                         </Text>
                       </View>
                     </TouchableOpacity>
-                  </SwipeActionRow>
+                    <TouchableOpacity
+                      onPress={async () => {
+                        const ok = await confirmDestructive(
+                          "Supprimer ce plan ?",
+                          `Le plan « ${plan.name || "sans nom"} » sera supprimé.`
+                        );
+                        if (!ok) return;
+                        await deleteRoutePlan?.(plan.id);
+                      }}
+                      style={{ marginLeft: 8, padding: 6 }}
+                      activeOpacity={0.8}
+                    >
+                      <Ionicons name="trash-outline" size={18} color="#DC2626" />
+                    </TouchableOpacity>
+                  </View>
                 );
               })}
             </ScrollView>
