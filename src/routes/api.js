@@ -535,6 +535,16 @@ async function ensureNoBookingOverlap({
   }
 }
 
+function computeAthleteCancellationRefundAmount(amountCents, startAt) {
+  const amount = Math.max(0, Number(amountCents) || 0);
+  if (!startAt) return 0;
+  const diffMs = startAt.getTime() - Date.now();
+  const HOUR_MS = 60 * 60 * 1000;
+  if (diffMs > 48 * HOUR_MS) return amount;
+  if (diffMs >= 24 * HOUR_MS) return Math.round(amount * 0.5);
+  return 0;
+}
+
 router.get("/health", (_req, res) => {
   res.json({ ok: true, service: "ravitobox-api", db: "postgresql" });
 });
@@ -1693,8 +1703,9 @@ async function getRoutePlanDetailsForUser(routePlanId, athleteUserId) {
     ...plan,
     boxes,
     trail_notes: trailNoteRows,
-    validated_box_count: boxes.filter((b) => b.validation_status === "validated")
-      .length,
+    validated_box_count: boxes.filter(
+      (b) => b.validation_status === "validated"
+    ).length,
     pending_box_count: boxes.filter((b) => b.validation_status === "pending")
       .length,
     rejected_box_count: boxes.filter((b) => b.validation_status === "rejected")
@@ -1738,7 +1749,9 @@ router.post("/route-plans", requireAuth, async (req, res) => {
     await client.query("BEGIN");
     const planName =
       input.name?.trim() ||
-      `Plan ${trail.name || "trace"} · ${new Date().toLocaleDateString("fr-FR")}`;
+      `Plan ${trail.name || "trace"} · ${new Date().toLocaleDateString(
+        "fr-FR"
+      )}`;
     const notes =
       input.notes != null && String(input.notes).trim()
         ? String(input.notes).trim().slice(0, 4000)
@@ -1883,7 +1896,8 @@ async function applyRoutePlanBoxUpdate(req, res) {
     `SELECT id FROM route_plans WHERE id = $1 AND athlete_user_id = $2`,
     [routePlanId, req.auth.sub]
   );
-  if (!ownRows[0]) return res.status(404).json({ error: "Route plan not found" });
+  if (!ownRows[0])
+    return res.status(404).json({ error: "Route plan not found" });
   const { rows } = await pool.query(
     `UPDATE route_plan_boxes
      SET comment = $1, updated_at = NOW()
@@ -1927,7 +1941,8 @@ router.post("/route-plans/:id/trail-notes", requireAuth, async (req, res) => {
     `SELECT id FROM route_plans WHERE id = $1 AND athlete_user_id = $2`,
     [routePlanId, req.auth.sub]
   );
-  if (!ownRows[0]) return res.status(404).json({ error: "Route plan not found" });
+  if (!ownRows[0])
+    return res.status(404).json({ error: "Route plan not found" });
   await pool.query(
     `INSERT INTO route_plan_trail_notes (route_plan_id, note, point_lat, point_lon, sort_index)
      VALUES ($1, $2, $3, $4, $5)`,
@@ -2111,9 +2126,9 @@ router.get("/route-plans/:id/export-gpx", requireAuth, async (req, res) => {
       const amount =
         Number.isFinite(Number(box.latest_booking_amount_cents)) &&
         Number(box.latest_booking_amount_cents) > 0
-          ? ` · ${(
-              Number(box.latest_booking_amount_cents) / 100
-            ).toFixed(2)} EUR`
+          ? ` · ${(Number(box.latest_booking_amount_cents) / 100).toFixed(
+              2
+            )} EUR`
           : "";
       const sym =
         box.validation_status === "validated"
@@ -2121,13 +2136,17 @@ router.get("/route-plans/:id/export-gpx", requireAuth, async (req, res) => {
           : box.validation_status === "rejected"
           ? "Flag, Red"
           : "Flag, Blue";
-      return `<wpt lat="${lat.toFixed(7)}" lon="${lon.toFixed(7)}"><name>${escapeXml(
-        box.title || "Box"
-      )}</name><sym>${escapeXml(sym)}</sym><desc>${escapeXml(
+      return `<wpt lat="${lat.toFixed(7)}" lon="${lon.toFixed(
+        7
+      )}"><name>${escapeXml(box.title || "Box")}</name><sym>${escapeXml(
+        sym
+      )}</sym><desc>${escapeXml(
         `${box.city || ""} · statut ${box.validation_status}${slot}${amount}${
           box.plan_box_comment ? ` · Note box: ${box.plan_box_comment}` : ""
         }`
-      )}</desc><type>box_${escapeXml(box.validation_status || "pending")}</type></wpt>`;
+      )}</desc><type>box_${escapeXml(
+        box.validation_status || "pending"
+      )}</type></wpt>`;
     })
     .join("");
   const trailNoteWpts = (detail.trail_notes || [])
@@ -2147,7 +2166,8 @@ router.get("/route-plans/:id/export-gpx", requireAuth, async (req, res) => {
   const trailNotesNoPoint = (detail.trail_notes || [])
     .filter(
       (n) =>
-        !Number.isFinite(Number(n.point_lat)) || !Number.isFinite(Number(n.point_lon))
+        !Number.isFinite(Number(n.point_lat)) ||
+        !Number.isFinite(Number(n.point_lon))
     )
     .map((n, idx) => `Note ${idx + 1}: ${n.note || ""}`)
     .join(" | ");
@@ -3100,7 +3120,7 @@ router.delete("/bookings/:id", requireAuth, async (req, res) => {
     return res.status(400).json({ error: "Invalid booking id" });
   }
   const { rows: beforeRows } = await pool.query(
-    `SELECT id, status, booking_date, start_time
+    `SELECT id, status, booking_date, start_time, amount_cents
      FROM bookings
      WHERE id = $1 AND athlete_user_id = $2`,
     [bookingId, req.auth.sub]
@@ -3110,18 +3130,10 @@ router.delete("/bookings/:id", requireAuth, async (req, res) => {
     return res.status(404).json({ error: "Booking not found" });
   }
   const startAt = parseISODateTimeUtc(before.booking_date, before.start_time);
-  if (
-    startAt &&
-    before.status !== "cancelled" &&
-    before.status !== "completed"
-  ) {
-    const diffMs = startAt.getTime() - Date.now();
-    if (diffMs > 0 && diffMs < 2 * 60 * 60 * 1000) {
-      return res.status(409).json({
-        error: "Cannot cancel less than 2 hours before start time",
-      });
-    }
-  }
+  const refundAmountCents = computeAthleteCancellationRefundAmount(
+    before.amount_cents,
+    startAt
+  );
   const { rows } = await pool.query(
     `UPDATE bookings
      SET status = 'cancelled',
@@ -3133,25 +3145,35 @@ router.delete("/bookings/:id", requireAuth, async (req, res) => {
   if (!rows[0]) {
     return res.status(404).json({ error: "Booking not found" });
   }
-  await pool.query(
-    `INSERT INTO refunds (booking_id, athlete_user_id, box_id, amount_cents, reason, status)
-     VALUES ($1, $2, $3, $4, $5, 'pending')
-     ON CONFLICT (booking_id) DO NOTHING`,
-    [
-      bookingId,
-      req.auth.sub,
-      rows[0].box_id,
-      rows[0].amount_cents,
-      "cancelled_by_athlete",
-    ]
-  );
-  await pool.query(
-    `UPDATE bookings
-     SET refund_status = 'pending',
-         refund_amount_cents = $2
-     WHERE id = $1`,
-    [bookingId, rows[0].amount_cents]
-  );
+  if (refundAmountCents > 0) {
+    await pool.query(
+      `INSERT INTO refunds (booking_id, athlete_user_id, box_id, amount_cents, reason, status)
+       VALUES ($1, $2, $3, $4, $5, 'pending')
+       ON CONFLICT (booking_id) DO NOTHING`,
+      [
+        bookingId,
+        req.auth.sub,
+        rows[0].box_id,
+        refundAmountCents,
+        "cancelled_by_athlete",
+      ]
+    );
+    await pool.query(
+      `UPDATE bookings
+       SET refund_status = 'pending',
+           refund_amount_cents = $2
+       WHERE id = $1`,
+      [bookingId, refundAmountCents]
+    );
+  } else {
+    await pool.query(
+      `UPDATE bookings
+       SET refund_status = 'none',
+           refund_amount_cents = 0
+       WHERE id = $1`,
+      [bookingId]
+    );
+  }
   await logBookingEvent({
     bookingId,
     actorUserId: req.auth.sub,
@@ -3169,29 +3191,44 @@ router.delete("/bookings", requireAuth, async (req, res) => {
      WHERE athlete_user_id = $1
        AND status <> 'cancelled'
        AND status <> 'completed'
-     RETURNING id, box_id, amount_cents`,
+     RETURNING id, box_id, amount_cents, booking_date, start_time`,
     [req.auth.sub]
   );
   for (const row of rows) {
-    await pool.query(
-      `INSERT INTO refunds (booking_id, athlete_user_id, box_id, amount_cents, reason, status)
-       VALUES ($1, $2, $3, $4, $5, 'pending')
-       ON CONFLICT (booking_id) DO NOTHING`,
-      [
-        row.id,
-        req.auth.sub,
-        row.box_id,
-        row.amount_cents,
-        "cancelled_by_athlete",
-      ]
+    const startAt = parseISODateTimeUtc(row.booking_date, row.start_time);
+    const refundAmountCents = computeAthleteCancellationRefundAmount(
+      row.amount_cents,
+      startAt
     );
-    await pool.query(
-      `UPDATE bookings
-       SET refund_status = 'pending',
-           refund_amount_cents = $2
-       WHERE id = $1`,
-      [row.id, row.amount_cents]
-    );
+    if (refundAmountCents > 0) {
+      await pool.query(
+        `INSERT INTO refunds (booking_id, athlete_user_id, box_id, amount_cents, reason, status)
+         VALUES ($1, $2, $3, $4, $5, 'pending')
+         ON CONFLICT (booking_id) DO NOTHING`,
+        [
+          row.id,
+          req.auth.sub,
+          row.box_id,
+          refundAmountCents,
+          "cancelled_by_athlete",
+        ]
+      );
+      await pool.query(
+        `UPDATE bookings
+         SET refund_status = 'pending',
+             refund_amount_cents = $2
+         WHERE id = $1`,
+        [row.id, refundAmountCents]
+      );
+    } else {
+      await pool.query(
+        `UPDATE bookings
+         SET refund_status = 'none',
+             refund_amount_cents = 0
+         WHERE id = $1`,
+        [row.id]
+      );
+    }
   }
   return res.json({ ok: true });
 });
