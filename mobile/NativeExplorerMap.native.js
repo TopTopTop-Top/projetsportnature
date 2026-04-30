@@ -16,6 +16,7 @@ export default function NativeExplorerMap({
   selectedTrailId = null,
   selectedBoxId,
   selectedBoxIds = [],
+  planBoxIds = [],
   compatibleBoxIds = [],
   proximityTrailIds = [],
   trailCorridorKm = 2,
@@ -23,6 +24,7 @@ export default function NativeExplorerMap({
   onSelectBox,
   onSelectTrail,
   onMapLongPress,
+  onPickLocation,
   onVisibleBoundsChange,
   onPanDrag,
   followExternalCenter = true,
@@ -78,6 +80,15 @@ export default function NativeExplorerMap({
           .filter((id) => Number.isFinite(id))
       ),
     [compatibleBoxIds]
+  );
+  const planBoxSet = useMemo(
+    () =>
+      new Set(
+        (planBoxIds || [])
+          .map((id) => Number(id))
+          .filter((id) => Number.isFinite(id))
+      ),
+    [planBoxIds]
   );
   const proximityTrailSet = useMemo(
     () =>
@@ -138,6 +149,12 @@ export default function NativeExplorerMap({
         if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
         onMapLongPress?.(lat, lng);
       }}
+      onPress={(ev) => {
+        const lat = Number(ev?.nativeEvent?.coordinate?.latitude);
+        const lng = Number(ev?.nativeEvent?.coordinate?.longitude);
+        if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+        onPickLocation?.(lat, lng);
+      }}
     >
       {trailPolylines.map((t) => (
         <React.Fragment key={t.id}>
@@ -189,6 +206,10 @@ export default function NativeExplorerMap({
       {boxes.map((box) => {
         const isCompatible =
           compatibleBoxSet.size === 0 || compatibleBoxSet.has(Number(box.id));
+        const isPlanBox = planBoxSet.has(Number(box.id));
+        const isSelected =
+          Number(box.id) === Number(selectedBoxId) ||
+          selectedBoxSet.has(Number(box.id));
         return (
           <Marker
             key={box.id}
@@ -202,10 +223,10 @@ export default function NativeExplorerMap({
             <View
               style={[
                 styles.boxPin,
+                isPlanBox && styles.boxPinPlan,
                 dimIncompatibleBoxes && !isCompatible && styles.boxPinDimmed,
-                (Number(box.id) === Number(selectedBoxId) ||
-                  selectedBoxSet.has(Number(box.id))) &&
-                  styles.boxPinSelected,
+                isSelected && styles.boxPinSelected,
+                isSelected && isPlanBox && styles.boxPinSelectedPlan,
               ]}
             />
           </Marker>
@@ -241,6 +262,14 @@ const styles = StyleSheet.create({
     borderColor: "#0F172A",
     backgroundColor: "#14B8A6",
     transform: [{ scale: 1.25 }],
+  },
+  boxPinPlan: {
+    borderColor: "#7C3AED",
+    backgroundColor: "#F5F3FF",
+  },
+  boxPinSelectedPlan: {
+    borderColor: "#4C1D95",
+    backgroundColor: "#A78BFA",
   },
   boxPinDimmed: {
     borderColor: "#94A3B8",

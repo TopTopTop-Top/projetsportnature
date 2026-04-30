@@ -251,6 +251,7 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
   selectedTrailId = null,
   selectedBoxId,
   selectedBoxIds = [],
+  planBoxIds = [],
   compatibleBoxIds = [],
   proximityTrailIds = [],
   trailCorridorKm = 2,
@@ -299,6 +300,15 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
           .filter((id) => Number.isFinite(id))
       ),
     [compatibleBoxIds]
+  );
+  const planBoxSet = useMemo(
+    () =>
+      new Set(
+        (planBoxIds || [])
+          .map((id) => Number(id))
+          .filter((id) => Number.isFinite(id))
+      ),
+    [planBoxIds]
   );
   const proximityTrailSet = useMemo(
     () =>
@@ -569,6 +579,7 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
           const isSelected =
             Number(box.id) === Number(selectedBoxIdRef.current) ||
             selectedBoxSet.has(Number(box.id));
+          const isPlanBox = planBoxSet.has(Number(box.id));
           const isCompatible =
             compatibleBoxSet.size === 0 || compatibleBoxSet.has(Number(box.id));
           const status = boxVisualStatus(box);
@@ -589,14 +600,22 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
             }px;border-radius:999px;
               border:2px solid ${
                 isSelected
-                  ? "#0F172A"
+                  ? isPlanBox
+                    ? "#4C1D95"
+                    : "#0F172A"
+                  : isPlanBox
+                  ? "#7C3AED"
                   : dimIncompatibleBoxes && !isCompatible
                   ? "#94A3B8"
                   : status.stroke
               };
               background:${
                 isSelected
-                  ? "#14B8A6"
+                  ? isPlanBox
+                    ? "#A78BFA"
+                    : "#14B8A6"
+                  : isPlanBox
+                  ? "#F5F3FF"
                   : dimIncompatibleBoxes && !isCompatible
                   ? "#E2E8F0"
                   : "#FFFFFF"
@@ -609,10 +628,14 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
           });
           const m = L.marker([lat, lng], { icon: labelIcon });
           m.on("click", () => onSelectBoxRef.current?.(box.id));
-          m.bindTooltip(`${escapeHtml(box.title || "Box")} · ${status.label}`, {
-            direction: "top",
-            offset: [0, -12],
-          });
+          const planSuffix = isPlanBox ? " · plan" : "";
+          m.bindTooltip(
+            `${escapeHtml(box.title || "Box")} · ${status.label}${planSuffix}`,
+            {
+              direction: "top",
+              offset: [0, -12],
+            }
+          );
           m.addTo(group);
           if (isSelected) selectedLayer = m;
         } catch (_e) {
@@ -665,6 +688,7 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
     selectedBoxSet,
     selectedTrailSet,
     compatibleBoxSet,
+    planBoxSet,
     proximityTrailSet,
     trailCorridorKm,
     dimIncompatibleBoxes,

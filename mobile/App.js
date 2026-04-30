@@ -1819,6 +1819,14 @@ function ExplorerScreen() {
       : [];
     return boxes.map((b) => Number(b.id)).filter((id) => Number.isFinite(id));
   }, [activePlanOnMap]);
+  const activePlanBoxIdSet = useMemo(
+    () => new Set(activePlanBoxIds),
+    [activePlanBoxIds]
+  );
+  const selectedBoxInActivePlan = useMemo(() => {
+    const bid = Number(selectedBoxId);
+    return Number.isFinite(bid) && activePlanBoxIdSet.has(bid);
+  }, [selectedBoxId, activePlanBoxIdSet]);
   const prioritizedExplorerBoxes = useMemo(() => {
     const list = Array.isArray(boxesForExplorerList)
       ? [...boxesForExplorerList]
@@ -2286,6 +2294,7 @@ function ExplorerScreen() {
             selectedTrailId={selectedTrailId}
             selectedBoxId={selectedBoxId}
             selectedBoxIds={mapPickedBoxIds}
+            planBoxIds={activePlanBoxIds}
             compatibleBoxIds={nearTrailCompatibleBoxIds}
             proximityTrailIds={nearTrailReferenceTrails.map((t) =>
               Number(t.id)
@@ -2308,6 +2317,29 @@ function ExplorerScreen() {
           <View style={styles.selectedHostCard}>
             <Text style={styles.selectedLabel}>Box sélectionnée</Text>
             <Text style={styles.cardTitle}>{selectedBox.title}</Text>
+            {activePlanOnMap ? (
+              <View
+                style={[
+                  styles.selectionPill,
+                  selectedBoxInActivePlan
+                    ? styles.selectionPillActive
+                    : styles.selectionPillIdle,
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.selectionPillText,
+                    selectedBoxInActivePlan
+                      ? styles.selectionPillTextActive
+                      : styles.selectionPillTextIdle,
+                  ]}
+                >
+                  {selectedBoxInActivePlan
+                    ? "Déjà dans le plan"
+                    : "Hors plan (ajout possible)"}
+                </Text>
+              </View>
+            ) : null}
             <Text style={styles.cardMeta}>
               {selectedBox.city} · {(selectedBox.price_cents / 100).toFixed(2)}{" "}
               €
@@ -3424,6 +3456,31 @@ function ExplorerScreen() {
                     : "Non sélectionnée"}
                 </Text>
               </View>
+              {activePlanOnMap ? (
+                <View
+                  style={[
+                    styles.selectionPill,
+                    activePlanBoxIdSet.has(Number(item.id))
+                      ? styles.selectionPillActive
+                      : styles.selectionPillIdle,
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.selectionPillText,
+                      activePlanBoxIdSet.has(Number(item.id))
+                        ? styles.selectionPillTextActive
+                        : styles.selectionPillTextIdle,
+                    ]}
+                  >
+                    {activePlanBoxIdSet.has(Number(item.id))
+                      ? "Dans le plan"
+                      : safePickedBoxIds.includes(Number(item.id))
+                      ? "Sélection hors plan (ajout possible)"
+                      : "Hors plan"}
+                  </Text>
+                </View>
+              ) : null}
               <Text style={styles.cardMeta}>
                 {item.city} · {(item.price_cents / 100).toFixed(2)} €
                 {item.distance_km != null &&
@@ -3922,6 +3979,7 @@ function ExplorerScreen() {
                     selectedTrailId={selectedTrailId}
                     selectedBoxId={selectedBoxId}
                     selectedBoxIds={mapPickedBoxIds}
+                    planBoxIds={activePlanBoxIds}
                     compatibleBoxIds={nearTrailCompatibleBoxIds}
                     proximityTrailIds={nearTrailReferenceTrails.map((t) =>
                       Number(t.id)
@@ -3982,6 +4040,7 @@ function ExplorerScreen() {
                 selectedTrailId={selectedTrailId}
                 selectedBoxId={selectedBoxId}
                 selectedBoxIds={mapPickedBoxIds}
+                planBoxIds={activePlanBoxIds}
                 compatibleBoxIds={nearTrailCompatibleBoxIds}
                 proximityTrailIds={nearTrailReferenceTrails.map((t) =>
                   Number(t.id)
@@ -5182,6 +5241,8 @@ function HostScreen() {
   const [hostMapShowBoxes, setHostMapShowBoxes] = useState(true);
   const [hostMapSelectionMode, setHostMapSelectionMode] = useState("all");
   const [hostPickedBoxIds, setHostPickedBoxIds] = useState([]);
+  const [hostLocationMode, setHostLocationMode] = useState("map");
+  const [hostCityLookupLoading, setHostCityLookupLoading] = useState(false);
 
   const toggleHostPickedBox = useCallback((boxId) => {
     const bid = Number(boxId);
@@ -5271,6 +5332,30 @@ function HostScreen() {
         : null
     );
   }, [hostBoxes]);
+
+  const applyHostCitySearch = useCallback(async () => {
+    const q = String(hostForm.city || "").trim();
+    if (q.length < 2) {
+      userAlert("Ville", "Indique un nom de ville avant la recherche.");
+      return;
+    }
+    setHostCityLookupLoading(true);
+    try {
+      const coords = await geocodeCityToLatLon(q);
+      if (!coords) {
+        userAlert("Ville", "Ville introuvable. Essaie un nom plus précis.");
+        return;
+      }
+      actionsRef.current.setHostLocationFromMap(coords.lat, coords.lon);
+      setHostReverseGeocode({ status: "idle", message: "" });
+      userAlert(
+        "Ville trouvée",
+        `Position appliquée: ${coords.lat.toFixed(6)}, ${coords.lon.toFixed(6)}`
+      );
+    } finally {
+      setHostCityLookupLoading(false);
+    }
+  }, [hostForm.city, actionsRef, setHostReverseGeocode]);
 
   return (
     <SafeAreaView style={styles.screen} edges={["left", "right"]}>
@@ -5363,49 +5448,144 @@ function HostScreen() {
               />
               <Text style={styles.fieldLabel}>Localisation</Text>
               <Text style={styles.helperText}>
-                Place le point sur la carte ou saisis les coordonnées : la ville
-                est proposée automatiquement (tu peux la corriger).
+                Choisis ton mode: placer sur carte, saisir GPS, ou rechercher par
+                ville.
               </Text>
-              {Platform.OS === "web" ? (
+              <View style={[styles.roleRow, { flexWrap: "wrap" }]}>
+                <TouchableOpacity
+                  style={[
+                    styles.roleChip,
+                    hostLocationMode === "map" && styles.roleChipActive,
+                  ]}
+                  onPress={() => setHostLocationMode("map")}
+                  activeOpacity={0.85}
+                >
+                  <Text
+                    style={[
+                      styles.roleChipText,
+                      hostLocationMode === "map" && styles.roleChipTextActive,
+                    ]}
+                  >
+                    Sur la carte
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[
+                    styles.roleChip,
+                    hostLocationMode === "gps" && styles.roleChipActive,
+                  ]}
+                  onPress={() => setHostLocationMode("gps")}
+                  activeOpacity={0.85}
+                >
+                  <Text
+                    style={[
+                      styles.roleChipText,
+                      hostLocationMode === "gps" && styles.roleChipTextActive,
+                    ]}
+                  >
+                    Coordonnées GPS
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[
+                    styles.roleChip,
+                    hostLocationMode === "city" && styles.roleChipActive,
+                  ]}
+                  onPress={() => setHostLocationMode("city")}
+                  activeOpacity={0.85}
+                >
+                  <Text
+                    style={[
+                      styles.roleChipText,
+                      hostLocationMode === "city" && styles.roleChipTextActive,
+                    ]}
+                  >
+                    Nom de ville
+                  </Text>
+                </TouchableOpacity>
+              </View>
+              {hostLocationMode === "map" ? (
                 <View style={{ marginTop: 8, marginBottom: 12 }}>
                   <Text style={styles.fieldLabel}>
-                    Carte — clique précisément (zoom max si besoin)
+                    Carte — clique / appui long pour poser ton box
                   </Text>
-                  <ExplorerWebMap
-                    center={[hostLat, hostLon]}
-                    boxes={[]}
-                    trails={[]}
-                    onSelectBox={() => {}}
-                    onPickLocation={(lat, lng) =>
-                      actionsRef.current.setHostLocationFromMap(lat, lng)
-                    }
-                    draftPoint={[hostLat, hostLon]}
-                    pickerMode
-                    inFixedPane={false}
-                  />
+                  {Platform.OS === "web" ? (
+                    <ExplorerWebMap
+                      center={[hostLat, hostLon]}
+                      boxes={[]}
+                      trails={[]}
+                      onSelectBox={() => {}}
+                      onPickLocation={(lat, lng) =>
+                        actionsRef.current.setHostLocationFromMap(lat, lng)
+                      }
+                      draftPoint={[hostLat, hostLon]}
+                      pickerMode
+                      inFixedPane={false}
+                    />
+                  ) : (
+                    <NativeExplorerMap
+                      center={[hostLat, hostLon]}
+                      boxes={[]}
+                      trails={[]}
+                      onPickLocation={(lat, lng) =>
+                        actionsRef.current.setHostLocationFromMap(lat, lng)
+                      }
+                      onMapLongPress={(lat, lng) =>
+                        actionsRef.current.setHostLocationFromMap(lat, lng)
+                      }
+                      followExternalCenter
+                    />
+                  )}
                 </View>
               ) : null}
-              <Text style={styles.inputLabel}>Coordonnées GPS</Text>
-              <TextInput
-                style={styles.input}
-                placeholder="Latitude"
-                placeholderTextColor={theme.inkMuted}
-                value={hostForm.latitude}
-                onChangeText={(v) =>
-                  setHostForm((s) => ({ ...s, latitude: v }))
-                }
-                keyboardType="decimal-pad"
-              />
-              <TextInput
-                style={styles.input}
-                placeholder="Longitude"
-                placeholderTextColor={theme.inkMuted}
-                value={hostForm.longitude}
-                onChangeText={(v) =>
-                  setHostForm((s) => ({ ...s, longitude: v }))
-                }
-                keyboardType="decimal-pad"
-              />
+              {hostLocationMode === "gps" ? (
+                <>
+                  <Text style={styles.inputLabel}>Coordonnées GPS</Text>
+                  <TextInput
+                    style={styles.input}
+                    placeholder="Latitude"
+                    placeholderTextColor={theme.inkMuted}
+                    value={hostForm.latitude}
+                    onChangeText={(v) =>
+                      setHostForm((s) => ({ ...s, latitude: v }))
+                    }
+                    keyboardType="decimal-pad"
+                  />
+                  <TextInput
+                    style={styles.input}
+                    placeholder="Longitude"
+                    placeholderTextColor={theme.inkMuted}
+                    value={hostForm.longitude}
+                    onChangeText={(v) =>
+                      setHostForm((s) => ({ ...s, longitude: v }))
+                    }
+                    keyboardType="decimal-pad"
+                  />
+                </>
+              ) : null}
+              {hostLocationMode === "city" ? (
+                <>
+                  <Text style={styles.inputLabel}>Ville</Text>
+                  <TextInput
+                    style={styles.input}
+                    placeholder="Ex: Annecy"
+                    placeholderTextColor={theme.inkMuted}
+                    value={hostForm.city}
+                    onChangeText={(v) => {
+                      setHostReverseGeocode({ status: "idle", message: "" });
+                      setHostForm((s) => ({ ...s, city: v }));
+                    }}
+                  />
+                  <OutlineButton
+                    label={hostCityLookupLoading ? "Recherche..." : "Trouver la ville"}
+                    icon="search-outline"
+                    stretch
+                    onPress={() => {
+                      if (!hostCityLookupLoading) void applyHostCitySearch();
+                    }}
+                  />
+                </>
+              ) : null}
               <Text style={styles.helperText}>
                 Position enregistrée : {hostLat.toFixed(6)},{" "}
                 {hostLon.toFixed(6)}
@@ -5416,8 +5596,11 @@ function HostScreen() {
                 stretch
                 onPress={() => actionsRef.current.syncExplorerMapFromHost()}
               />
-              <Text style={styles.inputLabel}>Ville (base de données)</Text>
-              {hostReverseGeocode.status === "loading" ? (
+              {hostLocationMode !== "city" ? (
+                <Text style={styles.inputLabel}>Ville (base de données)</Text>
+              ) : null}
+              {hostLocationMode !== "city" &&
+              hostReverseGeocode.status === "loading" ? (
                 <View
                   style={{
                     flexDirection: "row",
@@ -5431,7 +5614,7 @@ function HostScreen() {
                   </Text>
                 </View>
               ) : null}
-              {hostReverseGeocode.message ? (
+              {hostLocationMode !== "city" && hostReverseGeocode.message ? (
                 <Text
                   style={[
                     styles.helperText,
@@ -5447,16 +5630,18 @@ function HostScreen() {
                   {hostReverseGeocode.message}
                 </Text>
               ) : null}
-              <TextInput
-                style={styles.input}
-                placeholder="Remplie automatiquement depuis le point bleu"
-                placeholderTextColor={theme.inkMuted}
-                value={hostForm.city}
-                onChangeText={(v) => {
-                  setHostReverseGeocode({ status: "idle", message: "" });
-                  setHostForm((s) => ({ ...s, city: v }));
-                }}
-              />
+              {hostLocationMode !== "city" ? (
+                <TextInput
+                  style={styles.input}
+                  placeholder="Remplie automatiquement depuis le point bleu"
+                  placeholderTextColor={theme.inkMuted}
+                  value={hostForm.city}
+                  onChangeText={(v) => {
+                    setHostReverseGeocode({ status: "idle", message: "" });
+                    setHostForm((s) => ({ ...s, city: v }));
+                  }}
+                />
+              ) : null}
               <Text style={styles.fieldLabel}>
                 Prix par réservation (centimes)
               </Text>
