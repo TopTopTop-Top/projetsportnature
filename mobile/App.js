@@ -2008,6 +2008,57 @@ function ExplorerScreen() {
     setTrailNoteDraftById(trailById);
   }, [activePlanForSelectedTrail]);
 
+  const saveActiveRoutePlanDrafts = useCallback(async () => {
+    const plan = activePlanForSelectedTrail;
+    if (!plan) return;
+    const planId = Number(plan.id);
+    if (!Number.isFinite(planId) || planId <= 0) return;
+    let changed = false;
+    const currentName = String(plan.name || "");
+    const currentNotes = String(plan.notes || "");
+    if (planNameDraft !== currentName || planNotesDraft !== currentNotes) {
+      await updateRoutePlan?.(planId, {
+        name: planNameDraft,
+        notes: planNotesDraft,
+      });
+      changed = true;
+    }
+    for (const b of plan.boxes || []) {
+      const bid = Number(b.id);
+      if (!Number.isFinite(bid)) continue;
+      const nextComment = String(boxCommentDraftById[bid] || "");
+      const prevComment = String(b.plan_box_comment || "");
+      if (nextComment !== prevComment) {
+        await updateRoutePlanBoxComment?.(planId, bid, nextComment);
+        changed = true;
+      }
+    }
+    for (const n of plan.trail_notes || []) {
+      const nid = Number(n.id);
+      if (!Number.isFinite(nid)) continue;
+      const nextNote = String(trailNoteDraftById[nid] ?? n.note ?? "");
+      const prevNote = String(n.note || "");
+      if (nextNote !== prevNote) {
+        await updateRoutePlanTrailNote?.(planId, nid, { note: nextNote });
+        changed = true;
+      }
+    }
+    if (changed) {
+      userAlert("Plan", "Toutes les modifications du plan sont enregistrées.");
+    } else {
+      userAlert("Plan", "Aucune modification à enregistrer.");
+    }
+  }, [
+    activePlanForSelectedTrail,
+    planNameDraft,
+    planNotesDraft,
+    boxCommentDraftById,
+    trailNoteDraftById,
+    updateRoutePlan,
+    updateRoutePlanBoxComment,
+    updateRoutePlanTrailNote,
+  ]);
+
   useEffect(() => {
     actionsRef.current.loadTrails();
     actionsRef.current.loadRoutePlans?.();
@@ -2545,16 +2596,15 @@ function ExplorerScreen() {
                 <View style={[styles.roleRow, { flexWrap: "wrap" }]}>
                   <OutlineButton
                     compact
-                    label="Enregistrer modifs plan"
+                    label="Enregistrer toutes les modifications du plan"
                     icon="save-outline"
-                    onPress={async () => {
-                      await updateRoutePlan?.(activePlanForSelectedTrail.id, {
-                        name: planNameDraft,
-                        notes: planNotesDraft,
-                      });
-                    }}
+                    onPress={saveActiveRoutePlanDrafts}
                   />
                 </View>
+                <Text style={styles.helperText}>
+                  Les changements (nom, notes, commentaires box, notes de parcours
+                  éditées) sont enregistrés avec ce bouton unique.
+                </Text>
               </View>
             ) : null}
             {activePlanForSelectedTrail ? (
@@ -2703,15 +2753,9 @@ function ExplorerScreen() {
                               />
                               <OutlineButton
                                 compact
-                                label="Enregistrer commentaire box"
-                                icon="create-outline"
-                                onPress={async () => {
-                                  await updateRoutePlanBoxComment?.(
-                                    activePlanForSelectedTrail.id,
-                                    b.id,
-                                    boxCommentDraftById[Number(b.id)] || ""
-                                  );
-                                }}
+                                label="Commentaire prêt (sera enregistré avec le bouton unique)"
+                                icon="checkmark-done-outline"
+                                disabled
                               />
                             </View>
                           </View>
@@ -2800,18 +2844,9 @@ function ExplorerScreen() {
                         <View style={[styles.roleRow, { flexWrap: "wrap" }]}>
                           <OutlineButton
                             compact
-                            label="Enregistrer note"
-                            icon="create-outline"
-                            onPress={() =>
-                              updateRoutePlanTrailNote?.(
-                                activePlanForSelectedTrail.id,
-                                n.id,
-                                {
-                                  note:
-                                    trailNoteDraftById[Number(n.id)] ?? n.note,
-                                }
-                              )
-                            }
+                            label="Note éditée (sera enregistrée avec le bouton unique)"
+                            icon="checkmark-done-outline"
+                            disabled
                           />
                           <OutlineButton
                             compact
