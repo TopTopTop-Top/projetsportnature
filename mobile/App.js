@@ -2100,10 +2100,14 @@ function ExplorerScreen() {
         changed = true;
       }
     }
+    await actionsRef.current.loadRoutePlanDetail?.(planId);
     if (changed) {
       userAlert("Plan", "Toutes les modifications du plan sont enregistrées.");
     } else {
-      userAlert("Plan", "Aucune modification à enregistrer.");
+      userAlert(
+        "Plan",
+        "Le plan est déjà synchronisé (pas de nouvelle modification détectée)."
+      );
     }
   }, [
     activePlanForSelectedTrail,
@@ -2114,7 +2118,15 @@ function ExplorerScreen() {
     updateRoutePlan,
     updateRoutePlanBoxComment,
     updateRoutePlanTrailNote,
+    actionsRef,
   ]);
+  const refreshRoutePlanBookingLinks = useCallback(async () => {
+    await loadRoutePlans?.();
+    const pid = Number(selectedRoutePlanId);
+    if (Number.isFinite(pid) && pid > 0) {
+      await loadRoutePlanDetail?.(pid);
+    }
+  }, [loadRoutePlans, loadRoutePlanDetail, selectedRoutePlanId]);
 
   useEffect(() => {
     actionsRef.current.loadTrails();
@@ -2686,8 +2698,8 @@ function ExplorerScreen() {
                   />
                 </View>
                 <Text style={styles.helperText}>
-                  Les changements (nom, notes, commentaires box, notes de parcours
-                  éditées) sont enregistrés avec ce bouton unique.
+                  Les changements (nom, notes, commentaires box, notes de
+                  parcours éditées) sont enregistrés avec ce bouton unique.
                 </Text>
               </View>
             ) : null}
@@ -2732,17 +2744,16 @@ function ExplorerScreen() {
                       Inclure refusées
                     </Text>
                   </TouchableOpacity>
-                  <TouchableOpacity
-                    style={styles.roleChip}
-                    activeOpacity={1}
-                  >
-                    <Text style={styles.roleChipText}>Connecteurs: désactivés</Text>
+                  <TouchableOpacity style={styles.roleChip} activeOpacity={1}>
+                    <Text style={styles.roleChipText}>
+                      Connecteurs: désactivés
+                    </Text>
                   </TouchableOpacity>
                 </View>
                 <Text style={styles.helperText}>
-                  Le GPX exporté reste propre (trace + waypoints box). Une fois tes
-                  box validées, refais le tracé final si besoin dans un outil
-                  dédié de routing.
+                  Le GPX exporté reste propre (trace + waypoints box). Une fois
+                  tes box validées, refais le tracé final si besoin dans un
+                  outil dédié de routing.
                 </Text>
                 <View
                   style={[styles.roleRow, { marginTop: 8, flexWrap: "wrap" }]}
@@ -2785,6 +2796,24 @@ function ExplorerScreen() {
                         const status = String(b.validation_status || "pending");
                         const isValidated = status === "validated";
                         const isRejected = status === "rejected";
+                        const bookingStatus = String(
+                          b.latest_booking_status || ""
+                        ).toLowerCase();
+                        const bookingApproval = String(
+                          b.latest_approval_status || ""
+                        ).toLowerCase();
+                        const hasActiveBooking =
+                          bookingStatus !== "cancelled" &&
+                          bookingStatus !== "canceled" &&
+                          bookingStatus !== "rejected" &&
+                          bookingApproval !== "rejected";
+                        const bookingSlotLabel =
+                          hasActiveBooking &&
+                          b.latest_booking_date &&
+                          b.latest_booking_start_time &&
+                          b.latest_booking_end_time
+                            ? `${b.latest_booking_date} ${b.latest_booking_start_time}-${b.latest_booking_end_time}`
+                            : "";
                         return (
                           <View
                             key={`plan-box-${b.id}`}
@@ -2826,12 +2855,29 @@ function ExplorerScreen() {
                               </Text>
                               <Text style={styles.cardMeta}>
                                 {b.city || "Ville inconnue"} · {status}
-                                {b.latest_booking_date &&
-                                b.latest_booking_start_time &&
-                                b.latest_booking_end_time
-                                  ? ` · ${b.latest_booking_date} ${b.latest_booking_start_time}-${b.latest_booking_end_time}`
-                                  : ""}
                               </Text>
+                              <View
+                                style={[
+                                  styles.selectionPill,
+                                  bookingSlotLabel
+                                    ? styles.selectionPillActive
+                                    : styles.selectionPillIdle,
+                                  { marginTop: 6, marginBottom: 4 },
+                                ]}
+                              >
+                                <Text
+                                  style={[
+                                    styles.selectionPillText,
+                                    bookingSlotLabel
+                                      ? styles.selectionPillTextActive
+                                      : styles.selectionPillTextIdle,
+                                  ]}
+                                >
+                                  {bookingSlotLabel
+                                    ? `Créneau réservé: ${bookingSlotLabel}`
+                                    : "Aucun créneau actif réservé pour ce plan"}
+                                </Text>
+                              </View>
                               <TextInput
                                 style={[styles.input, { marginTop: 6 }]}
                                 placeholder="Commentaire box (stratégie, matos, ravito...)"
@@ -5617,8 +5663,8 @@ function HostScreen() {
               />
               <Text style={styles.fieldLabel}>Localisation</Text>
               <Text style={styles.helperText}>
-                Choisis ton mode: placer sur carte, saisir GPS, ou rechercher par
-                ville.
+                Choisis ton mode: placer sur carte, saisir GPS, ou rechercher
+                par ville.
               </Text>
               <View style={[styles.roleRow, { flexWrap: "wrap" }]}>
                 <TouchableOpacity
@@ -5746,7 +5792,11 @@ function HostScreen() {
                     }}
                   />
                   <OutlineButton
-                    label={hostCityLookupLoading ? "Recherche..." : "Trouver la ville"}
+                    label={
+                      hostCityLookupLoading
+                        ? "Recherche..."
+                        : "Trouver la ville"
+                    }
                     icon="search-outline"
                     stretch
                     onPress={() => {
@@ -8771,8 +8821,7 @@ function RavitoApp() {
       const params = new URLSearchParams();
       if (includePending) params.set("includePending", "true");
       if (includeRejected) params.set("includeRejected", "true");
-      if (includeConnectorPaths)
-        params.set("includeConnectorPaths", "true");
+      if (includeConnectorPaths) params.set("includeConnectorPaths", "true");
       if (includeConnectorPaths) params.set("connectorMaxKm", "1");
       const query = params.toString() ? `?${params.toString()}` : "";
       const resp = await fetch(
@@ -8940,6 +8989,7 @@ function RavitoApp() {
         }`
       );
       await loadAthleteBookings();
+      await refreshRoutePlanBookingLinks();
     } catch (error) {
       userAlert("Erreur", error.message);
     } finally {
@@ -9330,6 +9380,7 @@ function RavitoApp() {
         await loadHostBookings();
         await loadAthleteBookings();
         await loadNotifications();
+        await refreshRoutePlanBookingLinks();
         return;
       }
       await apiFetch(`/host/bookings/${bookingId}/decision`, {
@@ -9340,6 +9391,7 @@ function RavitoApp() {
       await loadHostBookings();
       await loadAthleteBookings();
       await loadNotifications();
+      await refreshRoutePlanBookingLinks();
     } catch (error) {
       userAlert("Erreur", error.message);
     }
@@ -9363,6 +9415,7 @@ function RavitoApp() {
         await loadAthleteBookings();
         await loadHostBookings();
         await loadNotifications();
+        await refreshRoutePlanBookingLinks();
         return;
       }
       await apiFetch(`/bookings/${bookingId}/decision`, {
@@ -9373,6 +9426,7 @@ function RavitoApp() {
       await loadAthleteBookings();
       await loadHostBookings();
       await loadNotifications();
+      await refreshRoutePlanBookingLinks();
     } catch (error) {
       userAlert("Erreur", error.message);
     }
@@ -9398,6 +9452,7 @@ function RavitoApp() {
       await loadHostBookings();
       await loadAthleteBookings();
       await loadNotifications();
+      await refreshRoutePlanBookingLinks();
     } catch (error) {
       userAlert("Erreur", error.message);
     }
@@ -9441,6 +9496,7 @@ function RavitoApp() {
       await loadHostBookings();
       await loadAthleteBookings();
       await loadNotifications();
+      await refreshRoutePlanBookingLinks();
     } catch (error) {
       userAlert("Erreur", error.message);
     }
@@ -9472,6 +9528,7 @@ function RavitoApp() {
       await loadHostBookings();
       await loadAthleteBookings();
       await loadNotifications();
+      await refreshRoutePlanBookingLinks();
     } catch (error) {
       userAlert("Erreur", error.message);
     }
@@ -9496,6 +9553,7 @@ function RavitoApp() {
       await loadHostBookings();
       await loadAthleteBookings();
       await loadNotifications();
+      await refreshRoutePlanBookingLinks();
     } catch (error) {
       userAlert("Erreur", error.message);
     }
@@ -9555,6 +9613,7 @@ function RavitoApp() {
       await loadAthleteBookings();
       await loadHostBookings();
       await loadNotifications();
+      await refreshRoutePlanBookingLinks();
     } catch (error) {
       userAlert("Erreur", error.message);
     }
@@ -9570,6 +9629,7 @@ function RavitoApp() {
     try {
       await apiFetch(`/bookings/${bookingId}`, { method: "DELETE", token });
       await loadAthleteBookings();
+      await refreshRoutePlanBookingLinks();
     } catch (error) {
       userAlert("Erreur", error.message);
     }
@@ -9585,6 +9645,7 @@ function RavitoApp() {
     try {
       await apiFetch("/bookings", { method: "DELETE", token });
       await loadAthleteBookings();
+      await refreshRoutePlanBookingLinks();
       userAlert("OK", "Historique effacé.");
     } catch (error) {
       userAlert("Erreur", error.message);
