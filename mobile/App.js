@@ -2121,12 +2121,12 @@ function ExplorerScreen() {
     actionsRef,
   ]);
   const refreshRoutePlanBookingLinks = useCallback(async () => {
-    await loadRoutePlans?.();
+    await actionsRef.current.loadRoutePlans?.();
     const pid = Number(selectedRoutePlanId);
     if (Number.isFinite(pid) && pid > 0) {
-      await loadRoutePlanDetail?.(pid);
+      await actionsRef.current.loadRoutePlanDetail?.(pid);
     }
-  }, [loadRoutePlans, loadRoutePlanDetail, selectedRoutePlanId]);
+  }, [actionsRef, selectedRoutePlanId]);
 
   useEffect(() => {
     actionsRef.current.loadTrails();
