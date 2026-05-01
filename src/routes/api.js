@@ -1695,6 +1695,78 @@ router.post(
   }
 );
 
+router.post(
+  "/trails/:id/replace-gpx",
+  requireAuth,
+  upload.single("gpx"),
+  async (req, res) => {
+    const trailId = Number(req.params.id);
+    if (!Number.isInteger(trailId) || trailId <= 0) {
+      return res.status(400).json({ error: "Invalid trail id" });
+    }
+    if (!req.file) {
+      return res
+        .status(400)
+        .json({ error: "Missing GPX file in form-data field 'gpx'" });
+    }
+    try {
+      const { rows: existingRows } = await pool.query(
+        `SELECT id, gpx_url FROM trails WHERE id = $1 AND creator_user_id = $2`,
+        [trailId, req.auth.sub]
+      );
+      const existing = existingRows[0];
+      if (!existing) {
+        return res.status(404).json({ error: "Trail not found or not yours" });
+      }
+
+      const gpxContent = fs.readFileSync(req.file.path, "utf-8");
+      const stats = parseGpxStats(gpxContent);
+      const gpxUrl = `/uploads/${req.file.filename}`;
+      const polylineJson =
+        stats.polylineLatLngs.length > 0
+          ? JSON.stringify(stats.polylineLatLngs)
+          : null;
+
+      const { rows } = await pool.query(
+        `UPDATE trails
+           SET distance_km = $1,
+               elevation_m = $2,
+               gpx_url = $3,
+               polyline_json = $4
+         WHERE id = $5 AND creator_user_id = $6
+         RETURNING *`,
+        [
+          stats.distanceKm > 0 ? stats.distanceKm : 0.1,
+          stats.elevationM,
+          gpxUrl,
+          polylineJson,
+          trailId,
+          req.auth.sub,
+        ]
+      );
+      const updated = rows[0];
+      if (!updated) {
+        unlinkTrailGpxFile(gpxUrl);
+        return res.status(404).json({ error: "Trail not found or not yours" });
+      }
+
+      unlinkTrailGpxFile(existing.gpx_url);
+      return res.json({
+        fileName: req.file.filename,
+        gpxUrl,
+        distanceKm: stats.distanceKm,
+        elevationM: stats.elevationM,
+        trackPoints: stats.trackPoints,
+        trail: updated,
+      });
+    } catch (error) {
+      return res
+        .status(400)
+        .json({ error: "Invalid GPX content", details: `${error}` });
+    }
+  }
+);
+
 async function getRoutePlanDetailsForUser(routePlanId, athleteUserId) {
   const { rows: planRows } = await pool.query(
     `SELECT rp.*, t.name AS trail_name, t.polyline_json, t.gpx_url, t.territory

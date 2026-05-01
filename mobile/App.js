@@ -2540,6 +2540,18 @@ function ExplorerScreen() {
                 actionsRef.current.isolateTrailOnMap(selectedTrail.id)
               }
             />
+            {user?.id != null &&
+            Number(selectedTrail.creator_user_id) === Number(user.id) ? (
+              <OutlineButton
+                compact
+                stretch
+                label="Remplacer le GPX de cette trace"
+                icon="swap-horizontal-outline"
+                onPress={() =>
+                  actionsRef.current.replaceTrailGpx?.(selectedTrail.id)
+                }
+              />
+            ) : null}
             <OutlineButton
               compact
               stretch
@@ -5086,12 +5098,22 @@ function TrailsScreen() {
                     </Text>
                   ) : null}
                   {isMine ? (
-                    <OutlineButton
-                      stretch
-                      label="Modifier nom, lieu, critères…"
-                      icon="create-outline"
-                      onPress={() => openTrailEditor(trail)}
-                    />
+                    <>
+                      <OutlineButton
+                        stretch
+                        label="Modifier nom, lieu, critères…"
+                        icon="create-outline"
+                        onPress={() => openTrailEditor(trail)}
+                      />
+                      <OutlineButton
+                        stretch
+                        label="Remplacer le GPX (garde le plan lié)"
+                        icon="swap-horizontal-outline"
+                        onPress={() =>
+                          actionsRef.current.replaceTrailGpx?.(trail.id)
+                        }
+                      />
+                    </>
                   ) : null}
                   <OutlineButton
                     stretch
@@ -8966,8 +8988,11 @@ function RavitoApp() {
     };
   }, [bookingConfirm.visible, bookingConfirm.boxId, bookingDate]);
 
-  const uploadGpxWithFormData = async (formData) => {
-    const response = await fetch(`${API_BASE_URL}/trails/upload-gpx`, {
+  const uploadGpxWithFormData = async (
+    formData,
+    endpointPath = "/trails/upload-gpx"
+  ) => {
+    const response = await fetch(`${API_BASE_URL}${endpointPath}`, {
       method: "POST",
       headers: { Authorization: `Bearer ${token}` },
       body: formData,
@@ -9081,6 +9106,93 @@ function RavitoApp() {
       );
       await loadTrails();
       setTrailImportNotes("");
+    } catch (error) {
+      userAlert("Erreur", error.message);
+    }
+  };
+
+  const replaceTrailGpxWebFile = async (trailId, file) => {
+    const tid = Number(trailId);
+    if (!Number.isFinite(tid) || tid <= 0) {
+      userAlert("Trace", "Identifiant de trace invalide.");
+      return;
+    }
+    if (!file) {
+      userAlert("Erreur", "Aucun fichier GPX sélectionné.");
+      return;
+    }
+    const name = file.name || "trace.gpx";
+    if (!name.toLowerCase().endsWith(".gpx")) {
+      userAlert("Format", "Utilise un fichier .gpx");
+      return;
+    }
+    try {
+      let formData;
+      if (Platform.OS === "web" && typeof globalThis.FormData !== "undefined") {
+        formData = new globalThis.FormData();
+        formData.append("gpx", file, name);
+      } else {
+        formData = new FormData();
+        formData.append("gpx", file);
+      }
+      const data = await uploadGpxWithFormData(
+        formData,
+        `/trails/${tid}/replace-gpx`
+      );
+      userAlert(
+        "Trace remplacée",
+        `${data.distanceKm} km / D+ ${data.elevationM} m`
+      );
+      await loadTrails();
+      if (selectedTrailId != null && Number(selectedTrailId) === tid) {
+        await loadRoutePlans?.();
+      }
+    } catch (error) {
+      userAlert("Erreur", error.message);
+    }
+  };
+
+  const replaceTrailGpx = async (trailId) => {
+    const tid = Number(trailId);
+    if (!Number.isFinite(tid) || tid <= 0) {
+      userAlert("Trace", "Identifiant de trace invalide.");
+      return;
+    }
+    if (Platform.OS === "web") {
+      const input = document.createElement("input");
+      input.type = "file";
+      input.accept = ".gpx,application/gpx+xml,application/xml,text/xml";
+      input.onchange = () => {
+        const file = input.files?.[0];
+        if (file) {
+          void replaceTrailGpxWebFile(tid, file);
+        }
+      };
+      input.click();
+      return;
+    }
+    try {
+      const picked = await DocumentPicker.getDocumentAsync({ type: ["*/*"] });
+      if (picked.canceled) return;
+      const file = picked.assets[0];
+      const formData = new FormData();
+      formData.append("gpx", {
+        uri: file.uri,
+        name: file.name || "trace.gpx",
+        type: file.mimeType || "application/gpx+xml",
+      });
+      const data = await uploadGpxWithFormData(
+        formData,
+        `/trails/${tid}/replace-gpx`
+      );
+      userAlert(
+        "Trace remplacée",
+        `${data.distanceKm} km / D+ ${data.elevationM} m`
+      );
+      await loadTrails();
+      if (selectedTrailId != null && Number(selectedTrailId) === tid) {
+        await loadRoutePlans?.();
+      }
     } catch (error) {
       userAlert("Erreur", error.message);
     }
@@ -9837,6 +9949,8 @@ function RavitoApp() {
     cancelHostBoxEdit,
     uploadGpx,
     uploadGpxWebFile,
+    replaceTrailGpx,
+    replaceTrailGpxWebFile,
     deleteTrail,
     updateTrail,
     deleteTrailsByIds,
