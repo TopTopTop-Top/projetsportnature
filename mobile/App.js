@@ -7676,6 +7676,16 @@ function RavitoApp() {
     mapTrailProximityKm,
     nearTrailDistanceByBoxId,
   ]);
+  const activePlanBoxIdsForMapFilter = useMemo(() => {
+    const detail = selectedRoutePlanDetail;
+    if (!detail) return [];
+    const pid = Number(detail.id);
+    if (!Number.isFinite(pid) || Number(selectedRoutePlanId) !== pid) return [];
+    const boxes = Array.isArray(detail.boxes) ? detail.boxes : [];
+    return boxes
+      .map((b) => Number(b.id))
+      .filter((id) => Number.isFinite(id));
+  }, [selectedRoutePlanDetail, selectedRoutePlanId]);
 
   const boxesForMap = useMemo(() => {
     if (!mapShowBoxes) return [];
@@ -7703,6 +7713,10 @@ function RavitoApp() {
       const picks = new Set(
         (mapPickedBoxIds || []).map((x) => Number(x)).filter(Number.isFinite)
       );
+      // In plan-only mode, keep plan boxes visible even if user unselects one.
+      if (activePlanBoxIdsForMapFilter.length > 0) {
+        activePlanBoxIdsForMapFilter.forEach((id) => picks.add(Number(id)));
+      }
       if (picks.size > 0) {
         list = list.filter((b) => picks.has(Number(b.id)));
       }
@@ -7725,6 +7739,7 @@ function RavitoApp() {
     mapBoxCriteriaTags,
     mapBoxSelectionMode,
     mapPickedBoxIds,
+    activePlanBoxIdsForMapFilter,
     mapBoxesNearTrailsOnly,
     mapTrailProximityKm,
     nearTrailCompatibleBoxIds,
