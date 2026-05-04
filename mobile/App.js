@@ -875,9 +875,94 @@ function parseFieldErrorsFromApiError(errObj) {
   return out;
 }
 
+/**
+ * Rempli par RavitoApp : refresh synchrone (ref) pour les retries 401 après rotation du refresh token.
+ */
+const apiAuthBridge = {
+  getRefreshToken: () => null,
+  applySessionTokens: (_access, _refresh) => {},
+};
+
+let authRefreshPromise = null;
+
+function throwIfHtmlResponse(trimmed, response, method, path, root) {
+  if (
+    trimmed.startsWith("<!DOCTYPE") ||
+    trimmed.toLowerCase().startsWith("<html")
+  ) {
+    throw new Error(
+      `Réponse HTML (${response.status}) : ${method} ${path} sur « ${root} » (pas de JSON). Causes fréquentes : (1) EXPO_PUBLIC_API_URL pointe vers un site statique au lieu du Web Service Node ; (2) le backend Render n’a pas été redéployé depuis main (routes mise à jour trace : PATCH/PUT /api/trails/:id, POST /api/update-trail). Référence API : ${PROD_API_BASE_URL}`
+    );
+  }
+}
+
+async function refreshAccessTokenOnce({ baseUrl, signal }) {
+  const rt = apiAuthBridge.getRefreshToken?.();
+  if (!rt) return null;
+  const root =
+    typeof baseUrl === "string" && baseUrl.trim()
+      ? baseUrl.trim()
+      : API_BASE_URL;
+  const response = await fetch(`${root}/auth/refresh`, {
+    method: "POST",
+    signal,
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ refreshToken: rt }),
+  });
+  const text = await response.text();
+  let data = {};
+  if (text) {
+    const trimmed = text.trim();
+    throwIfHtmlResponse(trimmed, response, "POST", "/auth/refresh", root);
+    try {
+      data = JSON.parse(text);
+    } catch {
+      return null;
+    }
+  }
+  if (!response.ok) return null;
+  if (data.token && data.refreshToken) {
+    apiAuthBridge.applySessionTokens(data.token, data.refreshToken);
+    return data.token;
+  }
+  return null;
+}
+
+function waitForAuthRefresh({ baseUrl, signal }) {
+  if (!authRefreshPromise) {
+    authRefreshPromise = refreshAccessTokenOnce({ baseUrl, signal }).finally(
+      () => {
+        authRefreshPromise = null;
+      }
+    );
+  }
+  return authRefreshPromise;
+}
+
+function errorMessageFromApiData(data, response, method, path) {
+  const err = data.error;
+  const fieldMsgs = parseFieldErrorsFromApiError(err);
+  return typeof err === "string"
+    ? err
+    : fieldMsgs.length > 0
+    ? fieldMsgs.join(" · ")
+    : err && typeof err === "object"
+    ? JSON.stringify(err)
+    : response.status === 404
+    ? `Endpoint API introuvable: ${method} ${path}`
+    : "Erreur réseau ou serveur";
+}
+
 async function apiFetch(
   path,
-  { method = "GET", body, token, signal, baseUrl } = {}
+  {
+    method = "GET",
+    body,
+    token,
+    signal,
+    baseUrl,
+    _retryAfterRefresh = false,
+  } = {}
 ) {
   const root =
     typeof baseUrl === "string" && baseUrl.trim()
@@ -896,14 +981,7 @@ async function apiFetch(
   let data = {};
   if (text) {
     const trimmed = text.trim();
-    if (
-      trimmed.startsWith("<!DOCTYPE") ||
-      trimmed.toLowerCase().startsWith("<html")
-    ) {
-      throw new Error(
-        `Réponse HTML (${response.status}) : ${method} ${path} sur « ${root} » (pas de JSON). Causes fréquentes : (1) EXPO_PUBLIC_API_URL pointe vers un site statique au lieu du Web Service Node ; (2) le backend Render n’a pas été redéployé depuis main (routes mise à jour trace : PATCH/PUT /api/trails/:id, POST /api/update-trail). Référence API : ${PROD_API_BASE_URL}`
-      );
-    }
+    throwIfHtmlResponse(trimmed, response, method, path, root);
     try {
       data = JSON.parse(text);
     } catch {
@@ -911,18 +989,32 @@ async function apiFetch(
     }
   }
   if (!response.ok) {
-    const err = data.error;
-    const fieldMsgs = parseFieldErrorsFromApiError(err);
-    const msg =
-      typeof err === "string"
-        ? err
-        : fieldMsgs.length > 0
-        ? fieldMsgs.join(" · ")
-        : err && typeof err === "object"
-        ? JSON.stringify(err)
-        : response.status === 404
-        ? `Endpoint API introuvable: ${method} ${path}`
-        : "Erreur réseau ou serveur";
+    const errStr =
+      typeof data.error === "string" ? data.error.trim().toLowerCase() : "";
+    const isExpiredAccess =
+      errStr === "invalid or expired token" || errStr.includes("jwt expired");
+    if (
+      !_retryAfterRefresh &&
+      token &&
+      response.status === 401 &&
+      isExpiredAccess &&
+      path !== "/auth/refresh" &&
+      path !== "/auth/login" &&
+      path !== "/auth/logout"
+    ) {
+      const fresh = await waitForAuthRefresh({ baseUrl, signal });
+      if (fresh) {
+        return apiFetch(path, {
+          method,
+          body,
+          token: fresh,
+          signal,
+          baseUrl,
+          _retryAfterRefresh: true,
+        });
+      }
+    }
+    const msg = errorMessageFromApiData(data, response, method, path);
     throw new Error(msg);
   }
   return data;
@@ -7436,6 +7528,8 @@ function RavitoApp() {
 
   const [token, setToken] = useState(null);
   const [refreshToken, setRefreshToken] = useState(null);
+  /** Dernier refresh token (synchrone) pour apiFetch / rotation sans attendre un re-render. */
+  const refreshTokenRef = useRef(null);
   const [user, setUser] = useState(null);
 
   const [email, setEmail] = useState("");
@@ -7557,6 +7651,23 @@ function RavitoApp() {
     }
     setTrailLocalPatches(readTrailPatchesFromStorage(user.id));
   }, [user?.id]);
+
+  useEffect(() => {
+    refreshTokenRef.current = refreshToken;
+  }, [refreshToken]);
+
+  useEffect(() => {
+    apiAuthBridge.getRefreshToken = () => refreshTokenRef.current;
+    apiAuthBridge.applySessionTokens = (access, refresh) => {
+      refreshTokenRef.current = refresh;
+      setToken(access);
+      setRefreshToken(refresh);
+    };
+    return () => {
+      apiAuthBridge.getRefreshToken = () => null;
+      apiAuthBridge.applySessionTokens = () => {};
+    };
+  }, []);
 
   const isAuthed = useMemo(() => Boolean(token), [token]);
   const canHost = useMemo(
