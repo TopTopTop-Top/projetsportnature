@@ -97,6 +97,42 @@ const trailActivityEnum = z.enum([
   "other",
 ]);
 
+const MAX_BOX_TRAIL_PINS = 12;
+
+const createBoxTrailPinSchema = z.object({
+  trailId: z.number().int().positive(),
+  hostNote: z.string().max(2000).optional(),
+  isHighlight: z.boolean().optional(),
+  sortOrder: z.number().int().min(-999).max(999).optional(),
+});
+
+const patchBoxTrailPinSchema = z.object({
+  hostNote: z.union([z.string().max(2000), z.literal("")]).optional(),
+  isHighlight: z.boolean().optional(),
+  sortOrder: z.number().int().min(-999).max(999).optional(),
+});
+
+function mapPinRowWithTrail(r) {
+  return {
+    id: r.id,
+    box_id: r.box_id,
+    trail_id: r.trail_id,
+    host_note: r.host_note,
+    is_highlight: Number(r.is_highlight) || 0,
+    sort_order: r.sort_order,
+    created_at: r.created_at,
+    trail: {
+      id: r.trail_id,
+      name: r.trail_name,
+      territory: r.trail_territory,
+      distance_km: r.trail_distance_km,
+      elevation_m: r.trail_elevation_m,
+      difficulty: r.trail_difficulty,
+      activity: r.trail_activity,
+    },
+  };
+}
+
 const createTrailSchema = z.object({
   name: z.string().min(3),
   territory: z.string().min(2),
@@ -1418,6 +1454,98 @@ router.get("/boxes/:id/unavailable", async (req, res) => {
       status: r.status || "confirmed",
     })),
   });
+});
+
+router.get("/community/trail-box-inspirations", async (req, res) => {
+  const limitRaw = parseInt(String(req.query.limit || "40"), 10);
+  const limit = Math.min(80, Math.max(1, Number.isFinite(limitRaw) ? limitRaw : 40));
+  const activity = req.query.activity;
+  const cityRaw = String(req.query.city || "").trim();
+  const clauses = [`b.is_active = 1`, `(b.archived_at IS NULL)`];
+  const params = [];
+  if (activity && trailActivityEnum.safeParse(String(activity)).success) {
+    params.push(String(activity));
+    clauses.push(`t.activity = $${params.length}`);
+  }
+  if (cityRaw.length >= 2) {
+    params.push(`%${cityRaw}%`);
+    clauses.push(`b.city ILIKE $${params.length}`);
+  }
+  params.push(limit);
+  const limIdx = params.length;
+  const { rows } = await pool.query(
+    `SELECT p.id AS pin_id, p.host_note, p.is_highlight, p.sort_order, p.created_at AS pin_created_at,
+            b.id AS box_id, b.title AS box_title, b.city AS box_city, b.latitude AS box_latitude,
+            b.longitude AS box_longitude, b.price_cents, b.capacity_liters, b.has_water,
+            t.id AS trail_id, t.name AS trail_name, t.territory AS trail_territory,
+            t.distance_km AS trail_distance_km, t.elevation_m AS trail_elevation_m,
+            t.difficulty AS trail_difficulty, t.activity AS trail_activity,
+            u.full_name AS host_full_name
+     FROM box_trail_pins p
+     INNER JOIN boxes b ON b.id = p.box_id
+     INNER JOIN trails t ON t.id = p.trail_id
+     INNER JOIN users u ON u.id = b.host_user_id
+     WHERE ${clauses.join(" AND ")}
+     ORDER BY p.is_highlight DESC, p.created_at DESC
+     LIMIT $${limIdx}`,
+    params
+  );
+  res.json(
+    rows.map((r) => ({
+      pin: {
+        id: r.pin_id,
+        host_note: r.host_note,
+        is_highlight: Number(r.is_highlight) || 0,
+        sort_order: r.sort_order,
+        created_at: r.pin_created_at,
+      },
+      box: {
+        id: r.box_id,
+        title: r.box_title,
+        city: r.box_city,
+        latitude: r.box_latitude,
+        longitude: r.box_longitude,
+        price_cents: r.price_cents,
+        capacity_liters: r.capacity_liters,
+        has_water: r.has_water,
+      },
+      trail: {
+        id: r.trail_id,
+        name: r.trail_name,
+        territory: r.trail_territory,
+        distance_km: r.trail_distance_km,
+        elevation_m: r.trail_elevation_m,
+        difficulty: r.trail_difficulty,
+        activity: r.trail_activity,
+      },
+      host_full_name: r.host_full_name,
+    }))
+  );
+});
+
+router.get("/boxes/:id/trail-pins", async (req, res) => {
+  const boxId = Number(req.params.id);
+  if (!Number.isInteger(boxId) || boxId <= 0) {
+    return res.status(400).json({ error: "Invalid box id" });
+  }
+  const { rows: boxRows } = await pool.query(
+    `SELECT id FROM boxes WHERE id = $1 AND is_active = 1`,
+    [boxId]
+  );
+  if (!boxRows[0]) {
+    return res.status(404).json({ error: "Box not found" });
+  }
+  const { rows } = await pool.query(
+    `SELECT p.id, p.box_id, p.trail_id, p.host_note, p.is_highlight, p.sort_order, p.created_at,
+            t.name AS trail_name, t.territory AS trail_territory, t.distance_km AS trail_distance_km,
+            t.elevation_m AS trail_elevation_m, t.difficulty AS trail_difficulty, t.activity AS trail_activity
+     FROM box_trail_pins p
+     INNER JOIN trails t ON t.id = p.trail_id
+     WHERE p.box_id = $1
+     ORDER BY p.is_highlight DESC, p.sort_order ASC, p.id ASC`,
+    [boxId]
+  );
+  res.json(rows.map(mapPinRowWithTrail));
 });
 
 router.post("/trails", requireAuth, async (req, res) => {
@@ -3327,6 +3455,224 @@ router.patch("/host/boxes/:id/restore", requireAuth, async (req, res) => {
     return res.status(404).json({ error: "Box not found for this host" });
   }
   return res.json(rows[0]);
+});
+
+router.get("/host/boxes/:id/trail-pins", requireAuth, async (req, res) => {
+  const boxId = Number(req.params.id);
+  if (!Number.isInteger(boxId) || boxId <= 0) {
+    return res.status(400).json({ error: "Invalid box id" });
+  }
+  const { rows: boxRows } = await pool.query(
+    `SELECT id FROM boxes WHERE id = $1 AND host_user_id = $2 AND is_active = 1`,
+    [boxId, req.auth.sub]
+  );
+  if (!boxRows[0]) {
+    return res.status(404).json({ error: "Box not found for this host" });
+  }
+  const { rows } = await pool.query(
+    `SELECT p.id, p.box_id, p.trail_id, p.host_note, p.is_highlight, p.sort_order, p.created_at,
+            t.name AS trail_name, t.territory AS trail_territory, t.distance_km AS trail_distance_km,
+            t.elevation_m AS trail_elevation_m, t.difficulty AS trail_difficulty, t.activity AS trail_activity
+     FROM box_trail_pins p
+     INNER JOIN trails t ON t.id = p.trail_id
+     WHERE p.box_id = $1
+     ORDER BY p.is_highlight DESC, p.sort_order ASC, p.id ASC`,
+    [boxId]
+  );
+  res.json(rows.map(mapPinRowWithTrail));
+});
+
+router.post("/host/boxes/:id/trail-pins", requireAuth, async (req, res) => {
+  const boxId = Number(req.params.id);
+  if (!Number.isInteger(boxId) || boxId <= 0) {
+    return res.status(400).json({ error: "Invalid box id" });
+  }
+  const parsed = createBoxTrailPinSchema.safeParse(req.body ?? {});
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error.flatten() });
+  }
+  const { rows: boxRows } = await pool.query(
+    `SELECT id FROM boxes WHERE id = $1 AND host_user_id = $2 AND is_active = 1`,
+    [boxId, req.auth.sub]
+  );
+  if (!boxRows[0]) {
+    return res.status(404).json({ error: "Box not found for this host" });
+  }
+  const trailId = parsed.data.trailId;
+  const { rows: trailRows } = await pool.query(`SELECT id FROM trails WHERE id = $1`, [
+    trailId,
+  ]);
+  if (!trailRows[0]) {
+    return res.status(404).json({ error: "Trail not found" });
+  }
+  const hostNote =
+    parsed.data.hostNote && String(parsed.data.hostNote).trim() !== ""
+      ? String(parsed.data.hostNote).trim()
+      : null;
+  const isHighlight = parsed.data.isHighlight ? 1 : 0;
+  const sortOrder = parsed.data.sortOrder ?? 0;
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const { rows: countRows } = await client.query(
+      `SELECT COUNT(*)::int AS c FROM box_trail_pins WHERE box_id = $1`,
+      [boxId]
+    );
+    if ((countRows[0]?.c ?? 0) >= MAX_BOX_TRAIL_PINS) {
+      await client.query("ROLLBACK");
+      return res.status(400).json({
+        error: `Maximum ${MAX_BOX_TRAIL_PINS} traces recommandées par box`,
+      });
+    }
+    if (isHighlight) {
+      await client.query(
+        `UPDATE box_trail_pins SET is_highlight = 0 WHERE box_id = $1`,
+        [boxId]
+      );
+    }
+    const { rows: ins } = await client.query(
+      `INSERT INTO box_trail_pins (box_id, trail_id, host_note, is_highlight, sort_order)
+       VALUES ($1, $2, $3, $4, $5)
+       RETURNING id, box_id, trail_id, host_note, is_highlight, sort_order, created_at`,
+      [boxId, trailId, hostNote, isHighlight, sortOrder]
+    );
+    await client.query("COMMIT");
+    const pin = ins[0];
+    const { rows: trows } = await pool.query(
+      `SELECT id, name, territory, distance_km, elevation_m, difficulty, activity FROM trails WHERE id = $1`,
+      [trailId]
+    );
+    const t = trows[0];
+    return res.status(201).json({
+      ...mapPinRowWithTrail({
+        ...pin,
+        trail_name: t.name,
+        trail_territory: t.territory,
+        trail_distance_km: t.distance_km,
+        trail_elevation_m: t.elevation_m,
+        trail_difficulty: t.difficulty,
+        trail_activity: t.activity,
+      }),
+    });
+  } catch (e) {
+    await client.query("ROLLBACK");
+    if (e && e.code === "23505") {
+      return res
+        .status(409)
+        .json({ error: "Cette trace est déjà épinglée sur ce box" });
+    }
+    throw e;
+  } finally {
+    client.release();
+  }
+});
+
+router.patch("/host/boxes/:boxId/trail-pins/:pinId", requireAuth, async (req, res) => {
+  const boxId = Number(req.params.boxId);
+  const pinId = Number(req.params.pinId);
+  if (!Number.isInteger(boxId) || boxId <= 0 || !Number.isInteger(pinId) || pinId <= 0) {
+    return res.status(400).json({ error: "Invalid box or pin id" });
+  }
+  const parsed = patchBoxTrailPinSchema.safeParse(req.body ?? {});
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error.flatten() });
+  }
+  const { rows: pinRows } = await pool.query(
+    `SELECT p.id, p.box_id FROM box_trail_pins p
+     INNER JOIN boxes b ON b.id = p.box_id AND b.host_user_id = $2 AND b.is_active = 1
+     WHERE p.id = $1 AND p.box_id = $3`,
+    [pinId, req.auth.sub, boxId]
+  );
+  if (!pinRows[0]) {
+    return res.status(404).json({ error: "Pin not found for this host" });
+  }
+  const u = parsed.data;
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    if (u.isHighlight === true) {
+      await client.query(
+        `UPDATE box_trail_pins SET is_highlight = 0 WHERE box_id = $1`,
+        [boxId]
+      );
+    }
+    const parts = [];
+    const vals = [];
+    let n = 1;
+    if (u.hostNote !== undefined) {
+      parts.push(`host_note = $${n++}`);
+      vals.push(
+        u.hostNote === "" || String(u.hostNote).trim() === ""
+          ? null
+          : String(u.hostNote).trim()
+      );
+    }
+    if (u.isHighlight !== undefined) {
+      parts.push(`is_highlight = $${n++}`);
+      vals.push(u.isHighlight ? 1 : 0);
+    }
+    if (u.sortOrder !== undefined) {
+      parts.push(`sort_order = $${n++}`);
+      vals.push(u.sortOrder);
+    }
+    if (parts.length === 0) {
+      await client.query("ROLLBACK");
+      return res.status(400).json({ error: "No fields to update" });
+    }
+    vals.push(pinId, boxId);
+    const idParam = vals.length - 1;
+    const boxParam = vals.length;
+    const { rows: upd } = await client.query(
+      `UPDATE box_trail_pins SET ${parts.join(", ")}
+       WHERE id = $${idParam} AND box_id = $${boxParam}
+       RETURNING id, box_id, trail_id, host_note, is_highlight, sort_order, created_at`,
+      vals
+    );
+    await client.query("COMMIT");
+    const row = upd[0];
+    const { rows: trows } = await pool.query(
+      `SELECT name AS trail_name, territory AS trail_territory, distance_km AS trail_distance_km,
+              elevation_m AS trail_elevation_m, difficulty AS trail_difficulty, activity AS trail_activity
+       FROM trails WHERE id = $1`,
+      [row.trail_id]
+    );
+    const tr = trows[0] || {};
+    return res.json(
+      mapPinRowWithTrail({
+        ...row,
+        trail_name: tr.trail_name,
+        trail_territory: tr.trail_territory,
+        trail_distance_km: tr.trail_distance_km,
+        trail_elevation_m: tr.trail_elevation_m,
+        trail_difficulty: tr.trail_difficulty,
+        trail_activity: tr.trail_activity,
+      })
+    );
+  } catch (e) {
+    await client.query("ROLLBACK");
+    throw e;
+  } finally {
+    client.release();
+  }
+});
+
+router.delete("/host/boxes/:boxId/trail-pins/:pinId", requireAuth, async (req, res) => {
+  const boxId = Number(req.params.boxId);
+  const pinId = Number(req.params.pinId);
+  if (!Number.isInteger(boxId) || boxId <= 0 || !Number.isInteger(pinId) || pinId <= 0) {
+    return res.status(400).json({ error: "Invalid box or pin id" });
+  }
+  const { rows } = await pool.query(
+    `DELETE FROM box_trail_pins p
+     USING boxes b
+     WHERE p.id = $1 AND p.box_id = $2 AND b.id = p.box_id AND b.host_user_id = $3
+     RETURNING p.id`,
+    [pinId, boxId, req.auth.sub]
+  );
+  if (!rows[0]) {
+    return res.status(404).json({ error: "Pin not found for this host" });
+  }
+  return res.json({ ok: true });
 });
 
 router.delete("/host/bookings/:id", requireAuth, async (req, res) => {

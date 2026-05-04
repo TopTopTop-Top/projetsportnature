@@ -4428,10 +4428,35 @@ function TrailsScreen() {
   const [trailTagFilters, setTrailTagFilters] = useState([]);
   const [trailMinElevation, setTrailMinElevation] = useState("");
   const [trailMaxElevation, setTrailMaxElevation] = useState("");
+  const [trailInspirations, setTrailInspirations] = useState([]);
+  const [trailInspirationsLoading, setTrailInspirationsLoading] =
+    useState(false);
 
   useEffect(() => {
     actionsRef.current.loadTrails();
   }, [actionsRef]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setTrailInspirationsLoading(true);
+    const cityQ =
+      city && String(city).trim().length >= 2
+        ? `&city=${encodeURIComponent(String(city).trim())}`
+        : "";
+    apiFetch(`/community/trail-box-inspirations?limit=28${cityQ}`)
+      .then((data) => {
+        if (!cancelled) setTrailInspirations(Array.isArray(data) ? data : []);
+      })
+      .catch(() => {
+        if (!cancelled) setTrailInspirations([]);
+      })
+      .finally(() => {
+        if (!cancelled) setTrailInspirationsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [city]);
 
   const myTrails = useMemo(() => {
     if (user?.id == null) return [];
@@ -4654,6 +4679,67 @@ function TrailsScreen() {
         showsVerticalScrollIndicator={Platform.OS === "web"}
         keyboardShouldPersistTaps="handled"
       >
+        <Section
+          title="Inspirations ravito × traces"
+          subtitle="Recommandations d’hôtes : traces où un box fait sens (esprit ultra, étapes clés)."
+          icon="sparkles-outline"
+        >
+          {trailInspirationsLoading ? (
+            <ActivityIndicator color={theme.primary} style={{ marginVertical: 12 }} />
+          ) : null}
+          {!trailInspirationsLoading && trailInspirations.length === 0 ? (
+            <Text style={styles.emptyText}>
+              Aucune suggestion pour l’instant. Les hôtes épinglent des traces
+              depuis « Mes box » en modifiant une box publiée.
+            </Text>
+          ) : null}
+          {trailInspirations.map((row) => {
+            const tr = row.trail || {};
+            const bx = row.box || {};
+            const pin = row.pin || {};
+            const hl = Number(pin.is_highlight) === 1;
+            return (
+              <View
+                key={`insp-${pin.id}-${tr.id}-${bx.id}`}
+                style={styles.card}
+              >
+                <View style={styles.cardAccent} />
+                {hl ? (
+                  <Text
+                    style={[
+                      styles.cardMeta,
+                      { fontWeight: "700", color: theme.primary, marginBottom: 4 },
+                    ]}
+                  >
+                    ★ Coup de cœur hôte
+                  </Text>
+                ) : null}
+                <Text style={styles.cardTitle}>{tr.name || "Trace"}</Text>
+                <Text style={styles.cardMeta}>
+                  {tr.territory || "—"} ·{" "}
+                  {Number(tr.distance_km || 0).toFixed(1)} km · D+{" "}
+                  {Number(tr.elevation_m || 0)} m ·{" "}
+                  {DIFFICULTY_LABELS[tr.difficulty] || tr.difficulty} ·{" "}
+                  {TRAIL_ACTIVITY_LABELS[tr.activity || "hike"] || ""}
+                </Text>
+                <Text style={styles.cardDetailLine}>
+                  Box « {bx.title || "?"} » · {bx.city || "—"} ·{" "}
+                  {(Number(bx.price_cents || 0) / 100).toFixed(2)} € ·{" "}
+                  {Number(bx.capacity_liters || 0)} L
+                  {Number(bx.has_water) === 1 ? " · eau" : ""}
+                </Text>
+                {row.host_full_name ? (
+                  <Text style={styles.cardMeta}>
+                    Hôte : {row.host_full_name}
+                  </Text>
+                ) : null}
+                {pin.host_note ? (
+                  <Text style={styles.cardAvailability}>{pin.host_note}</Text>
+                ) : null}
+              </View>
+            );
+          })}
+        </Section>
         <Section
           title="Prochain import GPX"
           subtitle="Ces réglages s’appliquent au prochain fichier envoyé (web ou appli). Tu peux les modifier à tout moment."
@@ -5536,7 +5622,9 @@ function HostScreen() {
     hostReverseGeocode,
     setHostReverseGeocode,
     hostBoxes,
+    hostBoxTrailPins,
     hostRefunds,
+    trails,
     actionsRef,
   } = useAppMain();
   const canHostLocal = user?.role === "host" || user?.role === "both";
@@ -5571,6 +5659,38 @@ function HostScreen() {
     return hostBoxes.filter((b) => set.has(Number(b.id)));
   }, [hostMapShowBoxes, hostMapSelectionMode, hostPickedBoxIds, hostBoxes]);
   const hostSelectionLock = hostPickedBoxIds.length > 0;
+
+  const pinnedTrailIds = useMemo(
+    () =>
+      new Set(
+        (hostBoxTrailPins || [])
+          .map((p) => Number(p.trail_id))
+          .filter(Number.isFinite)
+      ),
+    [hostBoxTrailPins]
+  );
+
+  const hostPinTrailCandidates = useMemo(() => {
+    const q = hostPinSearch.trim().toLowerCase();
+    const list = Array.isArray(trails) ? [...trails] : [];
+    list.sort((a, b) =>
+      String(a.name || "").localeCompare(String(b.name || ""), "fr")
+    );
+    return list.filter((t) => {
+      if (pinnedTrailIds.has(Number(t.id))) return false;
+      if (!q) return true;
+      const hay = [
+        t.name,
+        t.territory,
+        TRAIL_ACTIVITY_LABELS[t.activity || "hike"],
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+      return hay.includes(q);
+    });
+  }, [trails, hostPinSearch, pinnedTrailIds]);
+
   const handleHostMapLongPress = useCallback(
     (lat, lng) => {
       const plat = Number(lat);
@@ -5621,8 +5741,18 @@ function HostScreen() {
     if (!canHostLocal || !isFocused) return;
     actionsRef.current.loadHostBoxes();
     actionsRef.current.loadHostRefunds?.();
+    actionsRef.current.loadTrails?.();
     return undefined;
   }, [canHostLocal, isFocused, actionsRef]);
+
+  useEffect(() => {
+    if (!hostPinModalOpen) {
+      setHostPinSearch("");
+      setHostPinSelectedTrailId(null);
+      setHostPinNote("");
+      setHostPinHighlight(false);
+    }
+  }, [hostPinModalOpen]);
 
   useEffect(() => {
     if (hostEditingBoxId == null) return;
@@ -6136,6 +6266,94 @@ function HostScreen() {
             </>
           )}
         </Section>
+        {canHostLocal && hostEditingBoxId != null ? (
+          <Section
+            title="Traces & ravito"
+            subtitle="Associe des traces adaptées à ton box (parcours longs, étapes type ultra). Visible dans l’onglet Traces pour toute la communauté."
+            icon="flag-outline"
+          >
+            <Text style={styles.helperText}>
+              Jusqu’à 12 traces par box. Une seule peut être marquée « coup de
+              cœur » (mise en avant).
+            </Text>
+            <OutlineButton
+              label="Ajouter une trace à ce box"
+              icon="add-circle-outline"
+              stretch
+              onPress={() => setHostPinModalOpen(true)}
+            />
+            {hostBoxTrailPins.length === 0 ? (
+              <Text style={styles.emptyText}>
+                Aucune trace épinglée pour l’instant.
+              </Text>
+            ) : null}
+            {hostBoxTrailPins.map((pin) => {
+              const tr = pin.trail || {};
+              const hl = Number(pin.is_highlight) === 1;
+              return (
+                <View key={`host-pin-${pin.id}`} style={styles.card}>
+                  <View style={styles.cardAccent} />
+                  <View
+                    style={{
+                      flexDirection: "row",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      gap: 8,
+                    }}
+                  >
+                    <Text style={styles.cardTitle} numberOfLines={2}>
+                      {tr.name || `Trace #${pin.trail_id}`}
+                    </Text>
+                    <TouchableOpacity
+                      onPress={() =>
+                        actionsRef.current.patchHostBoxTrailPin(
+                          hostEditingBoxId,
+                          pin.id,
+                          { isHighlight: !hl }
+                        )
+                      }
+                      accessibilityLabel="Coup de cœur"
+                    >
+                      <Ionicons
+                        name={hl ? "star" : "star-outline"}
+                        size={24}
+                        color={hl ? "#CA8A04" : theme.inkMuted}
+                      />
+                    </TouchableOpacity>
+                  </View>
+                  <Text style={styles.cardMeta}>
+                    {tr.territory || "—"} ·{" "}
+                    {Number(tr.distance_km || 0).toFixed(1)} km · D+{" "}
+                    {Number(tr.elevation_m || 0)} m ·{" "}
+                    {DIFFICULTY_LABELS[tr.difficulty] || tr.difficulty} ·{" "}
+                    {TRAIL_ACTIVITY_LABELS[tr.activity || "hike"] ||
+                      tr.activity ||
+                      ""}
+                  </Text>
+                  {pin.host_note ? (
+                    <Text style={styles.cardAvailability}>{pin.host_note}</Text>
+                  ) : null}
+                  <OutlineButton
+                    compact
+                    label="Retirer"
+                    icon="trash-outline"
+                    onPress={async () => {
+                      const ok = await confirmDestructive(
+                        "Retirer cette trace",
+                        `Retirer « ${tr.name || "cette trace"} » des recommandations ?`
+                      );
+                      if (!ok) return;
+                      await actionsRef.current.deleteHostBoxTrailPin(
+                        hostEditingBoxId,
+                        pin.id
+                      );
+                    }}
+                  />
+                </View>
+              );
+            })}
+          </Section>
+        ) : null}
         {canHostLocal ? (
           <Section
             title="Mes box actives"
@@ -6450,6 +6668,130 @@ function HostScreen() {
           </Section>
         ) : null}
       </ScrollView>
+
+      <Modal
+        visible={hostPinModalOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setHostPinModalOpen(false)}
+      >
+        <View style={styles.modalBackdrop}>
+          <View
+            style={[
+              styles.modalSheet,
+              Platform.OS === "web" ? { maxHeight: "92%" } : { maxHeight: 560 },
+            ]}
+          >
+            <View style={styles.modalSheetHeader}>
+              <Text style={styles.modalSheetTitle} numberOfLines={2}>
+                Épingler une trace
+              </Text>
+              <TouchableOpacity
+                onPress={() => setHostPinModalOpen(false)}
+                hitSlop={12}
+              >
+                <Ionicons name="close" size={26} color={theme.ink} />
+              </TouchableOpacity>
+            </View>
+            <TextInput
+              style={styles.input}
+              placeholder="Rechercher par nom, territoire…"
+              placeholderTextColor={theme.inkMuted}
+              value={hostPinSearch}
+              onChangeText={setHostPinSearch}
+            />
+            <FlatList
+              data={hostPinTrailCandidates}
+              keyExtractor={(item) => String(item.id)}
+              style={{ maxHeight: 220, marginTop: 8 }}
+              keyboardShouldPersistTaps="handled"
+              ListEmptyComponent={
+                <Text style={styles.emptyText}>
+                  Aucune trace disponible (ou déjà épinglée).
+                </Text>
+              }
+              renderItem={({ item }) => {
+                const sel = Number(hostPinSelectedTrailId) === Number(item.id);
+                return (
+                  <TouchableOpacity
+                    style={[
+                      styles.card,
+                      { marginBottom: 8 },
+                      sel && {
+                        borderWidth: 2,
+                        borderColor: theme.primary,
+                      },
+                    ]}
+                    onPress={() => setHostPinSelectedTrailId(Number(item.id))}
+                  >
+                    <Text style={styles.cardTitle}>{item.name}</Text>
+                    <Text style={styles.cardMeta}>
+                      {item.territory} · {Number(item.distance_km || 0).toFixed(1)}{" "}
+                      km · {TRAIL_ACTIVITY_LABELS[item.activity || "hike"]}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              }}
+            />
+            <Text style={[styles.fieldLabel, { marginTop: 10 }]}>
+              Message aux sportifs (optionnel)
+            </Text>
+            <TextInput
+              style={[styles.input, styles.textArea]}
+              multiline
+              value={hostPinNote}
+              onChangeText={setHostPinNote}
+              placeholder="Ex. ravito idéal après le col, replis météo…"
+              placeholderTextColor={theme.inkMuted}
+              maxLength={2000}
+            />
+            <TouchableOpacity
+              style={[
+                styles.roleChip,
+                hostPinHighlight && styles.roleChipActive,
+                { alignSelf: "flex-start", marginTop: 10 },
+              ]}
+              onPress={() => setHostPinHighlight((h) => !h)}
+              activeOpacity={0.85}
+            >
+              <Text
+                style={[
+                  styles.roleChipText,
+                  hostPinHighlight && styles.roleChipTextActive,
+                ]}
+              >
+                Coup de cœur (mise en avant)
+              </Text>
+            </TouchableOpacity>
+            <View style={styles.modalSheetFooter}>
+              <OutlineButton
+                compact
+                label="Annuler"
+                icon="close-circle-outline"
+                onPress={() => setHostPinModalOpen(false)}
+              />
+              <PrimaryButton
+                compact
+                label="Ajouter"
+                icon="checkmark-outline"
+                disabled={!hostPinSelectedTrailId || !hostEditingBoxId}
+                onPress={async () => {
+                  if (!hostPinSelectedTrailId || !hostEditingBoxId) return;
+                  const ok = await actionsRef.current.addHostBoxTrailPin(
+                    hostEditingBoxId,
+                    {
+                      trailId: hostPinSelectedTrailId,
+                      hostNote: hostPinNote,
+                      isHighlight: hostPinHighlight,
+                    }
+                  );
+                  if (ok) setHostPinModalOpen(false);
+                }}
+              />
+            </View>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -7581,6 +7923,8 @@ function RavitoApp() {
   const explorerCityGeocodeSeqRef = useRef(0);
   const explorerSearchSeqRef = useRef(0);
   const [hostBoxes, setHostBoxes] = useState([]);
+  /** Traces épinglées sur le box en cours d’édition (hôte). */
+  const [hostBoxTrailPins, setHostBoxTrailPins] = useState([]);
   const [hostRefunds, setHostRefunds] = useState([]);
   const [hostBookings, setHostBookings] = useState([]);
   const [athleteBookings, setAthleteBookings] = useState([]);
@@ -7678,6 +8022,28 @@ function RavitoApp() {
     () => user?.role === "athlete" || user?.role === "both",
     [user?.role]
   );
+
+  useEffect(() => {
+    if (!token || hostEditingBoxId == null) {
+      setHostBoxTrailPins([]);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const rows = await apiFetch(
+          `/host/boxes/${hostEditingBoxId}/trail-pins`,
+          { token }
+        );
+        if (!cancelled) setHostBoxTrailPins(Array.isArray(rows) ? rows : []);
+      } catch {
+        if (!cancelled) setHostBoxTrailPins([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [token, hostEditingBoxId]);
 
   const trailsMerged = useMemo(
     () => applyTrailLocalPatches(trails, trailLocalPatches, user?.id),
@@ -8114,6 +8480,8 @@ function RavitoApp() {
       setBoxes([]);
       setTrails([]);
       setHostBoxes([]);
+      setHostBoxTrailPins([]);
+      setHostEditingBoxId(null);
       setHostRefunds([]);
       setHostBookings([]);
       setAthleteBookings([]);
@@ -8167,6 +8535,68 @@ function RavitoApp() {
     try {
       const rows = await apiFetch("/host/boxes", { token });
       setHostBoxes(rows);
+    } catch (error) {
+      userAlert("Erreur", error.message);
+    }
+  };
+
+  const deleteHostBoxTrailPin = async (boxId, pinId) => {
+    if (!token) return;
+    const bid = Number(boxId);
+    const pid = Number(pinId);
+    if (!Number.isFinite(bid) || !Number.isFinite(pid)) return;
+    try {
+      await apiFetch(`/host/boxes/${bid}/trail-pins/${pid}`, {
+        method: "DELETE",
+        token,
+      });
+      const rows = await apiFetch(`/host/boxes/${bid}/trail-pins`, { token });
+      setHostBoxTrailPins(Array.isArray(rows) ? rows : []);
+    } catch (error) {
+      userAlert("Erreur", error.message);
+    }
+  };
+
+  const addHostBoxTrailPin = async (boxId, { trailId, hostNote, isHighlight }) => {
+    if (!token) return false;
+    const bid = Number(boxId);
+    const tid = Number(trailId);
+    if (!Number.isFinite(bid) || !Number.isFinite(tid)) return false;
+    try {
+      await apiFetch(`/host/boxes/${bid}/trail-pins`, {
+        method: "POST",
+        token,
+        body: {
+          trailId: tid,
+          hostNote:
+            hostNote && String(hostNote).trim() !== ""
+              ? String(hostNote).trim()
+              : undefined,
+          isHighlight: Boolean(isHighlight),
+        },
+      });
+      const rows = await apiFetch(`/host/boxes/${bid}/trail-pins`, { token });
+      setHostBoxTrailPins(Array.isArray(rows) ? rows : []);
+      return true;
+    } catch (error) {
+      userAlert("Erreur", error.message);
+      return false;
+    }
+  };
+
+  const patchHostBoxTrailPin = async (boxId, pinId, body) => {
+    if (!token) return;
+    const bid = Number(boxId);
+    const pid = Number(pinId);
+    if (!Number.isFinite(bid) || !Number.isFinite(pid)) return;
+    try {
+      await apiFetch(`/host/boxes/${bid}/trail-pins/${pid}`, {
+        method: "PATCH",
+        token,
+        body,
+      });
+      const rows = await apiFetch(`/host/boxes/${bid}/trail-pins`, { token });
+      setHostBoxTrailPins(Array.isArray(rows) ? rows : []);
     } catch (error) {
       userAlert("Erreur", error.message);
     }
@@ -10147,6 +10577,9 @@ function RavitoApp() {
     refreshSession,
     logout,
     updateMyRole,
+    deleteHostBoxTrailPin,
+    addHostBoxTrailPin,
+    patchHostBoxTrailPin,
   };
 
   const mainContextValue = useMemo(
@@ -10166,6 +10599,7 @@ function RavitoApp() {
       hostReverseGeocode,
       setHostReverseGeocode,
       hostBoxes,
+      hostBoxTrailPins,
       hostRefunds,
       hostBookings,
       athleteBookings,
@@ -10277,6 +10711,7 @@ function RavitoApp() {
       hostEditingBoxId,
       hostReverseGeocode,
       hostBoxes,
+      hostBoxTrailPins,
       hostRefunds,
       hostBookings,
       athleteBookings,

@@ -367,6 +367,25 @@ async function migrate() {
       `CREATE INDEX IF NOT EXISTS idx_route_plan_trail_notes_plan_sort ON route_plan_trail_notes(route_plan_id, sort_index, created_at)`
     );
 
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS box_trail_pins (
+        id SERIAL PRIMARY KEY,
+        box_id INTEGER NOT NULL REFERENCES boxes(id) ON DELETE CASCADE,
+        trail_id INTEGER NOT NULL REFERENCES trails(id) ON DELETE CASCADE,
+        host_note TEXT,
+        is_highlight SMALLINT NOT NULL DEFAULT 0 CHECK (is_highlight IN (0, 1)),
+        sort_order INTEGER NOT NULL DEFAULT 0,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        UNIQUE(box_id, trail_id)
+      )
+    `);
+    await client.query(
+      `CREATE INDEX IF NOT EXISTS idx_box_trail_pins_box ON box_trail_pins(box_id, is_highlight DESC, sort_order ASC, created_at DESC)`
+    );
+    await client.query(
+      `CREATE INDEX IF NOT EXISTS idx_box_trail_pins_trail ON box_trail_pins(trail_id)`
+    );
+
     await client.query("COMMIT");
     console.log("Migration PostgreSQL OK");
   } catch (e) {
