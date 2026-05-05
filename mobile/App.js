@@ -4683,7 +4683,10 @@ function TrailsScreen() {
           icon="sparkles-outline"
         >
           {trailInspirationsLoading ? (
-            <ActivityIndicator color={theme.primary} style={{ marginVertical: 12 }} />
+            <ActivityIndicator
+              color={theme.primary}
+              style={{ marginVertical: 12 }}
+            />
           ) : null}
           {!trailInspirationsLoading && trailInspirations.length === 0 ? (
             <Text style={styles.emptyText}>
@@ -4706,7 +4709,11 @@ function TrailsScreen() {
                   <Text
                     style={[
                       styles.cardMeta,
-                      { fontWeight: "700", color: theme.primary, marginBottom: 4 },
+                      {
+                        fontWeight: "700",
+                        color: theme.primary,
+                        marginBottom: 4,
+                      },
                     ]}
                   >
                     ★ Coup de cœur hôte
@@ -5092,6 +5099,7 @@ function TrailsScreen() {
               }}
               onMapLongPress={handleTrailsMapLongPress}
               followExternalCenter={false}
+              autoFitToData={false}
               staticOrigin={API_STATIC_ORIGIN}
             />
           ) : (
@@ -6368,7 +6376,9 @@ function HostScreen() {
                     onPress={async () => {
                       const ok = await confirmDestructive(
                         "Retirer cette trace",
-                        `Retirer « ${tr.name || "cette trace"} » des recommandations ?`
+                        `Retirer « ${
+                          tr.name || "cette trace"
+                        } » des recommandations ?`
                       );
                       if (!ok) return;
                       await actionsRef.current.deleteHostBoxTrailPin(
@@ -6754,8 +6764,9 @@ function HostScreen() {
                   >
                     <Text style={styles.cardTitle}>{item.name}</Text>
                     <Text style={styles.cardMeta}>
-                      {item.territory} · {Number(item.distance_km || 0).toFixed(1)}{" "}
-                      km · {TRAIL_ACTIVITY_LABELS[item.activity || "hike"]}
+                      {item.territory} ·{" "}
+                      {Number(item.distance_km || 0).toFixed(1)} km ·{" "}
+                      {TRAIL_ACTIVITY_LABELS[item.activity || "hike"]}
                     </Text>
                   </TouchableOpacity>
                 );
@@ -8187,9 +8198,7 @@ function RavitoApp() {
     const pid = Number(detail.id);
     if (!Number.isFinite(pid) || Number(selectedRoutePlanId) !== pid) return [];
     const boxes = Array.isArray(detail.boxes) ? detail.boxes : [];
-    return boxes
-      .map((b) => Number(b.id))
-      .filter((id) => Number.isFinite(id));
+    return boxes.map((b) => Number(b.id)).filter((id) => Number.isFinite(id));
   }, [selectedRoutePlanDetail, selectedRoutePlanId]);
 
   const boxesForMap = useMemo(() => {
@@ -8585,7 +8594,10 @@ function RavitoApp() {
     }
   };
 
-  const addHostBoxTrailPin = async (boxId, { trailId, hostNote, isHighlight }) => {
+  const addHostBoxTrailPin = async (
+    boxId,
+    { trailId, hostNote, isHighlight }
+  ) => {
     if (!token) return false;
     const bid = Number(boxId);
     const tid = Number(trailId);
