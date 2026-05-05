@@ -41,7 +41,7 @@ function patchLeafletIcons(L) {
   });
 }
 
-const TRAIL_STYLE = { color: "#0F766E", weight: 2.6, opacity: 0.66 };
+const TRAIL_STYLE = { color: "#0F766E", weight: 3.8, opacity: 0.9 };
 const TRAIL_DIFFICULTY_STYLES = {
   easy: { color: "#16A34A", casing: "#DCFCE7" },
   medium: { color: "#D97706", casing: "#FEF3C7" },
@@ -502,9 +502,9 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
         }
         const line = L.polyline(positions, {
           color: diffStyle.color,
-          weight: isSelected ? 4 : TRAIL_STYLE.weight,
-          opacity: isSelected ? 0.94 : TRAIL_STYLE.opacity,
-          dashArray: isSelected ? undefined : "5 9",
+          weight: isSelected ? 5 : TRAIL_STYLE.weight,
+          opacity: isSelected ? 0.98 : TRAIL_STYLE.opacity,
+          dashArray: isSelected ? undefined : "3 4",
           lineCap: "round",
           lineJoin: "round",
         });

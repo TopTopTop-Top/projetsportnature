@@ -4431,6 +4431,8 @@ function TrailsScreen() {
   const [trailInspirations, setTrailInspirations] = useState([]);
   const [trailInspirationsLoading, setTrailInspirationsLoading] =
     useState(false);
+  const [trailsMapRecenterNonce, setTrailsMapRecenterNonce] = useState(0);
+  const didInitialTrailsMapFocusRef = useRef(false);
 
   useEffect(() => {
     actionsRef.current.loadTrails();
@@ -4591,6 +4593,55 @@ function TrailsScreen() {
   }, []);
 
   const trailsSelectionLock = mapTrailPickIds.length > 0;
+  const centerCoordsForTrail = useCallback((trail) => {
+    if (!trail) return null;
+    let positions = [];
+    try {
+      if (trail.polyline_json) positions = JSON.parse(trail.polyline_json);
+    } catch {
+      positions = [];
+    }
+    if (!Array.isArray(positions) || positions.length === 0) return null;
+    let sumLat = 0;
+    let sumLng = 0;
+    let n = 0;
+    for (const pt of positions) {
+      if (!Array.isArray(pt) || pt.length < 2) continue;
+      const lat = Number(pt[0]);
+      const lng = Number(pt[1]);
+      if (Number.isFinite(lat) && Number.isFinite(lng)) {
+        sumLat += lat;
+        sumLng += lng;
+        n += 1;
+      }
+    }
+    if (n === 0) return null;
+    return { lat: sumLat / n, lng: sumLng / n };
+  }, []);
+
+  const focusTrailOnTrailsMap = useCallback(
+    (trailId, { addToPicked = false } = {}) => {
+      const tid = Number(trailId);
+      if (!Number.isFinite(tid)) return;
+      const trail = trails.find((t) => Number(t.id) === tid);
+      if (!trail) return;
+      setSelectedTrailId(tid);
+      if (addToPicked) {
+        setMapTrailPickIds((prev) => (prev.includes(tid) ? prev : [...prev, tid]));
+      }
+      const c = centerCoordsForTrail(trail);
+      if (!c) {
+        userAlert("Trace", "Cette trace n'a pas de géométrie GPS exploitable.");
+        return;
+      }
+      setMapShowTrails(true);
+      setMapLat(c.lat.toFixed(5));
+      setMapLon(c.lng.toFixed(5));
+      setTrailsMapRecenterNonce((n) => n + 1);
+    },
+    [trails, centerCoordsForTrail, setMapTrailPickIds, setMapShowTrails]
+  );
+
   const handleTrailsMapLongPress = useCallback(
     (lat, lng) => {
       const plat = Number(lat);
@@ -4619,6 +4670,28 @@ function TrailsScreen() {
       togglePickedTrail,
     ]
   );
+
+  useEffect(() => {
+    if (didInitialTrailsMapFocusRef.current) return;
+    if (!Array.isArray(prioritizedTracesFiltered) || prioritizedTracesFiltered.length === 0)
+      return;
+    const first = prioritizedTracesFiltered[0];
+    if (!first) return;
+    didInitialTrailsMapFocusRef.current = true;
+    focusTrailOnTrailsMap(first.id);
+  }, [prioritizedTracesFiltered, focusTrailOnTrailsMap]);
+
+  useEffect(() => {
+    if (!Array.isArray(prioritizedTracesFiltered) || prioritizedTracesFiltered.length === 0)
+      return;
+    const sid = Number(selectedTrailId);
+    const exists = Number.isFinite(sid)
+      ? prioritizedTracesFiltered.some((t) => Number(t.id) === sid)
+      : false;
+    if (!exists) {
+      focusTrailOnTrailsMap(prioritizedTracesFiltered[0].id);
+    }
+  }, [prioritizedTracesFiltered, selectedTrailId, focusTrailOnTrailsMap]);
 
   const webDropProps =
     Platform.OS === "web"
@@ -5080,6 +5153,10 @@ function TrailsScreen() {
               : "Aucune"}{" "}
             · Traces sélectionnées : {mapTrailPickIds.length}
           </Text>
+          <Text style={styles.helperText}>
+            Astuce : depuis la liste, utilise « Voir et zoomer sur carte » pour
+            sauter directement sur une trace.
+          </Text>
           {Platform.OS === "web" ? (
             <ExplorerWebMap
               center={[
@@ -5100,6 +5177,7 @@ function TrailsScreen() {
               onMapLongPress={handleTrailsMapLongPress}
               followExternalCenter={false}
               autoFitToData={false}
+              recenterNonce={trailsMapRecenterNonce}
               staticOrigin={API_STATIC_ORIGIN}
             />
           ) : (
@@ -5121,6 +5199,7 @@ function TrailsScreen() {
               }}
               onMapLongPress={handleTrailsMapLongPress}
               followExternalCenter={false}
+              recenterNonce={trailsMapRecenterNonce}
             />
           )}
         </Section>
@@ -5292,7 +5371,29 @@ function TrailsScreen() {
                   ]}
                 >
                   <View style={styles.cardAccent} />
-                  <Text style={styles.cardTitle}>{trail.name}</Text>
+                  <View
+                    style={{
+                      flexDirection: "row",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                      gap: 8,
+                    }}
+                  >
+                    <Text style={[styles.cardTitle, { flex: 1 }]}>{trail.name}</Text>
+                    <TouchableOpacity
+                      style={[styles.roleChip, styles.roleChipActive]}
+                      onPress={() =>
+                        focusTrailOnTrailsMap(tid, {
+                          addToPicked: mapTrailsScope === "picked",
+                        })
+                      }
+                      activeOpacity={0.85}
+                    >
+                      <Text style={[styles.roleChipText, styles.roleChipTextActive]}>
+                        Zoom direct
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
                   <View
                     style={[
                       styles.selectionPill,
@@ -5370,6 +5471,17 @@ function TrailsScreen() {
                       />
                     </>
                   ) : null}
+                  <PrimaryButton
+                    compact
+                    stretch
+                    label="Voir et zoomer sur carte"
+                    icon="locate-outline"
+                    onPress={() =>
+                      focusTrailOnTrailsMap(tid, {
+                        addToPicked: mapTrailsScope === "picked",
+                      })
+                    }
+                  />
                   <OutlineButton
                     stretch
                     label={
