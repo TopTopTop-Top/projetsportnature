@@ -2007,9 +2007,13 @@ function ExplorerScreen() {
     (trailId) => {
       const tid = Number(trailId);
       if (!Number.isFinite(tid)) return;
-      toggleExplorerPickedTrail(tid);
+      // Short tap on map should focus/keep a trail, not toggle it off.
+      setSelectedTrailId(tid);
+      setMapTrailPickIds((prev) =>
+        Array.isArray(prev) && prev.includes(tid) ? prev : [...(prev || []), tid]
+      );
     },
-    [toggleExplorerPickedTrail]
+    [setSelectedTrailId, setMapTrailPickIds]
   );
   const handleExplorerMapLongPress = useCallback(
     (lat, lng) => {
