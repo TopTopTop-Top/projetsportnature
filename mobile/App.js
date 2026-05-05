@@ -4609,7 +4609,6 @@ function TrailsScreen() {
       const tid = Number(nearestTrail.id);
       setSelectedTrailId(tid);
       if (mapTrailPickIds.includes(tid) && trailsSelectionLock) return;
-      setMapTrailsScope("picked");
       togglePickedTrail(tid);
     },
     [
@@ -4617,7 +4616,6 @@ function TrailsScreen() {
       mapTrailPickIds,
       trailsSelectionLock,
       setSelectedTrailId,
-      setMapTrailsScope,
       togglePickedTrail,
     ]
   );
@@ -5030,11 +5028,20 @@ function TrailsScreen() {
               {allSelectableTrails.map((trail) => {
                 const tid = Number(trail.id);
                 const isPicked = mapTrailPickIds.includes(tid);
+                const isActive = Number(selectedTrailId) === tid;
                 return (
                   <TouchableOpacity
                     key={`trace-pick-${trail.id}`}
-                    style={styles.card}
-                    onPress={() => togglePickedTrail(tid)}
+                    style={[
+                      styles.card,
+                      isActive
+                        ? { borderWidth: 2, borderColor: theme.primary }
+                        : null,
+                    ]}
+                    onPress={() => {
+                      setSelectedTrailId(tid);
+                      togglePickedTrail(tid);
+                    }}
                     activeOpacity={0.85}
                   >
                     <View style={styles.cardAccent} />
@@ -5044,6 +5051,7 @@ function TrailsScreen() {
                     </Text>
                     <Text style={styles.cardAvailability}>
                       {isPicked ? "Sélectionnée" : "Non sélectionnée"}
+                      {isActive ? " · Active" : ""}
                     </Text>
                   </TouchableOpacity>
                 );
@@ -5054,9 +5062,17 @@ function TrailsScreen() {
 
         <Section
           title="Carte des traces"
-          subtitle="La sélection hors carte s'affiche ici en surbrillance."
+          subtitle="Sélection claire sans casser le zoom/pan."
           icon="map-outline"
         >
+          <Text style={styles.cardMeta}>
+            Trace active :{" "}
+            {selectedTrailId != null
+              ? trails.find((t) => Number(t.id) === Number(selectedTrailId))
+                  ?.name || `#${selectedTrailId}`
+              : "Aucune"}{" "}
+            · Traces sélectionnées : {mapTrailPickIds.length}
+          </Text>
           {Platform.OS === "web" ? (
             <ExplorerWebMap
               center={[
@@ -5069,10 +5085,13 @@ function TrailsScreen() {
               selectedTrailId={selectedTrailId}
               selectedBoxId={null}
               onSelectBox={() => {}}
-              onSelectTrail={(id) => setSelectedTrailId(id)}
+              onSelectTrail={(id) => {
+                const tid = Number(id);
+                if (!Number.isFinite(tid)) return;
+                setSelectedTrailId(tid);
+              }}
               onMapLongPress={handleTrailsMapLongPress}
               followExternalCenter={false}
-              autoFitToData
               staticOrigin={API_STATIC_ORIGIN}
             />
           ) : (
@@ -5087,7 +5106,11 @@ function TrailsScreen() {
               selectedTrailId={selectedTrailId}
               selectedBoxId={null}
               onSelectBox={() => {}}
-              onSelectTrail={(id) => setSelectedTrailId(id)}
+              onSelectTrail={(id) => {
+                const tid = Number(id);
+                if (!Number.isFinite(tid)) return;
+                setSelectedTrailId(tid);
+              }}
               onMapLongPress={handleTrailsMapLongPress}
               followExternalCenter={false}
             />
@@ -5638,6 +5661,11 @@ function HostScreen() {
   const [hostPickedBoxIds, setHostPickedBoxIds] = useState([]);
   const [hostLocationMode, setHostLocationMode] = useState("map");
   const [hostCityLookupLoading, setHostCityLookupLoading] = useState(false);
+  const [hostPinModalOpen, setHostPinModalOpen] = useState(false);
+  const [hostPinSearch, setHostPinSearch] = useState("");
+  const [hostPinSelectedTrailId, setHostPinSelectedTrailId] = useState(null);
+  const [hostPinNote, setHostPinNote] = useState("");
+  const [hostPinHighlight, setHostPinHighlight] = useState(false);
 
   const toggleHostPickedBox = useCallback((boxId) => {
     const bid = Number(boxId);
