@@ -53,6 +53,29 @@ const TRAIL_DIFFICULTY_STYLES = {
   hard: { color: "#DC2626", casing: "#FEE2E2" },
 };
 
+/** Couleurs stables par id de trace : plusieurs tracés « difficiles » restent distinguables. */
+const TRAIL_DISPLAY_PALETTE = [
+  "#92400E",
+  "#0369A1",
+  "#7C3AED",
+  "#0D9488",
+  "#CA8A04",
+  "#DB2777",
+  "#4D7C0F",
+  "#4338CA",
+];
+
+function trailDisplayColor(trailId, difficultyFallback) {
+  const id = Number(trailId);
+  if (Number.isFinite(id)) {
+    const idx = Math.abs(id) % TRAIL_DISPLAY_PALETTE.length;
+    return TRAIL_DISPLAY_PALETTE[idx];
+  }
+  return (
+    TRAIL_DIFFICULTY_STYLES[difficultyFallback]?.color || TRAIL_STYLE.color
+  );
+}
+
 const DIFFICULTY_LABELS = {
   easy: "Facile",
   medium: "Modéré",
@@ -256,16 +279,22 @@ function buildTrailPinIcon({
   isHovered = false,
   isSelected = false,
   isDimmed = false,
+  simpleMedallion = false,
 }) {
   const size = isSelected ? 30 : isHovered ? 28 : 26;
-  const stroke = isSelected ? "#0F172A" : isHovered ? "#111827" : "#1e293b";
-  const opacity = isDimmed ? 0.72 : 1;
+  const strokeInner = isSelected ? "#0F172A" : isHovered ? "#111827" : "#1e293b";
+  const opacity = isDimmed ? 0.78 : 1;
   const scale = isHovered || isSelected ? 1.06 : 1;
   const kind = trailPinActivityKind(activity);
-  const inner = buildTrailPinInnerSymbol(kind);
+  const inner = simpleMedallion
+    ? `<circle cx="12" cy="9.4" r="2.15" fill="#ffffff" fill-opacity="0.98"/>`
+    : buildTrailPinInnerSymbol(kind);
+  const pinPath =
+    "M12 21.5c0 0 6.8-6.1 6.8-11.4C18.8 6.4 15.8 3 12 3S5.2 6.4 5.2 10.1C5.2 15.4 12 21.5 12 21.5z";
   const html = `<div style="width:${size}px;height:${size}px;opacity:${opacity};transform:scale(${scale});transform-origin:50% 100%;filter:drop-shadow(0 3px 6px rgba(15,23,42,.4));">
     <svg width="${size}" height="${size}" viewBox="0 0 24 24" aria-hidden="true">
-      <path d="M12 21.5c0 0 6.8-6.1 6.8-11.4C18.8 6.4 15.8 3 12 3S5.2 6.4 5.2 10.1C5.2 15.4 12 21.5 12 21.5z" fill="${color}" stroke="${stroke}" stroke-width="1.35" stroke-linejoin="round"/>
+      <path d="${pinPath}" fill="${color}" stroke="#ffffff" stroke-width="2.35" stroke-linejoin="round"/>
+      <path d="${pinPath}" fill="${color}" stroke="${strokeInner}" stroke-width="1.25" stroke-linejoin="round"/>
       <ellipse cx="12" cy="9.4" rx="4.35" ry="4.55" fill="#ffffff" fill-opacity="0.96"/>
       ${inner}
     </svg>
@@ -328,15 +357,19 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
   /** Chaque incrément force un setView (ex. sync GPS depuis Mes box). */
   recenterNonce = 0,
 }) {
-  const selectedTrailSet = useMemo(
+  const pickedTrailSet = useMemo(
     () =>
       new Set(
-        [...(selectedTrailIds || []), selectedTrailId]
+        (selectedTrailIds || [])
           .map((id) => Number(id))
           .filter((id) => Number.isFinite(id))
       ),
-    [selectedTrailIds, selectedTrailId]
+    [selectedTrailIds]
   );
+  const activeTrailIdNum = useMemo(() => {
+    const n = Number(selectedTrailId);
+    return Number.isFinite(n) ? n : null;
+  }, [selectedTrailId]);
   const selectedBoxSet = useMemo(
     () =>
       new Set(
@@ -539,15 +572,20 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
             : [];
         }
         if (positions.length < 2) return;
-        const isSelected = selectedTrailSet.has(Number(trail.id));
+        const tid = Number(trail.id);
+        const isPicked = pickedTrailSet.has(tid);
+        const isActive = activeTrailIdNum === tid;
         const isHovered =
-          hasHoveredTrail && effectiveHoveredTrailId === Number(trail.id);
-        const dimmedByHover = hasHoveredTrail && !isHovered && !isSelected;
-        const isProximityTrail = proximityTrailSet.has(Number(trail.id));
-        const diffStyle = TRAIL_DIFFICULTY_STYLES[trail.difficulty] || {
-          color: TRAIL_STYLE.color,
-          casing: "#CCFBF1",
-        };
+          hasHoveredTrail && effectiveHoveredTrailId === tid;
+        const dimmedByHover = hasHoveredTrail && !isHovered;
+        const dimmedByInactiveSelection =
+          !hasHoveredTrail &&
+          activeTrailIdNum != null &&
+          trails.length > 1 &&
+          tid !== activeTrailIdNum;
+        const visuallyDimmed = dimmedByHover || dimmedByInactiveSelection;
+        const isProximityTrail = proximityTrailSet.has(tid);
+        const lineColor = trailDisplayColor(trail.id, trail.difficulty);
         if (isProximityTrail) {
           const corridorWeight = Math.max(
             14,
@@ -557,22 +595,6 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
             color: "#0EA5E9",
             weight: corridorWeight,
             opacity: 0.14,
-            lineCap: "round",
-            lineJoin: "round",
-          }).addTo(group);
-        }
-        if (isSelected) {
-          L.polyline(positions, {
-            color: diffStyle.casing,
-            weight: 7,
-            opacity: 0.62,
-          }).addTo(group);
-        }
-        if (isHovered && !isSelected) {
-          L.polyline(positions, {
-            color: diffStyle.casing,
-            weight: 9.5,
-            opacity: 0.55,
             lineCap: "round",
             lineJoin: "round",
           }).addTo(group);
@@ -589,23 +611,50 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
             // keep map stable if fit fails on malformed geometry
           }
         };
+        const haloWeight = isActive ? 12.5 : isHovered ? 11 : isPicked ? 9 : 7;
+        const mainWeight = isActive
+          ? 6.8
+          : isHovered
+          ? 6.5
+          : isPicked
+          ? 5.2
+          : TRAIL_STYLE.weight;
+        const haloOpacity = dimmedByHover
+          ? 0.06
+          : isActive
+          ? 0.94
+          : isHovered
+          ? 0.88
+          : isPicked
+          ? 0.62
+          : 0.45;
+        const mainOpacity = dimmedByHover
+          ? 0.12
+          : isActive
+          ? 1
+          : isHovered
+          ? 0.98
+          : isPicked
+          ? 0.88
+          : TRAIL_STYLE.opacity;
+        L.polyline(positions, {
+          color: "#ffffff",
+          weight: haloWeight,
+          opacity: haloOpacity,
+          lineCap: "round",
+          lineJoin: "round",
+        }).addTo(group);
         const line = L.polyline(positions, {
-          color: diffStyle.color,
-          weight: isSelected ? 6.2 : isHovered ? 5.9 : TRAIL_STYLE.weight,
-          opacity: isSelected
-            ? 0.99
-            : isHovered
-            ? 0.97
-            : dimmedByHover
-            ? 0.24
-            : TRAIL_STYLE.opacity,
-          dashArray: isSelected || isHovered ? undefined : "3 4",
+          color: lineColor,
+          weight: mainWeight,
+          opacity: mainOpacity,
+          dashArray: isActive || isHovered || isPicked ? undefined : "3 4",
           lineCap: "round",
           lineJoin: "round",
         });
         line.on("click", focusTrail);
         line.on("mouseover", () => {
-          setHoveredTrailLocalId(Number(trail.id));
+          setHoveredTrailLocalId(tid);
           onHoverTrailRef.current?.(trail.id);
           try {
             line.bringToFront?.();
@@ -619,11 +668,12 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
         });
         const start = positions[0];
         const pin = buildTrailPinIcon({
-          color: diffStyle.color,
+          color: lineColor,
           activity: trail.activity,
           isHovered,
-          isSelected,
-          isDimmed: dimmedByHover,
+          isSelected: isActive || isPicked,
+          isDimmed: visuallyDimmed,
+          simpleMedallion: true,
         });
         const pinAnchorY = Math.round((pin.size * 21.5) / 24);
         const trailIcon = L.marker(start, {
@@ -633,10 +683,10 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
             iconSize: [pin.size, pin.size],
             iconAnchor: [Math.round(pin.size / 2), pinAnchorY],
           }),
-          zIndexOffset: isHovered || isSelected ? 850 : 500,
+          zIndexOffset: isHovered || isActive ? 850 : 500,
         });
         trailIcon.on("mouseover", () => {
-          setHoveredTrailLocalId(Number(trail.id));
+          setHoveredTrailLocalId(tid);
           onHoverTrailRef.current?.(trail.id);
           try {
             trailIcon.setZIndexOffset?.(900);
@@ -655,23 +705,6 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
           offset: [0, -18],
         });
         trailIcon.addTo(group);
-        if (isSelected) {
-          const end = positions[positions.length - 1];
-          L.circleMarker(start, {
-            radius: 5,
-            color: "#0F172A",
-            weight: 2,
-            fillColor: "#fff",
-            fillOpacity: 1,
-          }).addTo(group);
-          L.circleMarker(end, {
-            radius: 5,
-            color: "#0F172A",
-            weight: 2,
-            fillColor: diffStyle.color,
-            fillOpacity: 1,
-          }).addTo(group);
-        }
         line.addTo(group);
       } catch (_e) {
         // Ignore a malformed trail instead of crashing the whole map.

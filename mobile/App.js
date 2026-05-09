@@ -4133,6 +4133,12 @@ function ExplorerScreen() {
                         }
                       : null,
                   ]}
+                  {...(Platform.OS === "web"
+                    ? {
+                        onMouseEnter: () => setExplorerHoveredTrailId(tid),
+                        onMouseLeave: () => setExplorerHoveredTrailId(null),
+                      }
+                    : {})}
                 >
                   <View style={styles.cardAccent} />
                   <Text style={styles.cardTitle}>{trail.name}</Text>
@@ -4276,6 +4282,8 @@ function ExplorerScreen() {
                     trails={trailsOnMap}
                     selectedTrailIds={mapTrailPickIds}
                     selectedTrailId={selectedTrailId}
+                    hoveredTrailId={explorerHoveredTrailId}
+                    onHoverTrail={setExplorerHoveredTrailId}
                     selectedBoxId={selectedBoxId}
                     selectedBoxIds={mapPickedBoxIds}
                     planBoxIds={activePlanBoxIds}

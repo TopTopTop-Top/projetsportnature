@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef } from "react";
-import { StyleSheet, View, Text } from "react-native";
+import { StyleSheet, View } from "react-native";
 import MapView, { Marker, Polyline } from "react-native-maps";
 
 const TRAIL_DIFFICULTY_COLORS = {
@@ -7,6 +7,59 @@ const TRAIL_DIFFICULTY_COLORS = {
   medium: "#D97706",
   hard: "#DC2626",
 };
+
+const TRAIL_DISPLAY_PALETTE = [
+  "#92400E",
+  "#0369A1",
+  "#7C3AED",
+  "#0D9488",
+  "#CA8A04",
+  "#DB2777",
+  "#4D7C0F",
+  "#4338CA",
+];
+
+function trailDisplayColor(trailId, difficultyFallback) {
+  const id = Number(trailId);
+  if (Number.isFinite(id)) {
+    return TRAIL_DISPLAY_PALETTE[Math.abs(id) % TRAIL_DISPLAY_PALETTE.length];
+  }
+  return TRAIL_DIFFICULTY_COLORS[difficultyFallback] || "#0F766E";
+}
+
+function TrailTeardropPin({ color, dimmed, emphasized }) {
+  const scale = emphasized ? 1.08 : 1;
+  return (
+    <View
+      style={[
+        styles.trailPinWrap,
+        { opacity: dimmed ? 0.78 : 1, transform: [{ scale }] },
+      ]}
+      pointerEvents="none"
+    >
+      <View
+        style={[
+          styles.trailPinBubble,
+          {
+            backgroundColor: color,
+            borderColor: "#ffffff",
+            borderWidth: 2.5,
+          },
+        ]}
+      >
+        <View style={styles.trailPinDot} />
+      </View>
+      <View
+        style={[
+          styles.trailPinPoint,
+          {
+            borderTopColor: color,
+          },
+        ]}
+      />
+    </View>
+  );
+}
 
 export default function NativeExplorerMap({
   center,
@@ -27,7 +80,6 @@ export default function NativeExplorerMap({
   onPickLocation,
   onVisibleBoundsChange,
   onPanDrag,
-  /** Repère du dernier clic carte (explorateur). */
   pickedMapPoint = null,
   followExternalCenter = true,
   recenterNonce = 0,
@@ -56,15 +108,21 @@ export default function NativeExplorerMap({
     }
   }, [region, followExternalCenter, recenterNonce]);
 
-  const selectedTrailSet = useMemo(
+  const pickedTrailSet = useMemo(
     () =>
       new Set(
-        [...(selectedTrailIds || []), selectedTrailId]
+        (selectedTrailIds || [])
           .map((id) => Number(id))
           .filter((id) => Number.isFinite(id))
       ),
-    [selectedTrailIds, selectedTrailId]
+    [selectedTrailIds]
   );
+
+  const activeTrailIdNum = useMemo(() => {
+    const n = Number(selectedTrailId);
+    return Number.isFinite(n) ? n : null;
+  }, [selectedTrailId]);
+
   const selectedBoxSet = useMemo(
     () =>
       new Set(
@@ -103,28 +161,55 @@ export default function NativeExplorerMap({
   );
 
   const trailPolylines = useMemo(() => {
-    return trails
-      .map((trail) => {
-        let positions = [];
-        try {
-          if (trail.polyline_json) positions = JSON.parse(trail.polyline_json);
-        } catch (_e) {
-          positions = [];
-        }
-        const coordinates = positions.map(([lat, lng]) => ({
-          latitude: lat,
-          longitude: lng,
-        }));
-        return {
-          id: trail.id,
-          difficulty: trail.difficulty || "medium",
-          coordinates,
-          isSelected: selectedTrailSet.has(Number(trail.id)),
-          isProximityTrail: proximityTrailSet.has(Number(trail.id)),
-        };
-      })
-      .filter((t) => t.coordinates.length > 1);
-  }, [trails, selectedTrailSet, proximityTrailSet]);
+    const rows = trails.map((trail) => {
+      let positions = [];
+      try {
+        if (trail.polyline_json) positions = JSON.parse(trail.polyline_json);
+      } catch (_e) {
+        positions = [];
+      }
+      const coordinates = positions.map(([lat, lng]) => ({
+        latitude: lat,
+        longitude: lng,
+      }));
+      const tid = Number(trail.id);
+      const lineColor = trailDisplayColor(trail.id, trail.difficulty);
+      const isPicked = pickedTrailSet.has(tid);
+      const isActive = activeTrailIdNum === tid;
+      return {
+        id: trail.id,
+        difficulty: trail.difficulty || "medium",
+        coordinates,
+        lineColor,
+        isPicked,
+        isActive,
+        isProximityTrail: proximityTrailSet.has(tid),
+      };
+    });
+    const drawable = rows.filter((t) => t.coordinates.length > 1);
+    const nDraw = drawable.length;
+    return drawable.map((t) => {
+      const dimmedByInactiveSelection =
+        activeTrailIdNum != null &&
+        nDraw > 1 &&
+        Number(t.id) !== activeTrailIdNum;
+      const visuallyDimmed = dimmedByInactiveSelection;
+      const haloW = t.isActive ? 12 : t.isPicked ? 9 : 7;
+      const mainW = t.isActive ? 6.5 : t.isPicked ? 5 : 3.4;
+      const haloOp = visuallyDimmed ? 0.08 : t.isActive ? 0.92 : t.isPicked ? 0.58 : 0.42;
+      const mainOp = visuallyDimmed ? 0.16 : t.isActive ? 1 : t.isPicked ? 0.88 : 0.82;
+      const solidLine = t.isActive || t.isPicked;
+      return {
+        ...t,
+        visuallyDimmed,
+        haloW,
+        mainW,
+        haloOp,
+        mainOp,
+        solidLine,
+      };
+    });
+  }, [trails, pickedTrailSet, activeTrailIdNum, proximityTrailSet]);
 
   const reportBounds = (r) => {
     if (typeof onVisibleBoundsChange !== "function" || !r) return;
@@ -167,47 +252,61 @@ export default function NativeExplorerMap({
               strokeWidth={Math.max(10, Math.min(30, trailCorridorKm * 7))}
             />
           ) : null}
-          {t.isSelected ? (
-            <Polyline
-              coordinates={t.coordinates}
-              strokeColor="rgba(255,255,255,0.92)"
-              strokeWidth={10}
-            />
-          ) : null}
           <Polyline
             coordinates={t.coordinates}
-            strokeColor={TRAIL_DIFFICULTY_COLORS[t.difficulty] || "#0F766E"}
-            strokeWidth={t.isSelected ? 4 : 2.6}
-            lineDashPattern={t.isSelected ? undefined : [6, 10]}
+            strokeColor={`rgba(255,255,255,${t.haloOp})`}
+            strokeWidth={t.haloW}
+            lineCap="round"
+            lineJoin="round"
+          />
+          <Polyline
+            coordinates={t.coordinates}
+            strokeColor={
+              t.mainOp >= 1
+                ? t.lineColor
+                : hexWithAlpha(t.lineColor, t.mainOp)
+            }
+            strokeWidth={t.mainW}
+            lineDashPattern={t.solidLine ? undefined : [6, 10]}
+            lineCap="round"
+            lineJoin="round"
             tappable
             onPress={() => onSelectTrail?.(t.id)}
           />
-          {t.isSelected ? (
-            <>
-              <Marker coordinate={t.coordinates[0]} tracksViewChanges={false}>
-                <View style={styles.trailPointStart} />
-              </Marker>
-              <Marker
-                coordinate={t.coordinates[t.coordinates.length - 1]}
-                tracksViewChanges={false}
-              >
-                <View
-                  style={[
-                    styles.trailPointEnd,
-                    {
-                      borderColor:
-                        TRAIL_DIFFICULTY_COLORS[t.difficulty] || "#0F766E",
-                    },
-                  ]}
-                />
-              </Marker>
-            </>
+          <Marker
+            coordinate={t.coordinates[0]}
+            tracksViewChanges={false}
+            anchor={{ x: 0.5, y: 1 }}
+            zIndex={t.isActive ? 800 : t.isPicked ? 600 : 400}
+            onPress={() => onSelectTrail?.(t.id)}
+          >
+            <TrailTeardropPin
+              color={t.lineColor}
+              dimmed={t.visuallyDimmed}
+              emphasized={t.isActive || t.isPicked}
+            />
+          </Marker>
+          {t.isActive ? (
+            <Marker
+              coordinate={t.coordinates[t.coordinates.length - 1]}
+              tracksViewChanges={false}
+              anchor={{ x: 0.5, y: 0.5 }}
+            >
+              <View
+                style={[
+                  styles.trailPointEnd,
+                  { borderColor: t.lineColor, backgroundColor: "#0F172A" },
+                ]}
+              />
+            </Marker>
           ) : null}
         </React.Fragment>
       ))}
       {pickedMapPoint &&
       Number.isFinite(Number(pickedMapPoint.latitude ?? pickedMapPoint.lat)) &&
-      Number.isFinite(Number(pickedMapPoint.longitude ?? pickedMapPoint.lng)) ? (
+      Number.isFinite(
+        Number(pickedMapPoint.longitude ?? pickedMapPoint.lng)
+      ) ? (
         <Marker
           coordinate={{
             latitude: Number(pickedMapPoint.latitude ?? pickedMapPoint.lat),
@@ -255,12 +354,54 @@ export default function NativeExplorerMap({
   );
 }
 
+function hexWithAlpha(hex, a) {
+  const h = String(hex || "").replace("#", "");
+  if (h.length !== 6) return `rgba(15,118,110,${a})`;
+  const n = parseInt(h, 16);
+  const r = (n >> 16) & 255;
+  const g = (n >> 8) & 255;
+  const b = n & 255;
+  return `rgba(${r},${g},${b},${a})`;
+}
+
 const styles = StyleSheet.create({
   map: {
     height: 420,
     width: "100%",
     borderRadius: 12,
     overflow: "hidden",
+  },
+  trailPinWrap: {
+    alignItems: "center",
+  },
+  trailPinBubble: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: "#0F172A",
+    shadowOpacity: 0.28,
+    shadowOffset: { width: 0, height: 2 },
+    shadowRadius: 4,
+    elevation: 4,
+  },
+  trailPinDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 4,
+    backgroundColor: "#ffffff",
+  },
+  trailPinPoint: {
+    width: 0,
+    height: 0,
+    marginTop: -2,
+    borderLeftWidth: 8,
+    borderRightWidth: 8,
+    borderTopWidth: 11,
+    borderLeftColor: "transparent",
+    borderRightColor: "transparent",
+    backgroundColor: "transparent",
   },
   boxPin: {
     width: 14,
@@ -295,20 +436,11 @@ const styles = StyleSheet.create({
     backgroundColor: "#E2E8F0",
     opacity: 0.65,
   },
-  trailPointStart: {
-    width: 10,
-    height: 10,
-    borderRadius: 999,
-    borderWidth: 2,
-    borderColor: "#0F172A",
-    backgroundColor: "#fff",
-  },
   trailPointEnd: {
     width: 10,
     height: 10,
     borderRadius: 999,
     borderWidth: 2,
-    borderColor: "#0F766E",
     backgroundColor: "#0F172A",
   },
   mapTapPinOuter: {
