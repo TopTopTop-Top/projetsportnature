@@ -2010,7 +2010,9 @@ function ExplorerScreen() {
       // Short tap on map should focus/keep a trail, not toggle it off.
       setSelectedTrailId(tid);
       setMapTrailPickIds((prev) =>
-        Array.isArray(prev) && prev.includes(tid) ? prev : [...(prev || []), tid]
+        Array.isArray(prev) && prev.includes(tid)
+          ? prev
+          : [...(prev || []), tid]
       );
     },
     [setSelectedTrailId, setMapTrailPickIds]
@@ -4396,6 +4398,8 @@ function TrailsScreen() {
     trails,
     mapLat,
     mapLon,
+    setMapLat,
+    setMapLon,
     webDropHover,
     setWebDropHover,
     user,
@@ -4437,6 +4441,7 @@ function TrailsScreen() {
     useState(false);
   const [trailsMapRecenterNonce, setTrailsMapRecenterNonce] = useState(0);
   const didInitialTrailsMapFocusRef = useRef(false);
+  const [hoveredTrailId, setHoveredTrailId] = useState(null);
 
   useEffect(() => {
     actionsRef.current.loadTrails();
@@ -4631,7 +4636,9 @@ function TrailsScreen() {
       if (!trail) return;
       setSelectedTrailId(tid);
       if (addToPicked) {
-        setMapTrailPickIds((prev) => (prev.includes(tid) ? prev : [...prev, tid]));
+        setMapTrailPickIds((prev) =>
+          prev.includes(tid) ? prev : [...prev, tid]
+        );
       }
       const c = centerCoordsForTrail(trail);
       if (!c) {
@@ -4677,7 +4684,10 @@ function TrailsScreen() {
 
   useEffect(() => {
     if (didInitialTrailsMapFocusRef.current) return;
-    if (!Array.isArray(prioritizedTracesFiltered) || prioritizedTracesFiltered.length === 0)
+    if (
+      !Array.isArray(prioritizedTracesFiltered) ||
+      prioritizedTracesFiltered.length === 0
+    )
       return;
     const first = prioritizedTracesFiltered[0];
     if (!first) return;
@@ -4686,7 +4696,10 @@ function TrailsScreen() {
   }, [prioritizedTracesFiltered, focusTrailOnTrailsMap]);
 
   useEffect(() => {
-    if (!Array.isArray(prioritizedTracesFiltered) || prioritizedTracesFiltered.length === 0)
+    if (
+      !Array.isArray(prioritizedTracesFiltered) ||
+      prioritizedTracesFiltered.length === 0
+    )
       return;
     const sid = Number(selectedTrailId);
     const exists = Number.isFinite(sid)
@@ -5171,6 +5184,7 @@ function TrailsScreen() {
               trails={trailsMapList}
               selectedTrailIds={mapTrailPickIds}
               selectedTrailId={selectedTrailId}
+              hoveredTrailId={hoveredTrailId}
               selectedBoxId={null}
               onSelectBox={() => {}}
               onSelectTrail={(id) => {
@@ -5178,6 +5192,7 @@ function TrailsScreen() {
                 if (!Number.isFinite(tid)) return;
                 setSelectedTrailId(tid);
               }}
+              onHoverTrail={(id) => setHoveredTrailId(id)}
               onMapLongPress={handleTrailsMapLongPress}
               followExternalCenter={false}
               autoFitToData={false}
@@ -5371,8 +5386,23 @@ function TrailsScreen() {
                     styles.card,
                     isPicked || Number(selectedTrailId) === tid
                       ? { borderColor: theme.primary, borderWidth: 2 }
+                      : Number(hoveredTrailId) === tid
+                      ? { borderColor: "#334155", borderWidth: 1.5 }
                       : null,
                   ]}
+                  onMouseEnter={
+                    Platform.OS === "web"
+                      ? () => setHoveredTrailId(tid)
+                      : undefined
+                  }
+                  onMouseLeave={
+                    Platform.OS === "web"
+                      ? () =>
+                          setHoveredTrailId((prev) =>
+                            Number(prev) === tid ? null : prev
+                          )
+                      : undefined
+                  }
                 >
                   <View style={styles.cardAccent} />
                   <View
@@ -5383,7 +5413,9 @@ function TrailsScreen() {
                       gap: 8,
                     }}
                   >
-                    <Text style={[styles.cardTitle, { flex: 1 }]}>{trail.name}</Text>
+                    <Text style={[styles.cardTitle, { flex: 1 }]}>
+                      {trail.name}
+                    </Text>
                     <TouchableOpacity
                       style={[styles.roleChip, styles.roleChipActive]}
                       onPress={() =>
@@ -5393,7 +5425,9 @@ function TrailsScreen() {
                       }
                       activeOpacity={0.85}
                     >
-                      <Text style={[styles.roleChipText, styles.roleChipTextActive]}>
+                      <Text
+                        style={[styles.roleChipText, styles.roleChipTextActive]}
+                      >
                         Zoom direct
                       </Text>
                     </TouchableOpacity>
@@ -5429,6 +5463,7 @@ function TrailsScreen() {
                       ]}
                     >
                       {isPicked ? "Sélectionnée" : "Non sélectionnée"}
+                      {Number(hoveredTrailId) === tid ? " · Survol" : ""}
                     </Text>
                   </View>
                   <Text style={styles.cardMeta}>

@@ -249,6 +249,7 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
   trails,
   selectedTrailIds = [],
   selectedTrailId = null,
+  hoveredTrailId = null,
   selectedBoxId,
   selectedBoxIds = [],
   planBoxIds = [],
@@ -258,6 +259,7 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
   dimIncompatibleBoxes = false,
   onSelectBox,
   onSelectTrail,
+  onHoverTrail,
   onMapLongPress,
   onPickLocation,
   onVisibleBoundsChange,
@@ -329,6 +331,8 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
   onSelectBoxRef.current = onSelectBox;
   const onSelectTrailRef = useRef(onSelectTrail);
   onSelectTrailRef.current = onSelectTrail;
+  const onHoverTrailRef = useRef(onHoverTrail);
+  onHoverTrailRef.current = onHoverTrail;
   const onMapLongPressRef = useRef(onMapLongPress);
   onMapLongPressRef.current = onMapLongPress;
   const selectedBoxIdRef = useRef(selectedBoxId);
@@ -478,13 +482,21 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
         }
         if (positions.length < 2) return;
         const isSelected = selectedTrailSet.has(Number(trail.id));
+        const isHovered =
+          Number.isFinite(Number(hoveredTrailId)) &&
+          Number(hoveredTrailId) === Number(trail.id);
+        const dimmedByHover =
+          Number.isFinite(Number(hoveredTrailId)) && !isHovered && !isSelected;
         const isProximityTrail = proximityTrailSet.has(Number(trail.id));
         const diffStyle = TRAIL_DIFFICULTY_STYLES[trail.difficulty] || {
           color: TRAIL_STYLE.color,
           casing: "#CCFBF1",
         };
         if (isProximityTrail) {
-          const corridorWeight = Math.max(14, Math.min(44, trailCorridorKm * 10));
+          const corridorWeight = Math.max(
+            14,
+            Math.min(44, trailCorridorKm * 10)
+          );
           L.polyline(positions, {
             color: "#0EA5E9",
             weight: corridorWeight,
@@ -502,13 +514,19 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
         }
         const line = L.polyline(positions, {
           color: diffStyle.color,
-          weight: isSelected ? 5 : TRAIL_STYLE.weight,
-          opacity: isSelected ? 0.98 : TRAIL_STYLE.opacity,
-          dashArray: isSelected ? undefined : "3 4",
+          weight: isSelected ? 5.6 : isHovered ? 4.8 : TRAIL_STYLE.weight,
+          opacity: isSelected
+            ? 0.99
+            : dimmedByHover
+            ? 0.22
+            : TRAIL_STYLE.opacity,
+          dashArray: isSelected || isHovered ? undefined : "3 4",
           lineCap: "round",
           lineJoin: "round",
         });
         line.on("click", () => onSelectTrailRef.current?.(trail.id));
+        line.on("mouseover", () => onHoverTrailRef.current?.(trail.id));
+        line.on("mouseout", () => onHoverTrailRef.current?.(null));
         if (isSelected) {
           const start = positions[0];
           const end = positions[positions.length - 1];
@@ -702,23 +720,7 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
     } catch (_e) {
       // Keep current viewport if bounds computation fails.
     }
-  }, [
-    boxes,
-    trails,
-    staticOrigin,
-    draftPoint,
-    pickedMapPoint,
-    pickerMode,
-    autoFitToData,
-    selectedBoxId,
-    selectedBoxSet,
-    selectedTrailSet,
-    compatibleBoxSet,
-    planBoxSet,
-    proximityTrailSet,
-    trailCorridorKm,
-    dimIncompatibleBoxes,
-  ]);
+  }, [boxes, trails, staticOrigin, draftPoint, pickedMapPoint, pickerMode, autoFitToData, selectedBoxId, selectedBoxSet, selectedTrailSet, hoveredTrailId, compatibleBoxSet, planBoxSet, proximityTrailSet, trailCorridorKm, dimIncompatibleBoxes]);
 
   if (Platform.OS !== "web") {
     return null;
