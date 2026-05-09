@@ -849,124 +849,12 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
           direction: "top",
           offset: [0, -18],
         });
-        trailIcon.addTo(group);
         line.addTo(group);
+        trailIcon.addTo(group);
       } catch (_e) {
         // Ignore a malformed trail instead of crashing the whole map.
       }
     });
-    let selectedLayer = null;
-    const map = mapRef.current;
-    const shouldCluster = boxes.length > 30 && map && map.getZoom() < 14;
-    if (shouldCluster) {
-      const clusters = new Map();
-      const factor = 8;
-      boxes.forEach((box) => {
-        const lat = Number(box.latitude);
-        const lng = Number(box.longitude);
-        if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
-        const key = `${Math.round(lat * factor)}:${Math.round(lng * factor)}`;
-        const c = clusters.get(key) || {
-          latSum: 0,
-          lngSum: 0,
-          count: 0,
-        };
-        c.latSum += lat;
-        c.lngSum += lng;
-        c.count += 1;
-        clusters.set(key, c);
-      });
-      clusters.forEach((cluster) => {
-        const lat = cluster.latSum / cluster.count;
-        const lng = cluster.lngSum / cluster.count;
-        const marker = L.circleMarker([lat, lng], {
-          radius: Math.min(18, 10 + Math.log2(cluster.count + 1) * 2),
-          color: "#0F766E",
-          weight: 2,
-          fillColor: "#14B8A6",
-          fillOpacity: 0.85,
-        });
-        marker.bindTooltip(`${cluster.count} box`, { direction: "top" });
-        marker.on("click", () => {
-          map?.setView([lat, lng], Math.min((map?.getZoom?.() || 12) + 2, 18), {
-            animate: true,
-          });
-        });
-        marker.addTo(group);
-      });
-    } else {
-      boxes.forEach((box) => {
-        try {
-          const lat = Number(box.latitude);
-          const lng = Number(box.longitude);
-          if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
-          const isSelected =
-            Number(box.id) === Number(selectedBoxIdRef.current) ||
-            selectedBoxSet.has(Number(box.id));
-          const isPlanBox = planBoxSet.has(Number(box.id));
-          const isCompatible =
-            compatibleBoxSet.size === 0 || compatibleBoxSet.has(Number(box.id));
-          const status = boxVisualStatus(box);
-          if (isSelected) {
-            L.circleMarker([lat, lng], {
-              radius: 15,
-              color: "#0F172A",
-              weight: 2,
-              fillColor: "#99F6E4",
-              fillOpacity: 0.35,
-            }).addTo(group);
-          }
-          const labelIcon = L.divIcon({
-            className: "ravitobox-status-pin",
-            html: `<div style="
-              width:${isSelected ? 18 : 14}px;height:${
-              isSelected ? 18 : 14
-            }px;border-radius:999px;
-              border:2px solid ${
-                isSelected
-                  ? isPlanBox
-                    ? "#4C1D95"
-                    : "#0F172A"
-                  : isPlanBox
-                  ? "#7C3AED"
-                  : dimIncompatibleBoxes && !isCompatible
-                  ? "#94A3B8"
-                  : status.stroke
-              };
-              background:${
-                isSelected
-                  ? isPlanBox
-                    ? "#A78BFA"
-                    : "#14B8A6"
-                  : isPlanBox
-                  ? "#F5F3FF"
-                  : dimIncompatibleBoxes && !isCompatible
-                  ? "#E2E8F0"
-                  : "#FFFFFF"
-              };
-              opacity:${dimIncompatibleBoxes && !isCompatible ? "0.6" : "1"};
-              box-shadow:0 3px 10px rgba(2,6,23,.20);
-            "></div>`,
-            iconSize: [isSelected ? 18 : 14, isSelected ? 18 : 14],
-            iconAnchor: [isSelected ? 9 : 7, isSelected ? 9 : 7],
-          });
-          const m = L.marker([lat, lng], { icon: labelIcon });
-          m.on("click", () => onSelectBoxRef.current?.(box.id));
-          const planSuffix = isPlanBox ? " · plan" : "";
-          m.bindTooltip(
-            `${escapeHtml(box.title || "Box")} · ${status.label}${planSuffix}`,
-            {
-              direction: "top",
-              offset: [0, -12],
-            }
-          );
-          m.addTo(group);
-          if (isSelected) selectedLayer = m;
-        } catch (_e) {
-          // Ignore a malformed host point instead of crashing the whole map.
-        }
-      });
-    }
 
     const p = normalizePoint(draftPoint);
     if (p) {
