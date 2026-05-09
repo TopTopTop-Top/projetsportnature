@@ -50,7 +50,8 @@ function patchLeafletIcons(L) {
   });
 }
 
-const TRAIL_STYLE = { color: "#0F766E", weight: 4.1, opacity: 0.82 };
+/** Tracé au repos : assez présent sans survol (lisible sur fond carte OSM). */
+const TRAIL_STYLE = { color: "#0F766E", weight: 5.5, opacity: 0.94 };
 const TRAIL_DIFFICULTY_STYLES = {
   easy: { color: "#16A34A", casing: "#DCFCE7" },
   medium: { color: "#D97706", casing: "#FEF3C7" },
@@ -793,7 +794,6 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
           color: lineColor,
           weight: mainWeight,
           opacity: mainOpacity,
-          dashArray: isActive || isHovered || isPicked ? undefined : "3 4",
           lineCap: "round",
           lineJoin: "round",
         });

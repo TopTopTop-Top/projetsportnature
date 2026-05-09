@@ -195,11 +195,23 @@ export default function NativeExplorerMap({
         nDraw > 1 &&
         Number(t.id) !== activeTrailIdNum;
       const visuallyDimmed = dimmedByInactiveSelection;
-      const haloW = t.isActive ? 12 : t.isPicked ? 9 : 7;
-      const mainW = t.isActive ? 6.5 : t.isPicked ? 5 : 3.4;
-      const haloOp = visuallyDimmed ? 0.08 : t.isActive ? 0.92 : t.isPicked ? 0.58 : 0.42;
-      const mainOp = visuallyDimmed ? 0.16 : t.isActive ? 1 : t.isPicked ? 0.88 : 0.82;
-      const solidLine = t.isActive || t.isPicked;
+      const haloW = t.isActive ? 12 : t.isPicked ? 9.5 : 8;
+      const mainW = t.isActive ? 6.5 : t.isPicked ? 5.5 : 4.8;
+      const haloOp = visuallyDimmed
+        ? 0.08
+        : t.isActive
+        ? 0.92
+        : t.isPicked
+        ? 0.7
+        : 0.6;
+      const mainOp = visuallyDimmed
+        ? 0.16
+        : t.isActive
+        ? 1
+        : t.isPicked
+        ? 0.92
+        : 0.93;
+      const solidLine = true;
       return {
         ...t,
         visuallyDimmed,
