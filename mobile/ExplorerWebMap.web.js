@@ -24,6 +24,10 @@ function ensureLeafletTileFix() {
     .leaflet-container img.leaflet-marker-shadow {
       max-width: none !important;
     }
+    .leaflet-div-icon.ravitobox-trail-pin {
+      background: transparent !important;
+      border: none !important;
+    }
   `;
   document.head.appendChild(s);
 }
@@ -42,7 +46,7 @@ function patchLeafletIcons(L) {
   });
 }
 
-const TRAIL_STYLE = { color: "#0F766E", weight: 3.8, opacity: 0.9 };
+const TRAIL_STYLE = { color: "#0F766E", weight: 4.1, opacity: 0.82 };
 const TRAIL_DIFFICULTY_STYLES = {
   easy: { color: "#16A34A", casing: "#DCFCE7" },
   medium: { color: "#D97706", casing: "#FEF3C7" },
@@ -222,6 +226,51 @@ function buildTrailPopupHtml(trail, staticOrigin) {
   }
   lines.push(gpxLine);
   return lines.filter(Boolean).join("<br/>");
+}
+
+function trailPinActivityKind(activity) {
+  const a = String(activity || "hike");
+  if (a === "road_bike" || a === "mtb" || a === "gravel") return "bike";
+  return "hike";
+}
+
+function buildTrailPinInnerSymbol(kind) {
+  if (kind === "bike") {
+    return `<g fill="none" stroke="#0f172a" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round">
+      <circle cx="9" cy="15" r="2.35"/>
+      <circle cx="15" cy="15" r="2.35"/>
+      <path d="M9 15h2.2l1.3-3.4 1.4 3.4H15"/>
+      <path d="M11.2 15l-.9-2.2h3.4"/>
+    </g>`;
+  }
+  /* Randonneur (silhouette lisible dans le médaillon blanc, type pin carte) */
+  return `<g fill="#0f172a" transform="translate(12,9.45)">
+    <circle cx="0" cy="-3.05" r="1.9"/>
+    <path d="M-1.35-0.35c-.45 0-.85.28-1 .7l-1.15 3.25c-.12.35.06.72.4.85.34.12.72-.04.88-.36l.95-2.05.35 1.85-1.1 4.55h1.15l.85-3.9.85 3.9h1.1l-1.25-5.45.55-1.55c.08-.25.02-.52-.15-.72-.18-.2-.45-.32-.73-.32h-2.65z"/>
+  </g>`;
+}
+
+function buildTrailPinIcon({
+  color,
+  activity,
+  isHovered = false,
+  isSelected = false,
+  isDimmed = false,
+}) {
+  const size = isSelected ? 30 : isHovered ? 28 : 26;
+  const stroke = isSelected ? "#0F172A" : isHovered ? "#111827" : "#1e293b";
+  const opacity = isDimmed ? 0.72 : 1;
+  const scale = isHovered || isSelected ? 1.06 : 1;
+  const kind = trailPinActivityKind(activity);
+  const inner = buildTrailPinInnerSymbol(kind);
+  const html = `<div style="width:${size}px;height:${size}px;opacity:${opacity};transform:scale(${scale});transform-origin:50% 100%;filter:drop-shadow(0 3px 6px rgba(15,23,42,.4));">
+    <svg width="${size}" height="${size}" viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M12 21.5c0 0 6.8-6.1 6.8-11.4C18.8 6.4 15.8 3 12 3S5.2 6.4 5.2 10.1C5.2 15.4 12 21.5 12 21.5z" fill="${color}" stroke="${stroke}" stroke-width="1.35" stroke-linejoin="round"/>
+      <ellipse cx="12" cy="9.4" rx="4.35" ry="4.55" fill="#ffffff" fill-opacity="0.96"/>
+      ${inner}
+    </svg>
+  </div>`;
+  return { html, size };
 }
 
 function normalizePoint(point) {
@@ -493,7 +542,7 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
         const isSelected = selectedTrailSet.has(Number(trail.id));
         const isHovered =
           hasHoveredTrail && effectiveHoveredTrailId === Number(trail.id);
-        const hiddenByHoverFocus = hasHoveredTrail && !isHovered;
+        const dimmedByHover = hasHoveredTrail && !isHovered && !isSelected;
         const isProximityTrail = proximityTrailSet.has(Number(trail.id));
         const diffStyle = TRAIL_DIFFICULTY_STYLES[trail.difficulty] || {
           color: TRAIL_STYLE.color,
@@ -519,6 +568,15 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
             opacity: 0.62,
           }).addTo(group);
         }
+        if (isHovered && !isSelected) {
+          L.polyline(positions, {
+            color: diffStyle.casing,
+            weight: 9.5,
+            opacity: 0.55,
+            lineCap: "round",
+            lineJoin: "round",
+          }).addTo(group);
+        }
         const focusTrail = () => {
           onSelectTrailRef.current?.(trail.id);
           try {
@@ -533,11 +591,13 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
         };
         const line = L.polyline(positions, {
           color: diffStyle.color,
-          weight: isSelected ? 6 : isHovered ? 5.8 : TRAIL_STYLE.weight,
+          weight: isSelected ? 6.2 : isHovered ? 5.9 : TRAIL_STYLE.weight,
           opacity: isSelected
             ? 0.99
-            : hiddenByHoverFocus
-            ? 0
+            : isHovered
+            ? 0.97
+            : dimmedByHover
+            ? 0.24
             : TRAIL_STYLE.opacity,
           dashArray: isSelected || isHovered ? undefined : "3 4",
           lineCap: "round",
@@ -558,17 +618,32 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
           onHoverTrailRef.current?.(null);
         });
         const start = positions[0];
-        const trailIcon = L.circleMarker(start, {
-          radius: isHovered ? 6 : 5,
-          color: isHovered ? "#0F172A" : "#334155",
-          weight: 2,
-          fillColor: diffStyle.color,
-          fillOpacity: 1,
-          opacity: 1,
+        const pin = buildTrailPinIcon({
+          color: diffStyle.color,
+          activity: trail.activity,
+          isHovered,
+          isSelected,
+          isDimmed: dimmedByHover,
+        });
+        const pinAnchorY = Math.round((pin.size * 21.5) / 24);
+        const trailIcon = L.marker(start, {
+          icon: L.divIcon({
+            className: "ravitobox-trail-pin",
+            html: pin.html,
+            iconSize: [pin.size, pin.size],
+            iconAnchor: [Math.round(pin.size / 2), pinAnchorY],
+          }),
+          zIndexOffset: isHovered || isSelected ? 850 : 500,
         });
         trailIcon.on("mouseover", () => {
           setHoveredTrailLocalId(Number(trail.id));
           onHoverTrailRef.current?.(trail.id);
+          try {
+            trailIcon.setZIndexOffset?.(900);
+            trailIcon.bringToFront?.();
+          } catch (_e) {
+            /* noop */
+          }
         });
         trailIcon.on("mouseout", () => {
           setHoveredTrailLocalId(null);
@@ -577,7 +652,7 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
         trailIcon.on("click", focusTrail);
         trailIcon.bindTooltip(escapeHtml(trail.name || "Trace"), {
           direction: "top",
-          offset: [0, -8],
+          offset: [0, -18],
         });
         trailIcon.addTo(group);
         if (isSelected) {
