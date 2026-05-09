@@ -28,6 +28,10 @@ function ensureLeafletTileFix() {
       background: transparent !important;
       border: none !important;
     }
+    .leaflet-div-icon.ravitobox-box-house {
+      background: transparent !important;
+      border: none !important;
+    }
   `;
   document.head.appendChild(s);
 }
@@ -286,20 +290,61 @@ function buildTrailPinIcon({
   const opacity = isDimmed ? 0.78 : 1;
   const scale = isHovered || isSelected ? 1.06 : 1;
   const kind = trailPinActivityKind(activity);
-  const inner = simpleMedallion
-    ? `<circle cx="12" cy="9.4" r="2.15" fill="#ffffff" fill-opacity="0.98"/>`
-    : buildTrailPinInnerSymbol(kind);
   const pinPath =
     "M12 21.5c0 0 6.8-6.1 6.8-11.4C18.8 6.4 15.8 3 12 3S5.2 6.4 5.2 10.1C5.2 15.4 12 21.5 12 21.5z";
+  const medallion = simpleMedallion
+    ? `<circle cx="12" cy="9.15" r="3.2" fill="#ffffff"/>`
+    : `<ellipse cx="12" cy="9.4" rx="4.35" ry="4.55" fill="#ffffff" fill-opacity="0.96"/>
+      ${buildTrailPinInnerSymbol(kind)}`;
   const html = `<div style="width:${size}px;height:${size}px;opacity:${opacity};transform:scale(${scale});transform-origin:50% 100%;filter:drop-shadow(0 3px 6px rgba(15,23,42,.4));">
     <svg width="${size}" height="${size}" viewBox="0 0 24 24" aria-hidden="true">
       <path d="${pinPath}" fill="${color}" stroke="#ffffff" stroke-width="2.35" stroke-linejoin="round"/>
       <path d="${pinPath}" fill="${color}" stroke="${strokeInner}" stroke-width="1.25" stroke-linejoin="round"/>
-      <ellipse cx="12" cy="9.4" rx="4.35" ry="4.55" fill="#ffffff" fill-opacity="0.96"/>
-      ${inner}
+      ${medallion}
     </svg>
   </div>`;
   return { html, size };
+}
+
+function buildBoxHouseDivIcon(L, opts) {
+  const {
+    isSelected,
+    isPlanBox,
+    isCompatible,
+    dimIncompatibleBoxes,
+    status,
+  } = opts;
+  const w = isSelected ? 30 : 26;
+  const stroke = isSelected
+    ? isPlanBox
+      ? "#4C1D95"
+      : "#0F172A"
+    : isPlanBox
+    ? "#7C3AED"
+    : dimIncompatibleBoxes && !isCompatible
+    ? "#94A3B8"
+    : status.stroke;
+  const fill = isSelected
+    ? isPlanBox
+      ? "#A78BFA"
+      : "#14B8A6"
+    : isPlanBox
+    ? "#F5F3FF"
+    : dimIncompatibleBoxes && !isCompatible
+    ? "#E2E8F0"
+    : "#FFFFFF";
+  const opacity = dimIncompatibleBoxes && !isCompatible ? 0.65 : 1;
+  const html = `<div style="width:${w}px;height:${w}px;opacity:${opacity};filter:drop-shadow(0 2px 5px rgba(15,23,42,.28));">
+    <svg width="${w}" height="${w}" viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M4 10.5L12 4l8 6.5V20a1 1 0 01-1 1h-4.5v-7h-5v7H5a1 1 0 01-1-1v-9.5z" fill="${fill}" stroke="${stroke}" stroke-width="1.35" stroke-linejoin="round"/>
+    </svg>
+  </div>`;
+  return L.divIcon({
+    className: "ravitobox-box-house",
+    html,
+    iconSize: [w, w],
+    iconAnchor: [Math.round(w / 2), Math.round(w * 0.95)],
+  });
 }
 
 function normalizePoint(point) {
@@ -562,6 +607,106 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
     if (!group) return;
     group.clearLayers();
 
+    let drawableTrailCount = 0;
+    for (const t of trails) {
+      try {
+        if (!t.polyline_json) continue;
+        const raw = JSON.parse(t.polyline_json);
+        const pos = Array.isArray(raw)
+          ? raw.map(normalizePoint).filter(Boolean)
+          : [];
+        if (pos.length >= 2) drawableTrailCount += 1;
+      } catch (_e) {
+        /* noop */
+      }
+    }
+
+    let selectedLayer = null;
+    const map = mapRef.current;
+    const shouldCluster = boxes.length > 30 && map && map.getZoom() < 14;
+    if (shouldCluster) {
+      const clusters = new Map();
+      const factor = 8;
+      boxes.forEach((box) => {
+        const lat = Number(box.latitude);
+        const lng = Number(box.longitude);
+        if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+        const key = `${Math.round(lat * factor)}:${Math.round(lng * factor)}`;
+        const c = clusters.get(key) || {
+          latSum: 0,
+          lngSum: 0,
+          count: 0,
+        };
+        c.latSum += lat;
+        c.lngSum += lng;
+        c.count += 1;
+        clusters.set(key, c);
+      });
+      clusters.forEach((cluster) => {
+        const lat = cluster.latSum / cluster.count;
+        const lng = cluster.lngSum / cluster.count;
+        const marker = L.circleMarker([lat, lng], {
+          radius: Math.min(18, 10 + Math.log2(cluster.count + 1) * 2),
+          color: "#0F766E",
+          weight: 2,
+          fillColor: "#14B8A6",
+          fillOpacity: 0.85,
+        });
+        marker.bindTooltip(`${cluster.count} box`, { direction: "top" });
+        marker.on("click", () => {
+          map?.setView([lat, lng], Math.min((map?.getZoom?.() || 12) + 2, 18), {
+            animate: true,
+          });
+        });
+        marker.addTo(group);
+      });
+    } else {
+      boxes.forEach((box) => {
+        try {
+          const lat = Number(box.latitude);
+          const lng = Number(box.longitude);
+          if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+          const isSelected =
+            Number(box.id) === Number(selectedBoxIdRef.current) ||
+            selectedBoxSet.has(Number(box.id));
+          const isPlanBox = planBoxSet.has(Number(box.id));
+          const isCompatible =
+            compatibleBoxSet.size === 0 || compatibleBoxSet.has(Number(box.id));
+          const status = boxVisualStatus(box);
+          if (isSelected) {
+            L.circleMarker([lat, lng], {
+              radius: 15,
+              color: "#0F172A",
+              weight: 2,
+              fillColor: "#99F6E4",
+              fillOpacity: 0.35,
+            }).addTo(group);
+          }
+          const labelIcon = buildBoxHouseDivIcon(L, {
+            isSelected,
+            isPlanBox,
+            isCompatible,
+            dimIncompatibleBoxes,
+            status,
+          });
+          const m = L.marker([lat, lng], { icon: labelIcon });
+          m.on("click", () => onSelectBoxRef.current?.(box.id));
+          const planSuffix = isPlanBox ? " · plan" : "";
+          m.bindTooltip(
+            `${escapeHtml(box.title || "Box")} · ${status.label}${planSuffix}`,
+            {
+              direction: "top",
+              offset: [0, -12],
+            }
+          );
+          m.addTo(group);
+          if (isSelected) selectedLayer = m;
+        } catch (_e) {
+          // Ignore a malformed host point instead of crashing the whole map.
+        }
+      });
+    }
+
     trails.forEach((trail) => {
       try {
         let positions = [];
@@ -581,7 +726,7 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
         const dimmedByInactiveSelection =
           !hasHoveredTrail &&
           activeTrailIdNum != null &&
-          trails.length > 1 &&
+          drawableTrailCount > 1 &&
           tid !== activeTrailIdNum;
         const visuallyDimmed = dimmedByHover || dimmedByInactiveSelection;
         const isProximityTrail = proximityTrailSet.has(tid);
@@ -619,8 +764,8 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
           : isPicked
           ? 5.2
           : TRAIL_STYLE.weight;
-        const haloOpacity = dimmedByHover
-          ? 0.06
+        const haloOpacity = visuallyDimmed
+          ? 0.08
           : isActive
           ? 0.94
           : isHovered
@@ -628,8 +773,8 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
           : isPicked
           ? 0.62
           : 0.45;
-        const mainOpacity = dimmedByHover
-          ? 0.12
+        const mainOpacity = visuallyDimmed
+          ? 0.14
           : isActive
           ? 1
           : isHovered
@@ -880,7 +1025,7 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
     } catch (_e) {
       // Keep current viewport if bounds computation fails.
     }
-  }, [boxes, trails, staticOrigin, draftPoint, pickedMapPoint, pickerMode, autoFitToData, selectedBoxId, selectedBoxSet, selectedTrailSet, effectiveHoveredTrailId, hasHoveredTrail, compatibleBoxSet, planBoxSet, proximityTrailSet, trailCorridorKm, dimIncompatibleBoxes]);
+  }, [boxes, trails, staticOrigin, draftPoint, pickedMapPoint, pickerMode, autoFitToData, selectedBoxId, selectedBoxSet, selectedTrailIds, selectedTrailId, pickedTrailSet, activeTrailIdNum, effectiveHoveredTrailId, hasHoveredTrail, compatibleBoxSet, planBoxSet, proximityTrailSet, trailCorridorKm, dimIncompatibleBoxes]);
 
   if (Platform.OS !== "web") {
     return null;

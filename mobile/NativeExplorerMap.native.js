@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef } from "react";
 import { StyleSheet, View } from "react-native";
 import MapView, { Marker, Polyline } from "react-native-maps";
+import { Ionicons } from "@expo/vector-icons";
 
 const TRAIL_DIFFICULTY_COLORS = {
   easy: "#16A34A",
@@ -243,6 +244,72 @@ export default function NativeExplorerMap({
         onPickLocation?.(lat, lng);
       }}
     >
+      {boxes.map((box) => {
+        const isCompatible =
+          compatibleBoxSet.size === 0 || compatibleBoxSet.has(Number(box.id));
+        const isPlanBox = planBoxSet.has(Number(box.id));
+        const isSelected =
+          Number(box.id) === Number(selectedBoxId) ||
+          selectedBoxSet.has(Number(box.id));
+        const borderColor = isSelected
+          ? isPlanBox
+            ? "#4C1D95"
+            : "#0F172A"
+          : isPlanBox
+          ? "#7C3AED"
+          : dimIncompatibleBoxes && !isCompatible
+          ? "#94A3B8"
+          : "#10B981";
+        const bg = isSelected
+          ? isPlanBox
+            ? "#A78BFA"
+            : "#14B8A6"
+          : isPlanBox
+          ? "#F5F3FF"
+          : dimIncompatibleBoxes && !isCompatible
+          ? "#E2E8F0"
+          : "#FFFFFF";
+        const iconColor = isSelected
+          ? isPlanBox
+            ? "#4C1D95"
+            : "#0F172A"
+          : isPlanBox
+          ? "#5B21B6"
+          : dimIncompatibleBoxes && !isCompatible
+          ? "#64748B"
+          : "#0F766E";
+        return (
+          <Marker
+            key={box.id}
+            coordinate={{
+              latitude: box.latitude,
+              longitude: box.longitude,
+            }}
+            tracksViewChanges={false}
+            anchor={{ x: 0.5, y: 1 }}
+            zIndex={isSelected ? 520 : 300}
+            onPress={() => onSelectBox(box.id)}
+          >
+            <View
+              style={[
+                styles.boxHouseOuter,
+                {
+                  borderColor,
+                  backgroundColor: bg,
+                  opacity: dimIncompatibleBoxes && !isCompatible ? 0.7 : 1,
+                  transform: [{ scale: isSelected ? 1.12 : 1 }],
+                },
+              ]}
+            >
+              <Ionicons
+                name="home"
+                size={isSelected ? 20 : 17}
+                color={iconColor}
+              />
+            </View>
+          </Marker>
+        );
+      })}
       {trailPolylines.map((t) => (
         <React.Fragment key={t.id}>
           {t.isProximityTrail ? (
@@ -321,35 +388,6 @@ export default function NativeExplorerMap({
           </View>
         </Marker>
       ) : null}
-      {boxes.map((box) => {
-        const isCompatible =
-          compatibleBoxSet.size === 0 || compatibleBoxSet.has(Number(box.id));
-        const isPlanBox = planBoxSet.has(Number(box.id));
-        const isSelected =
-          Number(box.id) === Number(selectedBoxId) ||
-          selectedBoxSet.has(Number(box.id));
-        return (
-          <Marker
-            key={box.id}
-            coordinate={{
-              latitude: box.latitude,
-              longitude: box.longitude,
-            }}
-            tracksViewChanges={false}
-            onPress={() => onSelectBox(box.id)}
-          >
-            <View
-              style={[
-                styles.boxPin,
-                isPlanBox && styles.boxPinPlan,
-                dimIncompatibleBoxes && !isCompatible && styles.boxPinDimmed,
-                isSelected && styles.boxPinSelected,
-                isSelected && isPlanBox && styles.boxPinSelectedPlan,
-              ]}
-            />
-          </Marker>
-        );
-      })}
     </MapView>
   );
 }
@@ -403,38 +441,18 @@ const styles = StyleSheet.create({
     borderRightColor: "transparent",
     backgroundColor: "transparent",
   },
-  boxPin: {
-    width: 14,
-    height: 14,
-    borderRadius: 999,
+  boxHouseOuter: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    borderWidth: 2,
     alignItems: "center",
     justifyContent: "center",
-    borderWidth: 2,
-    borderColor: "#0F766E",
-    backgroundColor: "#fff",
     shadowColor: "#0F172A",
-    shadowOpacity: 0.18,
-    shadowOffset: { width: 0, height: 3 },
-    shadowRadius: 6,
-    elevation: 4,
-  },
-  boxPinSelected: {
-    borderColor: "#0F172A",
-    backgroundColor: "#14B8A6",
-    transform: [{ scale: 1.25 }],
-  },
-  boxPinPlan: {
-    borderColor: "#7C3AED",
-    backgroundColor: "#F5F3FF",
-  },
-  boxPinSelectedPlan: {
-    borderColor: "#4C1D95",
-    backgroundColor: "#A78BFA",
-  },
-  boxPinDimmed: {
-    borderColor: "#94A3B8",
-    backgroundColor: "#E2E8F0",
-    opacity: 0.65,
+    shadowOpacity: 0.22,
+    shadowOffset: { width: 0, height: 2 },
+    shadowRadius: 5,
+    elevation: 5,
   },
   trailPointEnd: {
     width: 10,

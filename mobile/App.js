@@ -1937,28 +1937,44 @@ function ExplorerScreen() {
     const list = Array.isArray(boxesForExplorerList)
       ? [...boxesForExplorerList]
       : [];
-    if (selectedBoxId == null) return list;
-    const sid = Number(selectedBoxId);
+    const sid =
+      selectedBoxId != null && Number.isFinite(Number(selectedBoxId))
+        ? Number(selectedBoxId)
+        : null;
+    const picked = new Set(
+      (safePickedBoxIds || []).map((id) => Number(id)).filter(Number.isFinite)
+    );
     list.sort((a, b) => {
-      const aSel = Number(a.id) === sid ? 1 : 0;
-      const bSel = Number(b.id) === sid ? 1 : 0;
-      return bSel - aSel;
+      const rank = (id) => {
+        if (sid != null && id === sid) return 3;
+        if (picked.has(id)) return 2;
+        return 0;
+      };
+      return rank(Number(b.id)) - rank(Number(a.id));
     });
     return list;
-  }, [boxesForExplorerList, selectedBoxId]);
+  }, [boxesForExplorerList, selectedBoxId, safePickedBoxIds]);
   const prioritizedExplorerTrails = useMemo(() => {
     const list = Array.isArray(trailsForExplorerList)
       ? [...trailsForExplorerList]
       : [];
-    if (selectedTrailId == null) return list;
-    const sid = Number(selectedTrailId);
+    const sid =
+      selectedTrailId != null && Number.isFinite(Number(selectedTrailId))
+        ? Number(selectedTrailId)
+        : null;
+    const picked = new Set(
+      (mapTrailPickIds || []).map((id) => Number(id)).filter(Number.isFinite)
+    );
     list.sort((a, b) => {
-      const aSel = Number(a.id) === sid ? 1 : 0;
-      const bSel = Number(b.id) === sid ? 1 : 0;
-      return bSel - aSel;
+      const rank = (id) => {
+        if (sid != null && id === sid) return 3;
+        if (picked.has(id)) return 2;
+        return 0;
+      };
+      return rank(Number(b.id)) - rank(Number(a.id));
     });
     return list;
-  }, [trailsForExplorerList, selectedTrailId]);
+  }, [trailsForExplorerList, selectedTrailId, mapTrailPickIds]);
   const toggleExplorerPickedBox = useCallback(
     (boxId) => {
       const bid = Number(boxId);
@@ -2119,6 +2135,21 @@ function ExplorerScreen() {
   const [lastMapTapCoords, setLastMapTapCoords] = useState(null);
   const explorerScrollRef = useRef(null);
   const bookingSectionYRef = useRef(0);
+
+  useEffect(() => {
+    if (Platform.OS !== "web") return undefined;
+    const id = requestAnimationFrame(() => {
+      try {
+        explorerScrollRef.current?.scrollTo?.({
+          y: 0,
+          animated: true,
+        });
+      } catch (_e) {
+        /* ignore */
+      }
+    });
+    return () => cancelAnimationFrame(id);
+  }, [selectedTrailId, selectedBoxId]);
   const [planSearchQuery, setPlanSearchQuery] = useState("");
   const [routePlanDraftNotes, setRoutePlanDraftNotes] = useState("");
   const [planNameDraft, setPlanNameDraft] = useState("");
