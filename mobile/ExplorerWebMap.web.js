@@ -351,6 +351,7 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
     const local = Number(hoveredTrailLocalId);
     return Number.isFinite(local) ? local : null;
   }, [hoveredTrailId, hoveredTrailLocalId]);
+  const hasHoveredTrail = Number.isFinite(effectiveHoveredTrailId);
 
   const mapStyle = useMemo(
     () =>
@@ -491,12 +492,8 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
         if (positions.length < 2) return;
         const isSelected = selectedTrailSet.has(Number(trail.id));
         const isHovered =
-          Number.isFinite(Number(effectiveHoveredTrailId)) &&
-          Number(effectiveHoveredTrailId) === Number(trail.id);
-        const dimmedByHover =
-          Number.isFinite(Number(effectiveHoveredTrailId)) &&
-          !isHovered &&
-          !isSelected;
+          hasHoveredTrail && effectiveHoveredTrailId === Number(trail.id);
+        const hiddenByHoverFocus = hasHoveredTrail && !isHovered;
         const isProximityTrail = proximityTrailSet.has(Number(trail.id));
         const diffStyle = TRAIL_DIFFICULTY_STYLES[trail.difficulty] || {
           color: TRAIL_STYLE.color,
@@ -522,19 +519,7 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
             opacity: 0.62,
           }).addTo(group);
         }
-        const line = L.polyline(positions, {
-          color: diffStyle.color,
-          weight: isSelected ? 6 : isHovered ? 5.8 : TRAIL_STYLE.weight,
-          opacity: isSelected
-            ? 0.99
-            : dimmedByHover
-            ? 0.1
-            : TRAIL_STYLE.opacity,
-          dashArray: isSelected || isHovered ? undefined : "3 4",
-          lineCap: "round",
-          lineJoin: "round",
-        });
-        line.on("click", () => {
+        const focusTrail = () => {
           onSelectTrailRef.current?.(trail.id);
           try {
             const m = mapRef.current;
@@ -545,7 +530,20 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
           } catch (_e) {
             // keep map stable if fit fails on malformed geometry
           }
+        };
+        const line = L.polyline(positions, {
+          color: diffStyle.color,
+          weight: isSelected ? 6 : isHovered ? 5.8 : TRAIL_STYLE.weight,
+          opacity: isSelected
+            ? 0.99
+            : hiddenByHoverFocus
+            ? 0
+            : TRAIL_STYLE.opacity,
+          dashArray: isSelected || isHovered ? undefined : "3 4",
+          lineCap: "round",
+          lineJoin: "round",
         });
+        line.on("click", focusTrail);
         line.on("mouseover", () => {
           setHoveredTrailLocalId(Number(trail.id));
           onHoverTrailRef.current?.(trail.id);
@@ -559,8 +557,30 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
           setHoveredTrailLocalId(null);
           onHoverTrailRef.current?.(null);
         });
+        const start = positions[0];
+        const trailIcon = L.circleMarker(start, {
+          radius: isHovered ? 6 : 5,
+          color: isHovered ? "#0F172A" : "#334155",
+          weight: 2,
+          fillColor: diffStyle.color,
+          fillOpacity: 1,
+          opacity: 1,
+        });
+        trailIcon.on("mouseover", () => {
+          setHoveredTrailLocalId(Number(trail.id));
+          onHoverTrailRef.current?.(trail.id);
+        });
+        trailIcon.on("mouseout", () => {
+          setHoveredTrailLocalId(null);
+          onHoverTrailRef.current?.(null);
+        });
+        trailIcon.on("click", focusTrail);
+        trailIcon.bindTooltip(escapeHtml(trail.name || "Trace"), {
+          direction: "top",
+          offset: [0, -8],
+        });
+        trailIcon.addTo(group);
         if (isSelected) {
-          const start = positions[0];
           const end = positions[positions.length - 1];
           L.circleMarker(start, {
             radius: 5,
@@ -752,7 +772,7 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
     } catch (_e) {
       // Keep current viewport if bounds computation fails.
     }
-  }, [boxes, trails, staticOrigin, draftPoint, pickedMapPoint, pickerMode, autoFitToData, selectedBoxId, selectedBoxSet, selectedTrailSet, effectiveHoveredTrailId, compatibleBoxSet, planBoxSet, proximityTrailSet, trailCorridorKm, dimIncompatibleBoxes]);
+  }, [boxes, trails, staticOrigin, draftPoint, pickedMapPoint, pickerMode, autoFitToData, selectedBoxId, selectedBoxSet, selectedTrailSet, effectiveHoveredTrailId, hasHoveredTrail, compatibleBoxSet, planBoxSet, proximityTrailSet, trailCorridorKm, dimIncompatibleBoxes]);
 
   if (Platform.OS !== "web") {
     return null;
