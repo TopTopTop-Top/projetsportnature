@@ -50,8 +50,8 @@ function patchLeafletIcons(L) {
   });
 }
 
-/** Tracé au repos : assez présent sans survol (lisible sur fond carte OSM). */
-const TRAIL_STYLE = { color: "#0F766E", weight: 5.5, opacity: 0.94 };
+/** Tracé au repos : bien visible sans survol (fond OSM + halo blanc). */
+const TRAIL_STYLE = { color: "#0F766E", weight: 6.8, opacity: 1 };
 const TRAIL_DIFFICULTY_STYLES = {
   easy: { color: "#16A34A", casing: "#DCFCE7" },
   medium: { color: "#D97706", casing: "#FEF3C7" },
@@ -745,43 +745,31 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
             lineJoin: "round",
           }).addTo(group);
         }
-        const focusTrail = () => {
-          onSelectTrailRef.current?.(trail.id);
-          try {
-            const m = mapRef.current;
-            const b = line.getBounds?.();
-            if (m && b && typeof b.isValid === "function" && b.isValid()) {
-              m.fitBounds(b, { padding: [36, 36], maxZoom: 16, animate: true });
-            }
-          } catch (_e) {
-            // keep map stable if fit fails on malformed geometry
-          }
-        };
-        const haloWeight = isActive ? 12.5 : isHovered ? 11 : isPicked ? 9 : 7;
+        const haloWeight = isActive ? 13.5 : isHovered ? 12 : isPicked ? 10.5 : 9.5;
         const mainWeight = isActive
-          ? 6.8
+          ? 7.2
           : isHovered
-          ? 6.5
+          ? 6.9
           : isPicked
-          ? 5.2
+          ? 6.2
           : TRAIL_STYLE.weight;
         const haloOpacity = visuallyDimmed
-          ? 0.08
+          ? 0.24
           : isActive
-          ? 0.94
+          ? 0.96
           : isHovered
-          ? 0.88
+          ? 0.9
           : isPicked
-          ? 0.62
-          : 0.45;
+          ? 0.78
+          : 0.72;
         const mainOpacity = visuallyDimmed
-          ? 0.14
+          ? 0.44
           : isActive
           ? 1
           : isHovered
-          ? 0.98
+          ? 0.99
           : isPicked
-          ? 0.88
+          ? 0.94
           : TRAIL_STYLE.opacity;
         L.polyline(positions, {
           color: "#ffffff",
@@ -797,6 +785,37 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
           lineCap: "round",
           lineJoin: "round",
         });
+        const focusTrail = (ev) => {
+          try {
+            const dom = ev?.originalEvent;
+            if (dom && L.DomEvent?.stopPropagation) {
+              L.DomEvent.stopPropagation(dom);
+            }
+          } catch (_e) {
+            /* noop */
+          }
+          onSelectTrailRef.current?.(trail.id);
+          try {
+            const m = mapRef.current;
+            const b = line.getBounds?.();
+            if (m && b && typeof b.isValid === "function" && b.isValid()) {
+              const runFit = () => {
+                try {
+                  m.fitBounds(b, {
+                    padding: [52, 52],
+                    maxZoom: 17,
+                    animate: true,
+                  });
+                } catch (_e2) {
+                  /* noop */
+                }
+              };
+              requestAnimationFrame(() => requestAnimationFrame(runFit));
+            }
+          } catch (_e) {
+            /* noop */
+          }
+        };
         line.on("click", focusTrail);
         line.on("mouseover", () => {
           setHoveredTrailLocalId(tid);
@@ -845,6 +864,12 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
           onHoverTrailRef.current?.(null);
         });
         trailIcon.on("click", focusTrail);
+        try {
+          const el = trailIcon.getElement?.();
+          if (el) el.style.cursor = "pointer";
+        } catch (_e) {
+          /* noop */
+        }
         trailIcon.bindTooltip(escapeHtml(trail.name || "Trace"), {
           direction: "top",
           offset: [0, -18],

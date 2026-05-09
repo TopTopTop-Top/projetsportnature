@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef } from "react";
+import React, { useCallback, useEffect, useMemo, useRef } from "react";
 import { StyleSheet, View } from "react-native";
 import MapView, { Marker, Polyline } from "react-native-maps";
 import { Ionicons } from "@expo/vector-icons";
@@ -195,22 +195,22 @@ export default function NativeExplorerMap({
         nDraw > 1 &&
         Number(t.id) !== activeTrailIdNum;
       const visuallyDimmed = dimmedByInactiveSelection;
-      const haloW = t.isActive ? 12 : t.isPicked ? 9.5 : 8;
-      const mainW = t.isActive ? 6.5 : t.isPicked ? 5.5 : 4.8;
+      const haloW = t.isActive ? 13 : t.isPicked ? 10.5 : 9.5;
+      const mainW = t.isActive ? 7 : t.isPicked ? 6.2 : 6.8;
       const haloOp = visuallyDimmed
-        ? 0.08
+        ? 0.26
         : t.isActive
-        ? 0.92
+        ? 0.95
         : t.isPicked
-        ? 0.7
-        : 0.6;
+        ? 0.78
+        : 0.72;
       const mainOp = visuallyDimmed
-        ? 0.16
+        ? 0.44
         : t.isActive
         ? 1
         : t.isPicked
-        ? 0.92
-        : 0.93;
+        ? 0.94
+        : 1;
       const solidLine = true;
       return {
         ...t,
@@ -223,6 +223,49 @@ export default function NativeExplorerMap({
       };
     });
   }, [trails, pickedTrailSet, activeTrailIdNum, proximityTrailSet]);
+
+  const fitTrailToMap = useCallback((trailId) => {
+    const tid = Number(trailId);
+    if (!Number.isFinite(tid)) return;
+    const trail = trails.find((x) => Number(x.id) === tid);
+    if (!trail?.polyline_json) return;
+    let positions = [];
+    try {
+      positions = JSON.parse(trail.polyline_json);
+    } catch (_e) {
+      return;
+    }
+    if (!Array.isArray(positions) || positions.length < 2) return;
+    const coords = positions
+      .map((pt) => {
+        const lat = Array.isArray(pt) ? pt[0] : pt?.lat ?? pt?.latitude;
+        const lng = Array.isArray(pt) ? pt[1] : pt?.lng ?? pt?.longitude;
+        const la = Number(lat);
+        const lo = Number(lng);
+        if (!Number.isFinite(la) || !Number.isFinite(lo)) return null;
+        return { latitude: la, longitude: lo };
+      })
+      .filter(Boolean);
+    if (coords.length < 2) return;
+    requestAnimationFrame(() => {
+      try {
+        mapRef.current?.fitToCoordinates(coords, {
+          edgePadding: { top: 96, right: 48, bottom: 96, left: 48 },
+          animated: true,
+        });
+      } catch (_e) {
+        /* noop */
+      }
+    });
+  }, [trails]);
+
+  const handleSelectTrailOnMap = useCallback(
+    (trailId) => {
+      onSelectTrail?.(trailId);
+      fitTrailToMap(trailId);
+    },
+    [onSelectTrail, fitTrailToMap]
+  );
 
   const reportBounds = (r) => {
     if (typeof onVisibleBoundsChange !== "function" || !r) return;
@@ -350,14 +393,14 @@ export default function NativeExplorerMap({
             lineCap="round"
             lineJoin="round"
             tappable
-            onPress={() => onSelectTrail?.(t.id)}
+            onPress={() => handleSelectTrailOnMap(t.id)}
           />
           <Marker
             coordinate={t.coordinates[0]}
             tracksViewChanges={false}
             anchor={{ x: 0.5, y: 1 }}
             zIndex={t.isActive ? 800 : t.isPicked ? 600 : 400}
-            onPress={() => onSelectTrail?.(t.id)}
+            onPress={() => handleSelectTrailOnMap(t.id)}
           >
             <TrailTeardropPin
               color={t.lineColor}
