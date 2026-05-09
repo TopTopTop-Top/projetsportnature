@@ -203,6 +203,9 @@ async function migrate() {
       `ALTER TABLE boxes ADD COLUMN IF NOT EXISTS criteria_note TEXT`
     );
     await client.query(
+      `ALTER TABLE boxes ADD COLUMN IF NOT EXISTS availability_schedule_json TEXT`
+    );
+    await client.query(
       `ALTER TABLE boxes ADD COLUMN IF NOT EXISTS archived_at TIMESTAMPTZ`
     );
     await client.query(

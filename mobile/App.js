@@ -96,6 +96,51 @@ function absoluteUploadUrl(path) {
   return `${API_STATIC_ORIGIN}${path.startsWith("/") ? "" : "/"}${path}`;
 }
 
+const {
+  DEFAULT_AVAILABILITY_SCHEDULE,
+  parseAvailabilityScheduleFromBox,
+  isSlotMatchingSchedule,
+  evaluateBookingAgainstSchedule,
+} = require("./boxAvailability");
+
+const HOST_AVAIL_WEEKDAY_LABELS = [
+  "Dim",
+  "Lun",
+  "Mar",
+  "Mer",
+  "Jeu",
+  "Ven",
+  "Sam",
+];
+
+function cloneDefaultAvailabilitySchedule() {
+  return {
+    quietHoursEnabled: DEFAULT_AVAILABILITY_SCHEDULE.quietHoursEnabled,
+    quietStart: DEFAULT_AVAILABILITY_SCHEDULE.quietStart,
+    quietEnd: DEFAULT_AVAILABILITY_SCHEDULE.quietEnd,
+    closedWeekdays: [...DEFAULT_AVAILABILITY_SCHEDULE.closedWeekdays],
+    blockedRanges: DEFAULT_AVAILABILITY_SCHEDULE.blockedRanges.map((r) => ({
+      ...r,
+    })),
+  };
+}
+
+function hostAvailabilityFromBox(box) {
+  const p = parseAvailabilityScheduleFromBox(box);
+  if (!p) return cloneDefaultAvailabilitySchedule();
+  return {
+    quietHoursEnabled: p.quietHoursEnabled,
+    quietStart: p.quietStart,
+    quietEnd: p.quietEnd,
+    closedWeekdays: [...p.closedWeekdays],
+    blockedRanges: p.blockedRanges.map((r) => ({
+      start: r.start,
+      end: r.end,
+      note: r.note,
+    })),
+  };
+}
+
 const TRAIL_LOCAL_PATCHES_PREFIX = "ravitobox_trail_local_patches_";
 const TRAIL_LOCAL_PATCHES_SUFFIX = "_v1";
 
@@ -778,6 +823,39 @@ function todayIsoDate() {
   )}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
+function explorerSlotWellFormed(bookingDate, startTime, endTime) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(bookingDate || "").trim()))
+    return false;
+  const sm = timeToMinutes(startTime);
+  const em = timeToMinutes(endTime);
+  if (!Number.isFinite(sm) || !Number.isFinite(em) || em <= sm) return false;
+  return true;
+}
+
+function availabilityScheduleBlockingLine(
+  scheduleJson,
+  bookingDate,
+  startTime,
+  endTime
+) {
+  const r = evaluateBookingAgainstSchedule(scheduleJson, {
+    bookingDate,
+    startTime,
+    endTime,
+  });
+  if (r.ok) return null;
+  switch (r.reason) {
+    case "closed_weekday":
+      return "L'hôte a indiqué que ce box est fermé ce jour-là.";
+    case "blocked_range":
+      return "Cette date tombe dans une période bloquée par l'hôte.";
+    case "quiet_hours":
+      return "Le créneau chevauche les plages horaires non disponibles définies par l'hôte.";
+    default:
+      return "Ce créneau ne correspond pas aux disponibilités définies par l'hôte.";
+  }
+}
+
 function buildBookingVigilances(
   box,
   bookingDate,
@@ -793,6 +871,15 @@ function buildBookingVigilances(
   const today = todayIsoDate();
   if (bookingDate && bookingDate < today) {
     blocking.push("La date choisie est dans le passé.");
+  }
+  const scheduleBlock = availabilityScheduleBlockingLine(
+    box?.availability_schedule_json,
+    bookingDate,
+    startTime,
+    endTime
+  );
+  if (scheduleBlock) {
+    blocking.push(scheduleBlock);
   }
   if (!specialRequest?.trim()) {
     warnings.push(
@@ -1817,6 +1904,8 @@ function ExplorerScreen() {
     setMapNearSingleTrailId,
     mapNearShowAllOnMap,
     setMapNearShowAllOnMap,
+    mapBoxesSlotCompatibleOnly,
+    setMapBoxesSlotCompatibleOnly,
     nearTrailReferenceTrails,
     nearTrailCompatibleBoxIds,
     nearTrailDistanceByBoxId,
@@ -3247,6 +3336,56 @@ function ExplorerScreen() {
               endValue={endTime}
               onEndChange={setEndTime}
             />
+            <Text style={styles.fieldLabel}>
+              Box sur la carte & dans la liste
+            </Text>
+            <View style={styles.roleRow}>
+              <TouchableOpacity
+                style={[
+                  styles.roleChip,
+                  !mapBoxesSlotCompatibleOnly && styles.roleChipActive,
+                ]}
+                onPress={() => setMapBoxesSlotCompatibleOnly(false)}
+                activeOpacity={0.85}
+              >
+                <Text
+                  style={[
+                    styles.roleChipText,
+                    !mapBoxesSlotCompatibleOnly && styles.roleChipTextActive,
+                  ]}
+                >
+                  Tous
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[
+                  styles.roleChip,
+                  mapBoxesSlotCompatibleOnly && styles.roleChipActive,
+                ]}
+                onPress={() => setMapBoxesSlotCompatibleOnly(true)}
+                activeOpacity={0.85}
+              >
+                <Text
+                  style={[
+                    styles.roleChipText,
+                    mapBoxesSlotCompatibleOnly && styles.roleChipTextActive,
+                  ]}
+                >
+                  Créneau compatible uniquement
+                </Text>
+              </TouchableOpacity>
+            </View>
+            <Text style={styles.helperText}>
+              Le filtre utilise la date et les heures ci-dessus (comme le tri «
+              Créneau »).
+            </Text>
+            {mapBoxesSlotCompatibleOnly &&
+            !explorerSlotWellFormed(bookingDate, startTime, endTime) ? (
+              <Text style={[styles.helperText, { marginTop: 6 }]}>
+                Pour masquer les box incompatibles, choisis une date valide et une
+                heure de fin après l’heure de début.
+              </Text>
+            ) : null}
             <Text style={styles.inputLabel}>Demande spéciale (optionnel)</Text>
             <TextInput
               style={[styles.input, styles.textArea]}
@@ -3682,6 +3821,7 @@ function ExplorerScreen() {
             { id: "rating_asc", label: "Notes ↑" },
             { id: "price_asc", label: "Prix ↑" },
             { id: "price_desc", label: "Prix ↓" },
+            { id: "slot_match", label: "Créneau" },
           ].map((opt) => (
             <TouchableOpacity
               key={`box-sort-${opt.id}`}
@@ -6116,6 +6256,278 @@ function HostScreen() {
                 }
                 multiline
               />
+              <Text style={styles.helperText}>
+                Règles (optionnel) : heures calmes, jours fermés, dates
+                bloquées. Le texte ci-dessus reste libre pour les sportifs.
+              </Text>
+              <View
+                style={[styles.roleRow, { flexWrap: "wrap", marginTop: 6 }]}
+              >
+                <TouchableOpacity
+                  style={[
+                    styles.roleChip,
+                    !hostForm.availabilitySchedule?.quietHoursEnabled &&
+                      styles.roleChipActive,
+                  ]}
+                  onPress={() =>
+                    setHostForm((s) => ({
+                      ...s,
+                      availabilitySchedule: {
+                        ...(s.availabilitySchedule ||
+                          cloneDefaultAvailabilitySchedule()),
+                        quietHoursEnabled: false,
+                      },
+                    }))
+                  }
+                  activeOpacity={0.85}
+                >
+                  <Text
+                    style={[
+                      styles.roleChipText,
+                      !hostForm.availabilitySchedule?.quietHoursEnabled &&
+                        styles.roleChipTextActive,
+                    ]}
+                  >
+                    Pas d’heures calmes
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[
+                    styles.roleChip,
+                    hostForm.availabilitySchedule?.quietHoursEnabled &&
+                      styles.roleChipActive,
+                  ]}
+                  onPress={() =>
+                    setHostForm((s) => ({
+                      ...s,
+                      availabilitySchedule: {
+                        ...(s.availabilitySchedule ||
+                          cloneDefaultAvailabilitySchedule()),
+                        quietHoursEnabled: true,
+                      },
+                    }))
+                  }
+                  activeOpacity={0.85}
+                >
+                  <Text
+                    style={[
+                      styles.roleChipText,
+                      hostForm.availabilitySchedule?.quietHoursEnabled &&
+                        styles.roleChipTextActive,
+                    ]}
+                  >
+                    Heures calmes
+                  </Text>
+                </TouchableOpacity>
+              </View>
+              {hostForm.availabilitySchedule?.quietHoursEnabled ? (
+                <View
+                  style={{
+                    flexDirection: "row",
+                    gap: 8,
+                    marginBottom: 8,
+                    marginTop: 4,
+                  }}
+                >
+                  <TextInput
+                    style={[styles.input, { flex: 1 }]}
+                    placeholder="Début (HH:MM)"
+                    placeholderTextColor={theme.inkMuted}
+                    value={hostForm.availabilitySchedule?.quietStart || "00:00"}
+                    onChangeText={(v) =>
+                      setHostForm((s) => ({
+                        ...s,
+                        availabilitySchedule: {
+                          ...(s.availabilitySchedule ||
+                            cloneDefaultAvailabilitySchedule()),
+                          quietStart: v,
+                        },
+                      }))
+                    }
+                  />
+                  <TextInput
+                    style={[styles.input, { flex: 1 }]}
+                    placeholder="Fin (HH:MM)"
+                    placeholderTextColor={theme.inkMuted}
+                    value={hostForm.availabilitySchedule?.quietEnd || "06:00"}
+                    onChangeText={(v) =>
+                      setHostForm((s) => ({
+                        ...s,
+                        availabilitySchedule: {
+                          ...(s.availabilitySchedule ||
+                            cloneDefaultAvailabilitySchedule()),
+                          quietEnd: v,
+                        },
+                      }))
+                    }
+                  />
+                </View>
+              ) : null}
+              <Text style={styles.inputLabel}>Jours fermés (0 = dim.)</Text>
+              <View style={[styles.roleRow, { flexWrap: "wrap" }]}>
+                {HOST_AVAIL_WEEKDAY_LABELS.map((label, wd) => {
+                  const on = (
+                    hostForm.availabilitySchedule?.closedWeekdays || []
+                  ).includes(wd);
+                  return (
+                    <TouchableOpacity
+                      key={`host-wd-${wd}`}
+                      style={[styles.roleChip, on && styles.roleChipActive]}
+                      onPress={() =>
+                        setHostForm((s) => {
+                          const base =
+                            s.availabilitySchedule ||
+                            cloneDefaultAvailabilitySchedule();
+                          const arr = [...base.closedWeekdays];
+                          const i = arr.indexOf(wd);
+                          if (i >= 0) arr.splice(i, 1);
+                          else arr.push(wd);
+                          arr.sort((a, b) => a - b);
+                          return {
+                            ...s,
+                            availabilitySchedule: {
+                              ...base,
+                              closedWeekdays: arr,
+                            },
+                          };
+                        })
+                      }
+                      activeOpacity={0.85}
+                    >
+                      <Text
+                        style={[
+                          styles.roleChipText,
+                          on && styles.roleChipTextActive,
+                        ]}
+                      >
+                        {label}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+              <View
+                style={{
+                  flexDirection: "row",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  marginTop: 6,
+                }}
+              >
+                <Text style={styles.inputLabel}>
+                  Fermetures par dates (max 6)
+                </Text>
+                <TouchableOpacity
+                  onPress={() =>
+                    setHostForm((s) => {
+                      const base =
+                        s.availabilitySchedule ||
+                        cloneDefaultAvailabilitySchedule();
+                      if (base.blockedRanges.length >= 6) return s;
+                      return {
+                        ...s,
+                        availabilitySchedule: {
+                          ...base,
+                          blockedRanges: [
+                            ...base.blockedRanges,
+                            { start: "", end: "" },
+                          ],
+                        },
+                      };
+                    })
+                  }
+                  activeOpacity={0.85}
+                >
+                  <Text style={{ color: theme.primary, fontWeight: "600" }}>
+                    + période
+                  </Text>
+                </TouchableOpacity>
+              </View>
+              {(hostForm.availabilitySchedule?.blockedRanges || []).map(
+                (br, i) => (
+                  <View
+                    key={`host-block-${i}`}
+                    style={{
+                      flexDirection: "row",
+                      alignItems: "center",
+                      gap: 6,
+                      marginBottom: 6,
+                    }}
+                  >
+                    <TextInput
+                      style={[styles.input, { flex: 1 }]}
+                      placeholder="Début AAAA-MM-JJ"
+                      placeholderTextColor={theme.inkMuted}
+                      value={br.start}
+                      onChangeText={(v) =>
+                        setHostForm((s) => {
+                          const base =
+                            s.availabilitySchedule ||
+                            cloneDefaultAvailabilitySchedule();
+                          const next = base.blockedRanges.map((r, j) =>
+                            j === i ? { ...r, start: v } : r
+                          );
+                          return {
+                            ...s,
+                            availabilitySchedule: {
+                              ...base,
+                              blockedRanges: next,
+                            },
+                          };
+                        })
+                      }
+                    />
+                    <TextInput
+                      style={[styles.input, { flex: 1 }]}
+                      placeholder="Fin AAAA-MM-JJ"
+                      placeholderTextColor={theme.inkMuted}
+                      value={br.end}
+                      onChangeText={(v) =>
+                        setHostForm((s) => {
+                          const base =
+                            s.availabilitySchedule ||
+                            cloneDefaultAvailabilitySchedule();
+                          const next = base.blockedRanges.map((r, j) =>
+                            j === i ? { ...r, end: v } : r
+                          );
+                          return {
+                            ...s,
+                            availabilitySchedule: {
+                              ...base,
+                              blockedRanges: next,
+                            },
+                          };
+                        })
+                      }
+                    />
+                    <TouchableOpacity
+                      onPress={() =>
+                        setHostForm((s) => {
+                          const base =
+                            s.availabilitySchedule ||
+                            cloneDefaultAvailabilitySchedule();
+                          return {
+                            ...s,
+                            availabilitySchedule: {
+                              ...base,
+                              blockedRanges: base.blockedRanges.filter(
+                                (_r, j) => j !== i
+                              ),
+                            },
+                          };
+                        })
+                      }
+                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                    >
+                      <Ionicons
+                        name="trash-outline"
+                        size={22}
+                        color={theme.inkMuted}
+                      />
+                    </TouchableOpacity>
+                  </View>
+                )
+              )}
               <Text style={styles.fieldLabel}>Localisation</Text>
               <Text style={styles.helperText}>
                 Choisis ton mode: placer sur carte, saisir GPS, ou rechercher
@@ -8148,6 +8560,7 @@ function RavitoApp() {
     capacityLiters: "20",
     hasWater: true,
     criteriaTags: [],
+    availabilitySchedule: cloneDefaultAvailabilitySchedule(),
   });
   const [hostEditingBoxId, setHostEditingBoxId] = useState(null);
   const [hostReverseGeocode, setHostReverseGeocode] = useState({
@@ -8212,6 +8625,8 @@ function RavitoApp() {
   const [mapTrailProximityKm, setMapTrailProximityKm] = useState("3");
   const [mapNearSingleTrailId, setMapNearSingleTrailId] = useState(null);
   const [mapNearShowAllOnMap, setMapNearShowAllOnMap] = useState(true);
+  const [mapBoxesSlotCompatibleOnly, setMapBoxesSlotCompatibleOnly] =
+    useState(false);
   const [routePlans, setRoutePlans] = useState([]);
   const [selectedRoutePlanId, setSelectedRoutePlanId] = useState(null);
   const [selectedRoutePlanDetail, setSelectedRoutePlanDetail] = useState(null);
@@ -8440,6 +8855,20 @@ function RavitoApp() {
         list = list.filter((box) => nearSet.has(Number(box.id)));
       }
     }
+    if (
+      mapBoxesSlotCompatibleOnly &&
+      explorerSlotWellFormed(bookingDate, startTime, endTime)
+    ) {
+      const bd = String(bookingDate || "").trim();
+      list = list.filter((box) =>
+        isSlotMatchingSchedule(
+          box.availability_schedule_json,
+          bd,
+          startTime,
+          endTime
+        )
+      );
+    }
     return list;
   }, [
     boxes,
@@ -8455,6 +8884,10 @@ function RavitoApp() {
     mapTrailProximityKm,
     nearTrailCompatibleBoxIds,
     mapNearShowAllOnMap,
+    mapBoxesSlotCompatibleOnly,
+    bookingDate,
+    startTime,
+    endTime,
   ]);
 
   const boxesForExplorerList = useMemo(() => {
@@ -8488,6 +8921,25 @@ function RavitoApp() {
       case "price_desc":
         list.sort((a, b) => (b.price_cents || 0) - (a.price_cents || 0));
         break;
+      case "slot_match": {
+        const rank = (b) =>
+          isSlotMatchingSchedule(
+            b.availability_schedule_json,
+            bookingDate,
+            startTime,
+            endTime
+          )
+            ? 1
+            : 0;
+        list.sort((a, b) => {
+          const d = rank(b) - rank(a);
+          if (d !== 0) return d;
+          return (
+            (Number(a.distance_km) || 1e9) - (Number(b.distance_km) || 1e9)
+          );
+        });
+        break;
+      }
       default:
         if (mapBoxesNearTrailsOnly) {
           list.sort((a, b) => {
@@ -8517,6 +8969,9 @@ function RavitoApp() {
     nearTrailCompatibleBoxIds,
     nearTrailDistanceByBoxId,
     canBook,
+    bookingDate,
+    startTime,
+    endTime,
   ]);
 
   const trailsForExplorerList = useMemo(() => {
@@ -10057,7 +10512,29 @@ function RavitoApp() {
       capacityLiters: Number(hostForm.capacityLiters),
       hasWater: Boolean(hostForm.hasWater),
       availabilityNote: hostForm.availabilityNote?.trim() || undefined,
+      availabilitySchedule: hostForm.availabilitySchedule,
       criteriaTags: hostForm.criteriaTags,
+    };
+    const resetHostFormToDefaults = () => {
+      setHostReverseGeocode({ status: "idle", message: "" });
+      setHostForm({
+        title: "",
+        description: "",
+        availabilityNote: "",
+        latitude: "45.8992",
+        longitude: "6.1294",
+        city: "Annecy",
+        priceCents: "700",
+        accessCode: "",
+        accessMethod: "padlock_code",
+        accessInstructions: "",
+        accessDisplayBeforeMin: "15",
+        accessDisplayAfterMin: "15",
+        capacityLiters: "20",
+        hasWater: true,
+        criteriaTags: [],
+        availabilitySchedule: cloneDefaultAvailabilitySchedule(),
+      });
     };
     try {
       if (hostEditingBoxId != null) {
@@ -10074,24 +10551,7 @@ function RavitoApp() {
             : "Ton box a été mis à jour."
         );
         setHostEditingBoxId(null);
-        setHostReverseGeocode({ status: "idle", message: "" });
-        setHostForm({
-          title: "",
-          description: "",
-          availabilityNote: "",
-          latitude: "45.8992",
-          longitude: "6.1294",
-          city: "Annecy",
-          priceCents: "700",
-          accessCode: "",
-          accessMethod: "padlock_code",
-          accessInstructions: "",
-          accessDisplayBeforeMin: "15",
-          accessDisplayAfterMin: "15",
-          capacityLiters: "20",
-          hasWater: true,
-          criteriaTags: [],
-        });
+        resetHostFormToDefaults();
       } else {
         await apiFetch("/host/boxes", {
           method: "POST",
@@ -10099,6 +10559,7 @@ function RavitoApp() {
           body,
         });
         userAlert("Publication", "Ton box est en ligne.");
+        resetHostFormToDefaults();
       }
       await refetchExplorerBoxes();
       await loadHostBoxes();
@@ -10126,6 +10587,7 @@ function RavitoApp() {
       capacityLiters: String(box.capacity_liters ?? 20),
       hasWater: box.has_water === 1 || box.has_water === true,
       criteriaTags: parseBoxCriteria(box),
+      availabilitySchedule: hostAvailabilityFromBox(box),
     });
     setHostEditingBoxId(Number(box.id));
   }, []);
@@ -10149,6 +10611,7 @@ function RavitoApp() {
       capacityLiters: "20",
       hasWater: true,
       criteriaTags: [],
+      availabilitySchedule: cloneDefaultAvailabilitySchedule(),
     });
   }, []);
 
@@ -10891,6 +11354,8 @@ function RavitoApp() {
       setMapNearSingleTrailId,
       mapNearShowAllOnMap,
       setMapNearShowAllOnMap,
+      mapBoxesSlotCompatibleOnly,
+      setMapBoxesSlotCompatibleOnly,
       nearTrailReferenceTrails,
       nearTrailCompatibleBoxIds,
       nearTrailDistanceByBoxId,
@@ -10980,6 +11445,7 @@ function RavitoApp() {
       mapNearTrailsMode,
       mapNearSingleTrailId,
       mapNearShowAllOnMap,
+      mapBoxesSlotCompatibleOnly,
       nearTrailReferenceTrails,
       nearTrailCompatibleBoxIds,
       nearTrailDistanceByBoxId,

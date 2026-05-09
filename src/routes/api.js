@@ -7,6 +7,10 @@ const fs = require("fs");
 const crypto = require("crypto");
 const { XMLParser } = require("fast-xml-parser");
 const { pool } = require("../db/database");
+const {
+  normalizeAvailabilitySchedule,
+  evaluateBookingAgainstSchedule,
+} = require("../lib/boxAvailability");
 const { computeCommission, generateAccessCode } = require("../utils");
 const { signToken, requireAuth } = require("../auth");
 
@@ -25,6 +29,25 @@ const storage = multer.diskStorage({
     cb(null, `${Date.now()}-${Math.random().toString(36).slice(2, 8)}${ext}`);
   },
 });
+const availabilityScheduleSchema = z
+  .object({
+    quietHoursEnabled: z.boolean().optional(),
+    quietStart: z.string().max(8).optional(),
+    quietEnd: z.string().max(8).optional(),
+    closedWeekdays: z.array(z.number().int().min(0).max(6)).max(7).optional(),
+    blockedRanges: z
+      .array(
+        z.object({
+          start: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+          end: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+          note: z.string().max(200).optional(),
+        })
+      )
+      .max(80)
+      .optional(),
+  })
+  .optional();
+
 const upload = multer({
   storage,
   fileFilter: (_req, file, cb) => {
@@ -61,6 +84,7 @@ const createBoxSchema = z.object({
   accessDisplayBeforeMin: z.number().int().min(0).max(1440).optional(),
   accessDisplayAfterMin: z.number().int().min(0).max(1440).optional(),
   availabilityNote: z.string().max(2000).optional(),
+  availabilitySchedule: availabilityScheduleSchema.optional(),
   criteriaTags: z.array(z.string().min(1).max(50)).max(20).optional(),
   criteriaNote: z.string().max(2000).optional(),
 });
@@ -82,6 +106,7 @@ const createHostBoxSchema = z.object({
   accessDisplayBeforeMin: z.number().int().min(0).max(1440).optional(),
   accessDisplayAfterMin: z.number().int().min(0).max(1440).optional(),
   availabilityNote: z.string().max(2000).optional(),
+  availabilitySchedule: availabilityScheduleSchema.optional(),
   criteriaTags: z.array(z.string().min(1).max(50)).max(20).optional(),
   criteriaNote: z.string().max(2000).optional(),
 });
@@ -96,6 +121,12 @@ const trailActivityEnum = z.enum([
   "ski_alp",
   "other",
 ]);
+
+function scheduleJsonFromInput(availabilitySchedule) {
+  if (availabilitySchedule === undefined) return undefined;
+  const n = normalizeAvailabilitySchedule(availabilitySchedule);
+  return n ? JSON.stringify(n) : null;
+}
 
 const MAX_BOX_TRAIL_PINS = 12;
 
@@ -1121,9 +1152,9 @@ router.post("/boxes", requireAuth, async (req, res) => {
        host_user_id, title, description, latitude, longitude, city, price_cents,
        capacity_liters, has_water, access_code,
        access_method, access_instructions, access_display_before_min, access_display_after_min,
-       availability_note, criteria_json, criteria_note
+       availability_note, criteria_json, criteria_note, availability_schedule_json
      )
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
      RETURNING *`,
     [
       input.hostUserId,
@@ -1143,6 +1174,7 @@ router.post("/boxes", requireAuth, async (req, res) => {
       input.availabilityNote?.trim() || null,
       input.criteriaTags?.length ? JSON.stringify(input.criteriaTags) : null,
       input.criteriaNote?.trim() || null,
+      scheduleJsonFromInput(input.availabilitySchedule) ?? null,
     ]
   );
   return res.status(201).json(rows[0]);
@@ -1170,9 +1202,9 @@ router.post("/host/boxes", requireAuth, async (req, res) => {
        host_user_id, title, description, latitude, longitude, city, price_cents,
        capacity_liters, has_water, access_code,
        access_method, access_instructions, access_display_before_min, access_display_after_min,
-       availability_note, criteria_json, criteria_note
+       availability_note, criteria_json, criteria_note, availability_schedule_json
      )
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
      RETURNING *`,
     [
       req.auth.sub,
@@ -1192,6 +1224,7 @@ router.post("/host/boxes", requireAuth, async (req, res) => {
       input.availabilityNote?.trim() || null,
       input.criteriaTags?.length ? JSON.stringify(input.criteriaTags) : null,
       input.criteriaNote?.trim() || null,
+      scheduleJsonFromInput(input.availabilitySchedule) ?? null,
     ]
   );
   return res.status(201).json(rows[0]);
@@ -1223,6 +1256,10 @@ router.patch("/host/boxes/:id", requireAuth, async (req, res) => {
     return res.status(404).json({ error: "Box not found" });
   }
   const input = parsed.data;
+  const schedulePatch =
+    input.availabilitySchedule !== undefined
+      ? scheduleJsonFromInput(input.availabilitySchedule) ?? null
+      : beforeBox.availability_schedule_json;
   const { rows } = await pool.query(
     `UPDATE boxes SET
        title = $1,
@@ -1240,8 +1277,9 @@ router.patch("/host/boxes/:id", requireAuth, async (req, res) => {
        has_water = $13,
        availability_note = $14,
        criteria_json = $15,
-       criteria_note = $16
-     WHERE id = $17 AND host_user_id = $18 AND is_active = 1
+       criteria_note = $16,
+       availability_schedule_json = $17
+     WHERE id = $18 AND host_user_id = $19 AND is_active = 1
      RETURNING *`,
     [
       input.title,
@@ -1260,6 +1298,7 @@ router.patch("/host/boxes/:id", requireAuth, async (req, res) => {
       input.availabilityNote?.trim() || null,
       input.criteriaTags?.length ? JSON.stringify(input.criteriaTags) : null,
       input.criteriaNote?.trim() || null,
+      schedulePatch,
       boxId,
       req.auth.sub,
     ]
@@ -2594,12 +2633,25 @@ router.post("/bookings", requireAuth, async (req, res) => {
   const athleteUserId = req.auth.sub;
   const { rows: boxRows } = await pool.query(
     `SELECT id, price_cents, access_code, access_method, access_instructions,
-            access_display_before_min, access_display_after_min
+            access_display_before_min, access_display_after_min, availability_schedule_json
      FROM boxes WHERE id = $1 AND is_active = 1`,
     [input.boxId]
   );
   const box = boxRows[0];
   if (!box) return res.status(404).json({ error: "Box not found" });
+
+  const slotOk = evaluateBookingAgainstSchedule(box.availability_schedule_json, {
+    bookingDate: input.bookingDate,
+    startTime: input.startTime,
+    endTime: input.endTime,
+  });
+  if (!slotOk.ok) {
+    return res.status(400).json({
+      error:
+        "Ce créneau est en dehors des disponibilités définies par l’hôte pour ce box.",
+      reason: slotOk.reason,
+    });
+  }
 
   const { rows: athleteRows } = await pool.query(
     `SELECT id FROM users WHERE id = $1`,
