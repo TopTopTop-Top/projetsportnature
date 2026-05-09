@@ -1857,6 +1857,8 @@ function ExplorerScreen() {
     actionsRef,
   } = useAppMain();
 
+  const [explorerHoveredTrailId, setExplorerHoveredTrailId] = useState(null);
+
   const trailsOnMap = Array.isArray(trailsForMap) ? trailsForMap : [];
   const boxesOnMap = Array.isArray(boxesForMap) ? boxesForMap : [];
   const safePickedBoxIds = useMemo(
@@ -4338,6 +4340,8 @@ function ExplorerScreen() {
                 trails={trailsOnMap}
                 selectedTrailIds={mapTrailPickIds}
                 selectedTrailId={selectedTrailId}
+                hoveredTrailId={explorerHoveredTrailId}
+                onHoverTrail={setExplorerHoveredTrailId}
                 selectedBoxId={selectedBoxId}
                 selectedBoxIds={mapPickedBoxIds}
                 planBoxIds={activePlanBoxIds}
@@ -4408,10 +4412,6 @@ function TrailsScreen() {
     setMapShowTrails,
     mapTrailDifficultyFilter,
     setMapTrailDifficultyFilter,
-    mapTrailsScope,
-    setMapTrailsScope,
-    mapTrailPickIds,
-    setMapTrailPickIds,
     selectedTrailId,
     setSelectedTrailId,
     trailDifficulty,
@@ -4439,9 +4439,16 @@ function TrailsScreen() {
   const [trailInspirations, setTrailInspirations] = useState([]);
   const [trailInspirationsLoading, setTrailInspirationsLoading] =
     useState(false);
+  // Trails tab keeps its own scope/picks; it must not drive Explorer visibility.
+  const [trailsTabScope, setTrailsTabScope] = useState("all");
+  const [trailsTabPickIds, setTrailsTabPickIds] = useState([]);
   const [trailsMapRecenterNonce, setTrailsMapRecenterNonce] = useState(0);
   const didInitialTrailsMapFocusRef = useRef(false);
   const [hoveredTrailId, setHoveredTrailId] = useState(null);
+  const mapTrailsScope = trailsTabScope;
+  const setMapTrailsScope = setTrailsTabScope;
+  const mapTrailPickIds = trailsTabPickIds;
+  const setMapTrailPickIds = setTrailsTabPickIds;
 
   useEffect(() => {
     actionsRef.current.loadTrails();

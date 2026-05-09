@@ -4,6 +4,7 @@ import React, {
   useLayoutEffect,
   useMemo,
   useRef,
+  useState,
 } from "react";
 import { View, Text, Platform, StyleSheet } from "react-native";
 
@@ -343,6 +344,13 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
   onVisibleBoundsChangeRef.current = onVisibleBoundsChange;
   const onUserMapGestureRef = useRef(onUserMapGesture);
   onUserMapGestureRef.current = onUserMapGesture;
+  const [hoveredTrailLocalId, setHoveredTrailLocalId] = useState(null);
+  const effectiveHoveredTrailId = useMemo(() => {
+    const external = Number(hoveredTrailId);
+    if (Number.isFinite(external)) return external;
+    const local = Number(hoveredTrailLocalId);
+    return Number.isFinite(local) ? local : null;
+  }, [hoveredTrailId, hoveredTrailLocalId]);
 
   const mapStyle = useMemo(
     () =>
@@ -483,10 +491,12 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
         if (positions.length < 2) return;
         const isSelected = selectedTrailSet.has(Number(trail.id));
         const isHovered =
-          Number.isFinite(Number(hoveredTrailId)) &&
-          Number(hoveredTrailId) === Number(trail.id);
+          Number.isFinite(Number(effectiveHoveredTrailId)) &&
+          Number(effectiveHoveredTrailId) === Number(trail.id);
         const dimmedByHover =
-          Number.isFinite(Number(hoveredTrailId)) && !isHovered && !isSelected;
+          Number.isFinite(Number(effectiveHoveredTrailId)) &&
+          !isHovered &&
+          !isSelected;
         const isProximityTrail = proximityTrailSet.has(Number(trail.id));
         const diffStyle = TRAIL_DIFFICULTY_STYLES[trail.difficulty] || {
           color: TRAIL_STYLE.color,
@@ -514,19 +524,41 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
         }
         const line = L.polyline(positions, {
           color: diffStyle.color,
-          weight: isSelected ? 5.6 : isHovered ? 4.8 : TRAIL_STYLE.weight,
+          weight: isSelected ? 6 : isHovered ? 5.8 : TRAIL_STYLE.weight,
           opacity: isSelected
             ? 0.99
             : dimmedByHover
-            ? 0.22
+            ? 0.1
             : TRAIL_STYLE.opacity,
           dashArray: isSelected || isHovered ? undefined : "3 4",
           lineCap: "round",
           lineJoin: "round",
         });
-        line.on("click", () => onSelectTrailRef.current?.(trail.id));
-        line.on("mouseover", () => onHoverTrailRef.current?.(trail.id));
-        line.on("mouseout", () => onHoverTrailRef.current?.(null));
+        line.on("click", () => {
+          onSelectTrailRef.current?.(trail.id);
+          try {
+            const m = mapRef.current;
+            const b = line.getBounds?.();
+            if (m && b && typeof b.isValid === "function" && b.isValid()) {
+              m.fitBounds(b, { padding: [36, 36], maxZoom: 16, animate: true });
+            }
+          } catch (_e) {
+            // keep map stable if fit fails on malformed geometry
+          }
+        });
+        line.on("mouseover", () => {
+          setHoveredTrailLocalId(Number(trail.id));
+          onHoverTrailRef.current?.(trail.id);
+          try {
+            line.bringToFront?.();
+          } catch (_e) {
+            // noop
+          }
+        });
+        line.on("mouseout", () => {
+          setHoveredTrailLocalId(null);
+          onHoverTrailRef.current?.(null);
+        });
         if (isSelected) {
           const start = positions[0];
           const end = positions[positions.length - 1];
@@ -720,7 +752,7 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
     } catch (_e) {
       // Keep current viewport if bounds computation fails.
     }
-  }, [boxes, trails, staticOrigin, draftPoint, pickedMapPoint, pickerMode, autoFitToData, selectedBoxId, selectedBoxSet, selectedTrailSet, hoveredTrailId, compatibleBoxSet, planBoxSet, proximityTrailSet, trailCorridorKm, dimIncompatibleBoxes]);
+  }, [boxes, trails, staticOrigin, draftPoint, pickedMapPoint, pickerMode, autoFitToData, selectedBoxId, selectedBoxSet, selectedTrailSet, effectiveHoveredTrailId, compatibleBoxSet, planBoxSet, proximityTrailSet, trailCorridorKm, dimIncompatibleBoxes]);
 
   if (Platform.OS !== "web") {
     return null;
