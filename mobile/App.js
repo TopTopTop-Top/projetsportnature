@@ -1265,7 +1265,19 @@ function OutlineButton({
 
 const HOUR_OPTIONS = Array.from({ length: 24 }, (_, i) => i);
 const MINUTE_OPTIONS = Array.from({ length: 60 }, (_, i) => i);
-const CAL_WEEKDAY_LABELS = ["L", "M", "M", "J", "V", "S", "D"];
+/** Libellés courts (lundi en premier, aligné avec calendarCellsForMonth). */
+const CAL_WEEKDAY_LABELS_MODERN = [
+  "lun.",
+  "mar.",
+  "mer.",
+  "jeu.",
+  "ven.",
+  "sam.",
+  "dim.",
+];
+const TIME_WHEEL_ITEM_H = 40;
+const TIME_WHEEL_VIEW_H = 200;
+const TIME_WHEEL_PAD = (TIME_WHEEL_VIEW_H - TIME_WHEEL_ITEM_H) / 2;
 
 function maxBookableIso() {
   const t = new Date();
@@ -1274,73 +1286,151 @@ function maxBookableIso() {
   return isoFromYmd(t.getFullYear(), t.getMonth(), t.getDate());
 }
 
-function TimePairPicker({ label, value, onChange }) {
-  const { h, m } = parseTimeToParts(value);
+/** Sélecteur type apps de réservation : deux colonnes avec ligne centrale et snap. */
+function TimeWheelPicker({ label, value, onChange }) {
+  const { h: hSel, m: mSel } = parseTimeToParts(value);
+  const hourRef = useRef(null);
+  const minRef = useRef(null);
+
+  const snapHour = useCallback(
+    (y) => {
+      const idx = Math.round(y / TIME_WHEEL_ITEM_H);
+      const hh = Math.min(23, Math.max(0, idx));
+      if (hh !== hSel) onChange(partsToTime(hh, mSel));
+    },
+    [hSel, mSel, onChange]
+  );
+
+  const snapMin = useCallback(
+    (y) => {
+      const idx = Math.round(y / TIME_WHEEL_ITEM_H);
+      const mm = Math.min(59, Math.max(0, idx));
+      if (mm !== mSel) onChange(partsToTime(hSel, mm));
+    },
+    [hSel, mSel, onChange]
+  );
+
+  useEffect(() => {
+    const yh = hSel * TIME_WHEEL_ITEM_H;
+    const ym = mSel * TIME_WHEEL_ITEM_H;
+    requestAnimationFrame(() => {
+      hourRef.current?.scrollTo({ y: yh, animated: false });
+      minRef.current?.scrollTo({ y: ym, animated: false });
+    });
+  }, [value, label]);
+
   return (
-    <View style={{ marginTop: 4 }}>
-      <Text style={styles.fieldLabel}>{label}</Text>
-      <View style={styles.timePairRow}>
-        <View style={styles.timePairCol}>
-          <Text style={styles.helperText}>Heures</Text>
+    <View style={styles.timeWheelSection}>
+      <Text style={styles.dateTimeWheelLabel}>{label}</Text>
+      <View style={styles.timeWheelShell}>
+        <View style={styles.timeWheelHighlightBand} pointerEvents="none" />
+        <View style={styles.timeWheelInnerRow}>
           <ScrollView
-            style={styles.timeDropdownScroll}
+            ref={hourRef}
+            style={styles.timeWheelScrollCol}
+            contentContainerStyle={{
+              paddingVertical: TIME_WHEEL_PAD,
+              paddingHorizontal: 4,
+            }}
             nestedScrollEnabled
             keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
+            snapToInterval={TIME_WHEEL_ITEM_H}
+            snapToAlignment="start"
+            decelerationRate="fast"
+            scrollEventThrottle={16}
+            onMomentumScrollEnd={(e) =>
+              snapHour(e.nativeEvent.contentOffset.y)
+            }
           >
-            {HOUR_OPTIONS.map((hh) => (
-              <TouchableOpacity
-                key={`${label}-h-${hh}`}
-                style={[
-                  styles.timeDropdownItem,
-                  h === hh && styles.timeDropdownItemActive,
-                ]}
-                onPress={() => onChange(partsToTime(hh, m))}
-                activeOpacity={0.85}
-              >
-                <Text
-                  style={[
-                    styles.timeDropdownItemText,
-                    h === hh && styles.timeDropdownItemTextActive,
-                  ]}
+            {HOUR_OPTIONS.map((hh) => {
+              const active = hh === hSel;
+              return (
+                <TouchableOpacity
+                  key={`${label}-h-${hh}`}
+                  style={styles.timeWheelItem}
+                  onPress={() => {
+                    onChange(partsToTime(hh, mSel));
+                    hourRef.current?.scrollTo({
+                      y: hh * TIME_WHEEL_ITEM_H,
+                      animated: true,
+                    });
+                  }}
+                  activeOpacity={0.85}
                 >
-                  {String(hh).padStart(2, "0")}
-                </Text>
-              </TouchableOpacity>
-            ))}
+                  <Text
+                    style={
+                      active
+                        ? styles.timeWheelItemTextActive
+                        : styles.timeWheelItemText
+                    }
+                  >
+                    {String(hh).padStart(2, "0")}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
           </ScrollView>
-        </View>
-        <View style={styles.timePairCol}>
-          <Text style={styles.helperText}>Minutes</Text>
+          <Text style={styles.timeWheelColon}>:</Text>
           <ScrollView
-            style={styles.timeDropdownScroll}
+            ref={minRef}
+            style={styles.timeWheelScrollCol}
+            contentContainerStyle={{
+              paddingVertical: TIME_WHEEL_PAD,
+              paddingHorizontal: 4,
+            }}
             nestedScrollEnabled
             keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
+            snapToInterval={TIME_WHEEL_ITEM_H}
+            snapToAlignment="start"
+            decelerationRate="fast"
+            scrollEventThrottle={16}
+            onMomentumScrollEnd={(e) =>
+              snapMin(e.nativeEvent.contentOffset.y)
+            }
           >
-            {MINUTE_OPTIONS.map((mm) => (
-              <TouchableOpacity
-                key={`${label}-m-${mm}`}
-                style={[
-                  styles.timeDropdownItem,
-                  m === mm && styles.timeDropdownItemActive,
-                ]}
-                onPress={() => onChange(partsToTime(h, mm))}
-                activeOpacity={0.85}
-              >
-                <Text
-                  style={[
-                    styles.timeDropdownItemText,
-                    m === mm && styles.timeDropdownItemTextActive,
-                  ]}
+            {MINUTE_OPTIONS.map((mm) => {
+              const active = mm === mSel;
+              return (
+                <TouchableOpacity
+                  key={`${label}-m-${mm}`}
+                  style={styles.timeWheelItem}
+                  onPress={() => {
+                    onChange(partsToTime(hSel, mm));
+                    minRef.current?.scrollTo({
+                      y: mm * TIME_WHEEL_ITEM_H,
+                      animated: true,
+                    });
+                  }}
+                  activeOpacity={0.85}
                 >
-                  {String(mm).padStart(2, "0")}
-                </Text>
-              </TouchableOpacity>
-            ))}
+                  <Text
+                    style={
+                      active
+                        ? styles.timeWheelItemTextActive
+                        : styles.timeWheelItemText
+                    }
+                  >
+                    {String(mm).padStart(2, "0")}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
           </ScrollView>
         </View>
       </View>
     </View>
   );
+}
+
+function addMinutesToTimeString(timeStr, addMin) {
+  const base = timeToMinutes(timeStr);
+  if (!Number.isFinite(base)) return timeStr;
+  let m = base + addMin;
+  const max = 24 * 60 - 1;
+  if (m > max) m = max;
+  return partsToTime(Math.floor(m / 60), m % 60);
 }
 
 function DateTimeSelector({
@@ -1450,100 +1540,147 @@ function DateTimeSelector({
       <Modal
         visible={open}
         transparent
-        animationType="fade"
+        animationType="slide"
         onRequestClose={() => setOpen(false)}
       >
-        <View style={styles.modalBackdrop}>
-          <View style={styles.modalSheet}>
-            <View style={styles.modalSheetHeader}>
-              <Text style={styles.modalSheetTitle}>Date et horaires</Text>
-              <TouchableOpacity onPress={() => setOpen(false)} hitSlop={12}>
-                <Ionicons name="close" size={26} color={theme.ink} />
+        <View style={styles.dateTimeModalBackdrop}>
+          <TouchableOpacity
+            style={styles.dateTimeModalDismiss}
+            activeOpacity={1}
+            onPress={() => setOpen(false)}
+          />
+          <View style={styles.dateTimeSheet}>
+            <View style={styles.dateTimeGrabber} />
+            <View style={styles.dateTimeSheetHeader}>
+              <View style={{ flex: 1, paddingRight: 8 }}>
+                <Text style={styles.modalSheetTitle}>Créneau</Text>
+                <Text style={styles.dateTimeSheetSubtitle}>
+                  Choisis le jour, puis l’heure de début et de fin.
+                </Text>
+              </View>
+              <TouchableOpacity
+                onPress={() => setOpen(false)}
+                hitSlop={12}
+                style={styles.dateTimeCloseBtn}
+                accessibilityLabel="Fermer"
+              >
+                <Ionicons name="close" size={22} color={theme.inkMuted} />
               </TouchableOpacity>
             </View>
             <ScrollView
               keyboardShouldPersistTaps="handled"
-              style={styles.modalSheetBody}
+              style={styles.dateTimeSheetBody}
+              contentContainerStyle={{ paddingBottom: 20 }}
             >
-              <View style={styles.calendarNav}>
-                <TouchableOpacity
-                  onPress={() => shiftMonth(-1)}
-                  style={styles.calendarNavBtn}
-                  activeOpacity={0.85}
-                >
-                  <Ionicons
-                    name="chevron-back"
-                    size={22}
-                    color={theme.primary}
-                  />
-                </TouchableOpacity>
-                <Text style={styles.calendarMonthTitle}>{monthTitle}</Text>
-                <TouchableOpacity
-                  onPress={() => shiftMonth(1)}
-                  style={styles.calendarNavBtn}
-                  activeOpacity={0.85}
-                >
-                  <Ionicons
-                    name="chevron-forward"
-                    size={22}
-                    color={theme.primary}
-                  />
-                </TouchableOpacity>
-              </View>
-              <View style={styles.calendarWeekRow}>
-                {CAL_WEEKDAY_LABELS.map((w, i) => (
-                  <Text key={`wd-${i}`} style={styles.calendarWeekCell}>
-                    {w}
+              <View style={styles.dateTimeCalendarCard}>
+                <View style={styles.calendarNav}>
+                  <TouchableOpacity
+                    onPress={() => shiftMonth(-1)}
+                    style={styles.calendarNavBtnModern}
+                    activeOpacity={0.85}
+                  >
+                    <Ionicons
+                      name="chevron-back"
+                      size={22}
+                      color={theme.primary}
+                    />
+                  </TouchableOpacity>
+                  <Text style={styles.calendarMonthTitleModern}>
+                    {monthTitle}
                   </Text>
-                ))}
-              </View>
-              <View style={styles.calendarGrid}>
-                {cells.map((day, idx) => {
-                  if (day == null) {
+                  <TouchableOpacity
+                    onPress={() => shiftMonth(1)}
+                    style={styles.calendarNavBtnModern}
+                    activeOpacity={0.85}
+                  >
+                    <Ionicons
+                      name="chevron-forward"
+                      size={22}
+                      color={theme.primary}
+                    />
+                  </TouchableOpacity>
+                </View>
+                <View style={styles.calendarWeekRow}>
+                  {CAL_WEEKDAY_LABELS_MODERN.map((w, i) => (
+                    <Text key={`wd-${i}`} style={styles.calendarWeekCellModern}>
+                      {w}
+                    </Text>
+                  ))}
+                </View>
+                <View style={styles.calendarGrid}>
+                  {cells.map((day, idx) => {
+                    if (day == null) {
+                      return (
+                        <View key={`e-${idx}`} style={styles.calendarDayCell} />
+                      );
+                    }
+                    const iso = isoFromYmd(viewMonth.y, viewMonth.m, day);
+                    const sel = draftDate === iso;
+                    const dis = !isSelectableIso(iso);
+                    const isToday = iso === today;
                     return (
-                      <View key={`e-${idx}`} style={styles.calendarDayCell} />
-                    );
-                  }
-                  const iso = isoFromYmd(viewMonth.y, viewMonth.m, day);
-                  const sel = draftDate === iso;
-                  const dis = !isSelectableIso(iso);
-                  return (
-                    <TouchableOpacity
-                      key={iso}
-                      style={[
-                        styles.calendarDayCell,
-                        sel && styles.calendarDayCellSelected,
-                        dis && styles.calendarDayCellDisabled,
-                      ]}
-                      disabled={dis}
-                      onPress={() => setDraftDate(iso)}
-                      activeOpacity={0.85}
-                    >
-                      <Text
+                      <TouchableOpacity
+                        key={iso}
                         style={[
-                          styles.calendarDayText,
-                          sel && styles.calendarDayTextSelected,
-                          dis && styles.calendarDayTextDisabled,
+                          styles.calendarDayCell,
+                          sel && styles.calendarDayCellSelectedModern,
+                          dis && styles.calendarDayCellDisabled,
+                          !sel &&
+                            !dis &&
+                            isToday &&
+                            styles.calendarDayCellTodayRing,
                         ]}
+                        disabled={dis}
+                        onPress={() => setDraftDate(iso)}
+                        activeOpacity={0.85}
                       >
-                        {day}
-                      </Text>
-                    </TouchableOpacity>
-                  );
-                })}
+                        <Text
+                          style={[
+                            styles.calendarDayText,
+                            sel && styles.calendarDayTextSelected,
+                            dis && styles.calendarDayTextDisabled,
+                          ]}
+                        >
+                          {day}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
               </View>
-              <TimePairPicker
-                label="Heure de début"
+
+              <TimeWheelPicker
+                label="Début"
                 value={draftStart}
                 onChange={setDraftStartSafe}
               />
-              <TimePairPicker
-                label="Heure de fin"
+              <TimeWheelPicker
+                label="Fin"
                 value={draftEnd}
                 onChange={setDraftEnd}
               />
+              <Text style={styles.dateTimeQuickDurLabel}>Durée rapide (fin)</Text>
+              <View style={styles.dateTimeQuickDurRow}>
+                {[
+                  { min: 30, label: "30 min" },
+                  { min: 60, label: "1 h" },
+                  { min: 120, label: "2 h" },
+                  { min: 180, label: "3 h" },
+                ].map((opt) => (
+                  <TouchableOpacity
+                    key={`dur-${opt.min}`}
+                    style={styles.dateTimeQuickChip}
+                    onPress={() =>
+                      setDraftEnd(addMinutesToTimeString(draftStart, opt.min))
+                    }
+                    activeOpacity={0.85}
+                  >
+                    <Text style={styles.dateTimeQuickChipText}>{opt.label}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
             </ScrollView>
-            <View style={styles.modalSheetFooter}>
+            <View style={styles.dateTimeSheetFooter}>
               <OutlineButton
                 compact
                 label="Annuler"
@@ -1552,7 +1689,7 @@ function DateTimeSelector({
               />
               <PrimaryButton
                 compact
-                label="Valider"
+                label="Confirmer"
                 icon="checkmark-outline"
                 onPress={apply}
               />
@@ -2356,6 +2493,700 @@ function ExplorerScreen() {
 
   const webSplit = Platform.OS === "web";
   const webDesktopSplit = webSplit && viewportWidth >= 1080;
+
+  const EXPLORER_COMPACT_FILTERS_W = 720;
+  const explorerCompactFilters = viewportWidth < EXPLORER_COMPACT_FILTERS_W;
+
+  const MAP_BOX_SORT_LABELS = {
+    default: "Défaut",
+    rating_desc: "Notes ↓",
+    rating_asc: "Notes ↑",
+    price_asc: "Prix ↑",
+    price_desc: "Prix ↓",
+    slot_match: "Créneau",
+  };
+
+  const MAP_TRAIL_SORT_LABELS = {
+    default: "Défaut",
+    distance_desc: "Distance ↓",
+    distance_asc: "Distance ↑",
+    elevation_desc: "D+ ↓",
+    elevation_asc: "D+ ↑",
+    difficulty_easy: "Facile d'abord",
+    difficulty_hard: "Difficile d'abord",
+  };
+
+  const explorerBoxFilterBadgeCount = useMemo(() => {
+    let n = 0;
+    if (!mapShowBoxes) n += 1;
+    if ((mapBoxCriteriaTags || []).length > 0) n += 1;
+    if (mapBoxSelectionMode === "picked") n += 1;
+    if (mapBoxesNearTrailsOnly) n += 1;
+    if (mapBoxesSlotCompatibleOnly) n += 1;
+    return n;
+  }, [
+    mapShowBoxes,
+    mapBoxCriteriaTags,
+    mapBoxSelectionMode,
+    mapBoxesNearTrailsOnly,
+    mapBoxesSlotCompatibleOnly,
+  ]);
+
+  const explorerTrailFilterBadgeCount = useMemo(() => {
+    let n = 0;
+    if (!mapShowTrails) n += 1;
+    if (mapTrailsScope !== "all") n += 1;
+    if (mapTrailDifficultyFilter !== "all") n += 1;
+    return n;
+  }, [mapShowTrails, mapTrailsScope, mapTrailDifficultyFilter]);
+
+  const explorerBoxFiltersChildren = (
+          <>
+            <Text style={styles.fieldLabel}>Affichage des box</Text>
+            <Text style={styles.helperText}>
+              Précision automatique par zoom : la liste et la carte ne gardent
+              que les box dans la zone visible.
+            </Text>
+            <View style={styles.roleRow}>
+              <TouchableOpacity
+                style={[styles.roleChip, mapShowBoxes && styles.roleChipActive]}
+                onPress={() => setMapShowBoxes(true)}
+                activeOpacity={0.85}
+              >
+                <Text
+                  style={[
+                    styles.roleChipText,
+                    mapShowBoxes && styles.roleChipTextActive,
+                  ]}
+                >
+                  Afficher
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[
+                  styles.roleChip,
+                  !mapShowBoxes && styles.roleChipActive,
+                ]}
+                onPress={() => setMapShowBoxes(false)}
+                activeOpacity={0.85}
+              >
+                <Text
+                  style={[
+                    styles.roleChipText,
+                    !mapShowBoxes && styles.roleChipTextActive,
+                  ]}
+                >
+                  Masquer
+                </Text>
+              </TouchableOpacity>
+            </View>
+            {mapShowBoxes ? (
+              <>
+                <Text style={styles.fieldLabel}>Critères des box</Text>
+                <View style={[styles.roleRow, { flexWrap: "wrap" }]}>
+                  {HOST_CRITERIA_OPTIONS.map((label) => {
+                    const active = (mapBoxCriteriaTags || []).includes(label);
+                    return (
+                      <TouchableOpacity
+                        key={`map-crit-${label}`}
+                        style={[
+                          styles.roleChip,
+                          active && styles.roleChipActive,
+                        ]}
+                        onPress={() =>
+                          setMapBoxCriteriaTags((prev) =>
+                            active
+                              ? prev.filter((x) => x !== label)
+                              : [...prev, label]
+                          )
+                        }
+                        activeOpacity={0.85}
+                      >
+                        <Text
+                          style={[
+                            styles.roleChipText,
+                            active && styles.roleChipTextActive,
+                          ]}
+                        >
+                          {label}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+                {mapBoxCriteriaTags.length > 0 ? (
+                  <OutlineButton
+                    label="Effacer les critères"
+                    icon="close-circle-outline"
+                    compact
+                    onPress={() => setMapBoxCriteriaTags([])}
+                  />
+                ) : null}
+                <Text style={styles.fieldLabel}>Sélection des box</Text>
+                <View style={styles.roleRow}>
+                  <TouchableOpacity
+                    style={[
+                      styles.roleChip,
+                      mapBoxSelectionMode === "all" && styles.roleChipActive,
+                    ]}
+                    onPress={() => setMapBoxSelectionMode("all")}
+                    activeOpacity={0.85}
+                  >
+                    <Text
+                      style={[
+                        styles.roleChipText,
+                        mapBoxSelectionMode === "all" &&
+                          styles.roleChipTextActive,
+                      ]}
+                    >
+                      Toutes
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[
+                      styles.roleChip,
+                      mapBoxSelectionMode === "picked" && styles.roleChipActive,
+                    ]}
+                    onPress={() => setMapBoxSelectionMode("picked")}
+                    activeOpacity={0.85}
+                  >
+                    <Text
+                      style={[
+                        styles.roleChipText,
+                        mapBoxSelectionMode === "picked" &&
+                          styles.roleChipTextActive,
+                      ]}
+                    >
+                      Sélection…
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+                {mapBoxSelectionMode === "picked" ? (
+                  <>
+                    <View style={[styles.roleRow, { flexWrap: "wrap" }]}>
+                      <OutlineButton
+                        compact
+                        label="Effacer sélection box"
+                        icon="close-circle-outline"
+                        onPress={() => setMapPickedBoxIds([])}
+                      />
+                    </View>
+                    <ScrollView
+                      style={styles.trailPickScroll}
+                      nestedScrollEnabled
+                      keyboardShouldPersistTaps="handled"
+                    >
+                      {boxes.map((box) => {
+                        const bid = Number(box.id);
+                        const sel = safePickedBoxIds.includes(bid);
+                        return (
+                          <TouchableOpacity
+                            key={`pick-box-${box.id}`}
+                            style={[
+                              styles.trailPickRow,
+                              sel && styles.trailPickRowActive,
+                            ]}
+                            onPress={() => {
+                              toggleExplorerPickedBox(
+                                Number.isFinite(bid) ? bid : box.id
+                              );
+                            }}
+                            activeOpacity={0.85}
+                          >
+                            <Ionicons
+                              name={sel ? "checkbox" : "square-outline"}
+                              size={22}
+                              color={theme.primary}
+                            />
+                            <View style={{ flex: 1, marginLeft: 10 }}>
+                              <Text style={styles.cardTitle}>{box.title}</Text>
+                              <Text style={styles.cardMeta}>
+                                {box.city} ·{" "}
+                                {(Number(box.price_cents || 0) / 100).toFixed(
+                                  2
+                                )}{" "}
+                                €
+                              </Text>
+                            </View>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </ScrollView>
+                  </>
+                ) : null}
+                <Text style={styles.fieldLabel}>Lien box ↔ traces</Text>
+                <View style={styles.roleRow}>
+                  <TouchableOpacity
+                    style={[
+                      styles.roleChip,
+                      !mapBoxesNearTrailsOnly && styles.roleChipActive,
+                    ]}
+                    onPress={() => setMapBoxesNearTrailsOnly(false)}
+                    activeOpacity={0.85}
+                  >
+                    <Text
+                      style={[
+                        styles.roleChipText,
+                        !mapBoxesNearTrailsOnly && styles.roleChipTextActive,
+                      ]}
+                    >
+                      Toutes (liste)
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[
+                      styles.roleChip,
+                      mapBoxesNearTrailsOnly && styles.roleChipActive,
+                    ]}
+                    onPress={() => setMapBoxesNearTrailsOnly(true)}
+                    activeOpacity={0.85}
+                  >
+                    <Text
+                      style={[
+                        styles.roleChipText,
+                        mapBoxesNearTrailsOnly && styles.roleChipTextActive,
+                      ]}
+                    >
+                      Près des tracés
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+                {mapBoxesNearTrailsOnly ? (
+                  <>
+                    <Text style={styles.helperText}>
+                      Mode recommandé: choisis tes traces, règle un rayon, puis
+                      réserve directement les box les plus proches.
+                    </Text>
+                    <Text style={styles.fieldLabel}>Tracés de référence</Text>
+                    <View style={styles.roleRow}>
+                      <TouchableOpacity
+                        style={[
+                          styles.roleChip,
+                          mapNearTrailsMode === "mine" && styles.roleChipActive,
+                        ]}
+                        onPress={() => setMapNearTrailsMode("mine")}
+                        activeOpacity={0.85}
+                      >
+                        <Text
+                          style={[
+                            styles.roleChipText,
+                            mapNearTrailsMode === "mine" &&
+                              styles.roleChipTextActive,
+                          ]}
+                        >
+                          Toutes mes traces
+                        </Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={[
+                          styles.roleChip,
+                          mapNearTrailsMode === "picked" &&
+                            styles.roleChipActive,
+                        ]}
+                        onPress={() => setMapNearTrailsMode("picked")}
+                        activeOpacity={0.85}
+                      >
+                        <Text
+                          style={[
+                            styles.roleChipText,
+                            mapNearTrailsMode === "picked" &&
+                              styles.roleChipTextActive,
+                          ]}
+                        >
+                          Traces sélectionnées
+                        </Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={[
+                          styles.roleChip,
+                          mapNearTrailsMode === "one" && styles.roleChipActive,
+                        ]}
+                        onPress={() => setMapNearTrailsMode("one")}
+                        activeOpacity={0.85}
+                      >
+                        <Text
+                          style={[
+                            styles.roleChipText,
+                            mapNearTrailsMode === "one" &&
+                              styles.roleChipTextActive,
+                          ]}
+                        >
+                          Une trace précise
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
+                    {mapNearTrailsMode === "one" ? (
+                      <ScrollView
+                        style={styles.trailPickScroll}
+                        nestedScrollEnabled
+                        keyboardShouldPersistTaps="handled"
+                      >
+                        {trailsForPickList.map((trail) => {
+                          const tid = Number(trail.id);
+                          const sel = Number(mapNearSingleTrailId) === tid;
+                          return (
+                            <TouchableOpacity
+                              key={`near-pick-tr-${trail.id}`}
+                              style={[
+                                styles.trailPickRow,
+                                sel && styles.trailPickRowActive,
+                              ]}
+                              onPress={() => {
+                                setMapNearSingleTrailId(tid);
+                              }}
+                              activeOpacity={0.85}
+                            >
+                              <Ionicons
+                                name={sel ? "checkbox" : "square-outline"}
+                                size={22}
+                                color={theme.primary}
+                              />
+                              <View style={{ flex: 1, marginLeft: 10 }}>
+                                <Text style={styles.cardTitle}>
+                                  {trail.name}
+                                </Text>
+                                <Text style={styles.cardMeta}>
+                                  {trail.territory}
+                                </Text>
+                              </View>
+                            </TouchableOpacity>
+                          );
+                        })}
+                      </ScrollView>
+                    ) : null}
+                    <Text style={styles.fieldLabel}>
+                      Rayon autour des traces
+                    </Text>
+                    <View style={[styles.roleRow, { flexWrap: "wrap" }]}>
+                      {["0.5", "1", "2", "3", "5"].map((km) => (
+                        <TouchableOpacity
+                          key={`near-km-${km}`}
+                          style={[
+                            styles.roleChip,
+                            String(mapTrailProximityKm) === km &&
+                              styles.roleChipActive,
+                          ]}
+                          onPress={() => setMapTrailProximityKm(km)}
+                          activeOpacity={0.85}
+                        >
+                          <Text
+                            style={[
+                              styles.roleChipText,
+                              String(mapTrailProximityKm) === km &&
+                                styles.roleChipTextActive,
+                            ]}
+                          >
+                            {km} km
+                          </Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                    <Text style={styles.fieldLabel}>Affichage carte</Text>
+                    <View style={styles.roleRow}>
+                      <TouchableOpacity
+                        style={[
+                          styles.roleChip,
+                          !mapNearShowAllOnMap && styles.roleChipActive,
+                        ]}
+                        onPress={() => setMapNearShowAllOnMap(false)}
+                        activeOpacity={0.85}
+                      >
+                        <Text
+                          style={[
+                            styles.roleChipText,
+                            !mapNearShowAllOnMap && styles.roleChipTextActive,
+                          ]}
+                        >
+                          Compatibles uniquement
+                        </Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={[
+                          styles.roleChip,
+                          mapNearShowAllOnMap && styles.roleChipActive,
+                        ]}
+                        onPress={() => setMapNearShowAllOnMap(true)}
+                        activeOpacity={0.85}
+                      >
+                        <Text
+                          style={[
+                            styles.roleChipText,
+                            mapNearShowAllOnMap && styles.roleChipTextActive,
+                          ]}
+                        >
+                          Toutes (fond grisé)
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
+                    <View style={styles.infoBanner}>
+                      <Ionicons
+                        name="sparkles-outline"
+                        size={20}
+                        color={theme.primary}
+                        style={{ marginRight: 10 }}
+                      />
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.infoBannerTitle}>
+                          {nearTrailCompatibleBoxIds.length} box réservable
+                          {nearTrailCompatibleBoxIds.length > 1
+                            ? "s"
+                            : ""} dans {mapTrailProximityKm} km
+                        </Text>
+                        <Text style={styles.cardMeta}>
+                          Référence: {nearTrailReferenceTrails.length} trace
+                          {nearTrailReferenceTrails.length > 1 ? "s" : ""} · tri
+                          distance puis disponibilité
+                        </Text>
+                      </View>
+                    </View>
+                  </>
+                ) : null}
+              </>
+            ) : null}
+          </>
+        );
+
+  const explorerBoxSortChildren = (
+          <>
+        <Text style={styles.fieldLabel}>Trier la liste</Text>
+        <View style={[styles.roleRow, { flexWrap: "wrap" }]}>
+          {[
+            { id: "default", label: "Défaut" },
+            { id: "rating_desc", label: "Notes ↓" },
+            { id: "rating_asc", label: "Notes ↑" },
+            { id: "price_asc", label: "Prix ↑" },
+            { id: "price_desc", label: "Prix ↓" },
+            { id: "slot_match", label: "Créneau" },
+          ].map((opt) => (
+            <TouchableOpacity
+              key={`box-sort-${opt.id}`}
+              style={[
+                styles.roleChip,
+                mapBoxSort === opt.id && styles.roleChipActive,
+              ]}
+              onPress={() => setMapBoxSort(opt.id)}
+              activeOpacity={0.85}
+            >
+              <Text
+                style={[
+                  styles.roleChipText,
+                  mapBoxSort === opt.id && styles.roleChipTextActive,
+                ]}
+              >
+                {opt.label}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+          </>
+        );
+
+
+  const explorerTrailFiltersChildren = (
+          <>
+            <Text style={styles.fieldLabel}>Affichage des traces</Text>
+            <View style={styles.roleRow}>
+              <TouchableOpacity
+                style={[
+                  styles.roleChip,
+                  mapShowTrails && styles.roleChipActive,
+                ]}
+                onPress={() => setMapShowTrails(true)}
+                activeOpacity={0.85}
+              >
+                <Text
+                  style={[
+                    styles.roleChipText,
+                    mapShowTrails && styles.roleChipTextActive,
+                  ]}
+                >
+                  Afficher
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[
+                  styles.roleChip,
+                  !mapShowTrails && styles.roleChipActive,
+                ]}
+                onPress={() => setMapShowTrails(false)}
+                activeOpacity={0.85}
+              >
+                <Text
+                  style={[
+                    styles.roleChipText,
+                    !mapShowTrails && styles.roleChipTextActive,
+                  ]}
+                >
+                  Masquer
+                </Text>
+              </TouchableOpacity>
+            </View>
+            <Text style={styles.fieldLabel}>Portée des traces</Text>
+            <View style={[styles.roleRow, { flexWrap: "wrap" }]}>
+              {[
+                { id: "all", label: "Toutes" },
+                ...(user
+                  ? [
+                      { id: "mine", label: "Les miennes" },
+                      { id: "others", label: "Les autres" },
+                    ]
+                  : []),
+                { id: "picked", label: "Sélection…" },
+              ].map((opt) => (
+                <TouchableOpacity
+                  key={`trail-scope-${opt.id}`}
+                  style={[
+                    styles.roleChip,
+                    mapTrailsScope === opt.id && styles.roleChipActive,
+                  ]}
+                  onPress={() => setMapTrailsScope(opt.id)}
+                  activeOpacity={0.85}
+                >
+                  <Text
+                    style={[
+                      styles.roleChipText,
+                      mapTrailsScope === opt.id && styles.roleChipTextActive,
+                    ]}
+                  >
+                    {opt.label}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+            {mapTrailsScope === "picked" ? (
+              <>
+                <View style={[styles.roleRow, { flexWrap: "wrap" }]}>
+                  <OutlineButton
+                    compact
+                    label="Mes traces (liste)"
+                    icon="person-outline"
+                    onPress={() => {
+                      if (!user?.id) return;
+                      const uid = Number(user.id);
+                      setMapTrailPickIds(
+                        trailsForPickList
+                          .filter((tr) => Number(tr.creator_user_id) === uid)
+                          .map((tr) => Number(tr.id))
+                      );
+                    }}
+                  />
+                  <OutlineButton
+                    compact
+                    label="Effacer sélection"
+                    icon="close-circle-outline"
+                    onPress={() => setMapTrailPickIds([])}
+                  />
+                </View>
+                <ScrollView
+                  style={styles.trailPickScroll}
+                  nestedScrollEnabled
+                  keyboardShouldPersistTaps="handled"
+                >
+                  {trailsForPickList.map((trail) => {
+                    const tid = Number(trail.id);
+                    const sel = mapTrailPickIds.includes(tid);
+                    const mine =
+                      user && Number(trail.creator_user_id) === Number(user.id);
+                    return (
+                      <TouchableOpacity
+                        key={`pick-tr-${trail.id}`}
+                        style={[
+                          styles.trailPickRow,
+                          sel && styles.trailPickRowActive,
+                        ]}
+                        onPress={() => {
+                          toggleExplorerPickedTrail(tid);
+                        }}
+                        activeOpacity={0.85}
+                      >
+                        <Ionicons
+                          name={sel ? "checkbox" : "square-outline"}
+                          size={22}
+                          color={theme.primary}
+                        />
+                        <View style={{ flex: 1, marginLeft: 10 }}>
+                          <Text style={styles.cardTitle}>{trail.name}</Text>
+                          <Text style={styles.cardMeta}>
+                            {trail.territory} ·{" "}
+                            {DIFFICULTY_LABELS[trail.difficulty] ||
+                              trail.difficulty}
+                            {" · "}
+                            {TRAIL_ACTIVITY_LABELS[trail.activity || "hike"]}
+                            {mine ? " · Mienne" : ""}
+                          </Text>
+                        </View>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </ScrollView>
+              </>
+            ) : null}
+            <Text style={styles.helperText}>
+              Précision automatique par zoom : plus tu zoomes, plus la liste des
+              traces se réduit à la zone visible de la carte.
+            </Text>
+            <Text style={styles.fieldLabel}>Difficulté</Text>
+            <View style={styles.roleRow}>
+              {["all", "easy", "medium", "hard"].map((d) => (
+                <TouchableOpacity
+                  key={d}
+                  style={[
+                    styles.roleChip,
+                    mapTrailDifficultyFilter === d && styles.roleChipActive,
+                  ]}
+                  onPress={() => setMapTrailDifficultyFilter(d)}
+                  activeOpacity={0.85}
+                >
+                  <Text
+                    style={[
+                      styles.roleChipText,
+                      mapTrailDifficultyFilter === d &&
+                        styles.roleChipTextActive,
+                    ]}
+                  >
+                    {d === "all" ? "Tous" : DIFFICULTY_LABELS[d]}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </>
+        );
+
+  const explorerTrailSortChildren = (
+          <>
+        <Text style={styles.fieldLabel}>Trier la liste</Text>
+        <View style={[styles.roleRow, { flexWrap: "wrap" }]}>
+          {[
+            { id: "default", label: "Défaut" },
+            { id: "distance_desc", label: "Distance ↓" },
+            { id: "distance_asc", label: "Distance ↑" },
+            { id: "elevation_desc", label: "D+ ↓" },
+            { id: "elevation_asc", label: "D+ ↑" },
+            { id: "difficulty_easy", label: "Facile d’abord" },
+            { id: "difficulty_hard", label: "Difficile d’abord" },
+          ].map((opt) => (
+            <TouchableOpacity
+              key={`trail-sort-${opt.id}`}
+              style={[
+                styles.roleChip,
+                mapTrailListSort === opt.id && styles.roleChipActive,
+              ]}
+              onPress={() => setMapTrailListSort(opt.id)}
+              activeOpacity={0.85}
+            >
+              <Text
+                style={[
+                  styles.roleChipText,
+                  mapTrailListSort === opt.id && styles.roleChipTextActive,
+                ]}
+              >
+                {opt.label}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+          </>
+        );
 
   const explorerScrollContent = (
     <>
@@ -3400,449 +4231,49 @@ function ExplorerScreen() {
       ) : null}
 
       <Section title="Liste des box" icon="list-outline">
-        <OutlineButton
-          compact
-          label={
-            showBoxFilters ? "Masquer filtres box" : "Afficher filtres box"
-          }
-          icon={showBoxFilters ? "chevron-up-outline" : "options-outline"}
-          onPress={() => setShowBoxFilters((v) => !v)}
-        />
-        {showBoxFilters ? (
-          <>
-            <Text style={styles.fieldLabel}>Affichage des box</Text>
-            <Text style={styles.helperText}>
-              Précision automatique par zoom : la liste et la carte ne gardent
-              que les box dans la zone visible.
-            </Text>
-            <View style={styles.roleRow}>
-              <TouchableOpacity
-                style={[styles.roleChip, mapShowBoxes && styles.roleChipActive]}
-                onPress={() => setMapShowBoxes(true)}
-                activeOpacity={0.85}
-              >
-                <Text
-                  style={[
-                    styles.roleChipText,
-                    mapShowBoxes && styles.roleChipTextActive,
-                  ]}
-                >
-                  Afficher
-                </Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[
-                  styles.roleChip,
-                  !mapShowBoxes && styles.roleChipActive,
-                ]}
-                onPress={() => setMapShowBoxes(false)}
-                activeOpacity={0.85}
-              >
-                <Text
-                  style={[
-                    styles.roleChipText,
-                    !mapShowBoxes && styles.roleChipTextActive,
-                  ]}
-                >
-                  Masquer
-                </Text>
-              </TouchableOpacity>
+        {explorerCompactFilters ? (
+          <View style={styles.explorerFilterSummary}>
+            <View style={{ flex: 1, minWidth: 0 }}>
+              <Text style={styles.explorerFilterSummaryKicker}>Liste des box</Text>
+              <Text style={styles.explorerFilterSummaryTitle} numberOfLines={2}>
+                Tri : {MAP_BOX_SORT_LABELS[mapBoxSort] ?? mapBoxSort}
+              </Text>
+              <Text style={styles.explorerFilterSummaryMeta}>
+                {explorerBoxFilterBadgeCount > 0
+                  ? `${explorerBoxFilterBadgeCount} filtre(s) ou mode(s) actif(s)`
+                  : "Résumé du tri · touche « Filtrer » pour affiner la liste"}
+              </Text>
             </View>
-            {mapShowBoxes ? (
-              <>
-                <Text style={styles.fieldLabel}>Critères des box</Text>
-                <View style={[styles.roleRow, { flexWrap: "wrap" }]}>
-                  {HOST_CRITERIA_OPTIONS.map((label) => {
-                    const active = (mapBoxCriteriaTags || []).includes(label);
-                    return (
-                      <TouchableOpacity
-                        key={`map-crit-${label}`}
-                        style={[
-                          styles.roleChip,
-                          active && styles.roleChipActive,
-                        ]}
-                        onPress={() =>
-                          setMapBoxCriteriaTags((prev) =>
-                            active
-                              ? prev.filter((x) => x !== label)
-                              : [...prev, label]
-                          )
-                        }
-                        activeOpacity={0.85}
-                      >
-                        <Text
-                          style={[
-                            styles.roleChipText,
-                            active && styles.roleChipTextActive,
-                          ]}
-                        >
-                          {label}
-                        </Text>
-                      </TouchableOpacity>
-                    );
-                  })}
-                </View>
-                {mapBoxCriteriaTags.length > 0 ? (
-                  <OutlineButton
-                    label="Effacer les critères"
-                    icon="close-circle-outline"
-                    compact
-                    onPress={() => setMapBoxCriteriaTags([])}
-                  />
-                ) : null}
-                <Text style={styles.fieldLabel}>Sélection des box</Text>
-                <View style={styles.roleRow}>
-                  <TouchableOpacity
-                    style={[
-                      styles.roleChip,
-                      mapBoxSelectionMode === "all" && styles.roleChipActive,
-                    ]}
-                    onPress={() => setMapBoxSelectionMode("all")}
-                    activeOpacity={0.85}
-                  >
-                    <Text
-                      style={[
-                        styles.roleChipText,
-                        mapBoxSelectionMode === "all" &&
-                          styles.roleChipTextActive,
-                      ]}
-                    >
-                      Toutes
-                    </Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={[
-                      styles.roleChip,
-                      mapBoxSelectionMode === "picked" && styles.roleChipActive,
-                    ]}
-                    onPress={() => setMapBoxSelectionMode("picked")}
-                    activeOpacity={0.85}
-                  >
-                    <Text
-                      style={[
-                        styles.roleChipText,
-                        mapBoxSelectionMode === "picked" &&
-                          styles.roleChipTextActive,
-                      ]}
-                    >
-                      Sélection…
-                    </Text>
-                  </TouchableOpacity>
-                </View>
-                {mapBoxSelectionMode === "picked" ? (
-                  <>
-                    <View style={[styles.roleRow, { flexWrap: "wrap" }]}>
-                      <OutlineButton
-                        compact
-                        label="Effacer sélection box"
-                        icon="close-circle-outline"
-                        onPress={() => setMapPickedBoxIds([])}
-                      />
-                    </View>
-                    <ScrollView
-                      style={styles.trailPickScroll}
-                      nestedScrollEnabled
-                      keyboardShouldPersistTaps="handled"
-                    >
-                      {boxes.map((box) => {
-                        const bid = Number(box.id);
-                        const sel = safePickedBoxIds.includes(bid);
-                        return (
-                          <TouchableOpacity
-                            key={`pick-box-${box.id}`}
-                            style={[
-                              styles.trailPickRow,
-                              sel && styles.trailPickRowActive,
-                            ]}
-                            onPress={() => {
-                              toggleExplorerPickedBox(
-                                Number.isFinite(bid) ? bid : box.id
-                              );
-                            }}
-                            activeOpacity={0.85}
-                          >
-                            <Ionicons
-                              name={sel ? "checkbox" : "square-outline"}
-                              size={22}
-                              color={theme.primary}
-                            />
-                            <View style={{ flex: 1, marginLeft: 10 }}>
-                              <Text style={styles.cardTitle}>{box.title}</Text>
-                              <Text style={styles.cardMeta}>
-                                {box.city} ·{" "}
-                                {(Number(box.price_cents || 0) / 100).toFixed(
-                                  2
-                                )}{" "}
-                                €
-                              </Text>
-                            </View>
-                          </TouchableOpacity>
-                        );
-                      })}
-                    </ScrollView>
-                  </>
-                ) : null}
-                <Text style={styles.fieldLabel}>Lien box ↔ traces</Text>
-                <View style={styles.roleRow}>
-                  <TouchableOpacity
-                    style={[
-                      styles.roleChip,
-                      !mapBoxesNearTrailsOnly && styles.roleChipActive,
-                    ]}
-                    onPress={() => setMapBoxesNearTrailsOnly(false)}
-                    activeOpacity={0.85}
-                  >
-                    <Text
-                      style={[
-                        styles.roleChipText,
-                        !mapBoxesNearTrailsOnly && styles.roleChipTextActive,
-                      ]}
-                    >
-                      Toutes (liste)
-                    </Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={[
-                      styles.roleChip,
-                      mapBoxesNearTrailsOnly && styles.roleChipActive,
-                    ]}
-                    onPress={() => setMapBoxesNearTrailsOnly(true)}
-                    activeOpacity={0.85}
-                  >
-                    <Text
-                      style={[
-                        styles.roleChipText,
-                        mapBoxesNearTrailsOnly && styles.roleChipTextActive,
-                      ]}
-                    >
-                      Près des tracés
-                    </Text>
-                  </TouchableOpacity>
-                </View>
-                {mapBoxesNearTrailsOnly ? (
-                  <>
-                    <Text style={styles.helperText}>
-                      Mode recommandé: choisis tes traces, règle un rayon, puis
-                      réserve directement les box les plus proches.
-                    </Text>
-                    <Text style={styles.fieldLabel}>Tracés de référence</Text>
-                    <View style={styles.roleRow}>
-                      <TouchableOpacity
-                        style={[
-                          styles.roleChip,
-                          mapNearTrailsMode === "mine" && styles.roleChipActive,
-                        ]}
-                        onPress={() => setMapNearTrailsMode("mine")}
-                        activeOpacity={0.85}
-                      >
-                        <Text
-                          style={[
-                            styles.roleChipText,
-                            mapNearTrailsMode === "mine" &&
-                              styles.roleChipTextActive,
-                          ]}
-                        >
-                          Toutes mes traces
-                        </Text>
-                      </TouchableOpacity>
-                      <TouchableOpacity
-                        style={[
-                          styles.roleChip,
-                          mapNearTrailsMode === "picked" &&
-                            styles.roleChipActive,
-                        ]}
-                        onPress={() => setMapNearTrailsMode("picked")}
-                        activeOpacity={0.85}
-                      >
-                        <Text
-                          style={[
-                            styles.roleChipText,
-                            mapNearTrailsMode === "picked" &&
-                              styles.roleChipTextActive,
-                          ]}
-                        >
-                          Traces sélectionnées
-                        </Text>
-                      </TouchableOpacity>
-                      <TouchableOpacity
-                        style={[
-                          styles.roleChip,
-                          mapNearTrailsMode === "one" && styles.roleChipActive,
-                        ]}
-                        onPress={() => setMapNearTrailsMode("one")}
-                        activeOpacity={0.85}
-                      >
-                        <Text
-                          style={[
-                            styles.roleChipText,
-                            mapNearTrailsMode === "one" &&
-                              styles.roleChipTextActive,
-                          ]}
-                        >
-                          Une trace précise
-                        </Text>
-                      </TouchableOpacity>
-                    </View>
-                    {mapNearTrailsMode === "one" ? (
-                      <ScrollView
-                        style={styles.trailPickScroll}
-                        nestedScrollEnabled
-                        keyboardShouldPersistTaps="handled"
-                      >
-                        {trailsForPickList.map((trail) => {
-                          const tid = Number(trail.id);
-                          const sel = Number(mapNearSingleTrailId) === tid;
-                          return (
-                            <TouchableOpacity
-                              key={`near-pick-tr-${trail.id}`}
-                              style={[
-                                styles.trailPickRow,
-                                sel && styles.trailPickRowActive,
-                              ]}
-                              onPress={() => {
-                                setMapNearSingleTrailId(tid);
-                              }}
-                              activeOpacity={0.85}
-                            >
-                              <Ionicons
-                                name={sel ? "checkbox" : "square-outline"}
-                                size={22}
-                                color={theme.primary}
-                              />
-                              <View style={{ flex: 1, marginLeft: 10 }}>
-                                <Text style={styles.cardTitle}>
-                                  {trail.name}
-                                </Text>
-                                <Text style={styles.cardMeta}>
-                                  {trail.territory}
-                                </Text>
-                              </View>
-                            </TouchableOpacity>
-                          );
-                        })}
-                      </ScrollView>
-                    ) : null}
-                    <Text style={styles.fieldLabel}>
-                      Rayon autour des traces
-                    </Text>
-                    <View style={[styles.roleRow, { flexWrap: "wrap" }]}>
-                      {["0.5", "1", "2", "3", "5"].map((km) => (
-                        <TouchableOpacity
-                          key={`near-km-${km}`}
-                          style={[
-                            styles.roleChip,
-                            String(mapTrailProximityKm) === km &&
-                              styles.roleChipActive,
-                          ]}
-                          onPress={() => setMapTrailProximityKm(km)}
-                          activeOpacity={0.85}
-                        >
-                          <Text
-                            style={[
-                              styles.roleChipText,
-                              String(mapTrailProximityKm) === km &&
-                                styles.roleChipTextActive,
-                            ]}
-                          >
-                            {km} km
-                          </Text>
-                        </TouchableOpacity>
-                      ))}
-                    </View>
-                    <Text style={styles.fieldLabel}>Affichage carte</Text>
-                    <View style={styles.roleRow}>
-                      <TouchableOpacity
-                        style={[
-                          styles.roleChip,
-                          !mapNearShowAllOnMap && styles.roleChipActive,
-                        ]}
-                        onPress={() => setMapNearShowAllOnMap(false)}
-                        activeOpacity={0.85}
-                      >
-                        <Text
-                          style={[
-                            styles.roleChipText,
-                            !mapNearShowAllOnMap && styles.roleChipTextActive,
-                          ]}
-                        >
-                          Compatibles uniquement
-                        </Text>
-                      </TouchableOpacity>
-                      <TouchableOpacity
-                        style={[
-                          styles.roleChip,
-                          mapNearShowAllOnMap && styles.roleChipActive,
-                        ]}
-                        onPress={() => setMapNearShowAllOnMap(true)}
-                        activeOpacity={0.85}
-                      >
-                        <Text
-                          style={[
-                            styles.roleChipText,
-                            mapNearShowAllOnMap && styles.roleChipTextActive,
-                          ]}
-                        >
-                          Toutes (fond grisé)
-                        </Text>
-                      </TouchableOpacity>
-                    </View>
-                    <View style={styles.infoBanner}>
-                      <Ionicons
-                        name="sparkles-outline"
-                        size={20}
-                        color={theme.primary}
-                        style={{ marginRight: 10 }}
-                      />
-                      <View style={{ flex: 1 }}>
-                        <Text style={styles.infoBannerTitle}>
-                          {nearTrailCompatibleBoxIds.length} box réservable
-                          {nearTrailCompatibleBoxIds.length > 1
-                            ? "s"
-                            : ""} dans {mapTrailProximityKm} km
-                        </Text>
-                        <Text style={styles.cardMeta}>
-                          Référence: {nearTrailReferenceTrails.length} trace
-                          {nearTrailReferenceTrails.length > 1 ? "s" : ""} · tri
-                          distance puis disponibilité
-                        </Text>
-                      </View>
-                    </View>
-                  </>
-                ) : null}
-              </>
-            ) : null}
-          </>
-        ) : null}
-        <Text style={styles.fieldLabel}>Trier la liste</Text>
-        <View style={[styles.roleRow, { flexWrap: "wrap" }]}>
-          {[
-            { id: "default", label: "Défaut" },
-            { id: "rating_desc", label: "Notes ↓" },
-            { id: "rating_asc", label: "Notes ↑" },
-            { id: "price_asc", label: "Prix ↑" },
-            { id: "price_desc", label: "Prix ↓" },
-            { id: "slot_match", label: "Créneau" },
-          ].map((opt) => (
             <TouchableOpacity
-              key={`box-sort-${opt.id}`}
-              style={[
-                styles.roleChip,
-                mapBoxSort === opt.id && styles.roleChipActive,
-              ]}
-              onPress={() => setMapBoxSort(opt.id)}
+              style={styles.explorerFilterCTA}
+              onPress={() => setShowBoxFilters(true)}
               activeOpacity={0.85}
             >
-              <Text
-                style={[
-                  styles.roleChipText,
-                  mapBoxSort === opt.id && styles.roleChipTextActive,
-                ]}
-              >
-                {opt.label}
-              </Text>
+              <Ionicons name="options-outline" size={22} color="#fff" />
+              <Text style={styles.explorerFilterCTAText}>Filtrer</Text>
+              {explorerBoxFilterBadgeCount > 0 ? (
+                <View style={styles.explorerFilterBadge}>
+                  <Text style={styles.explorerFilterBadgeText}>
+                    {explorerBoxFilterBadgeCount}
+                  </Text>
+                </View>
+              ) : null}
             </TouchableOpacity>
-          ))}
-        </View>
+          </View>
+        ) : (
+          <>
+            <OutlineButton
+              compact
+              label={
+                showBoxFilters ? "Masquer filtres box" : "Afficher filtres box"
+              }
+              icon={showBoxFilters ? "chevron-up-outline" : "options-outline"}
+              onPress={() => setShowBoxFilters((v) => !v)}
+            />
+            {showBoxFilters ? explorerBoxFiltersChildren : null}
+          </>
+        )}
+        {!explorerCompactFilters ? explorerBoxSortChildren : null}
         <FlatList
           data={prioritizedExplorerBoxes}
           scrollEnabled={false}
@@ -4039,6 +4470,59 @@ function ExplorerScreen() {
             </View>
           )}
         />
+        {explorerCompactFilters ? (
+          <Modal
+            visible={showBoxFilters}
+            transparent
+            animationType="slide"
+            onRequestClose={() => setShowBoxFilters(false)}
+          >
+            <View style={styles.explorerFilterModalBackdrop}>
+              <TouchableOpacity
+                style={styles.explorerFilterModalDismiss}
+                activeOpacity={1}
+                onPress={() => setShowBoxFilters(false)}
+              />
+              <View style={styles.explorerFilterModalSheet}>
+                <View style={styles.dateTimeGrabber} />
+                <View style={styles.dateTimeSheetHeader}>
+                  <View style={{ flex: 1, paddingRight: 8 }}>
+                    <Text style={styles.modalSheetTitle}>Filtres des box</Text>
+                    <Text style={styles.dateTimeSheetSubtitle}>
+                      Carte, critères, proximité des traces et tri.
+                    </Text>
+                  </View>
+                  <TouchableOpacity
+                    onPress={() => setShowBoxFilters(false)}
+                    hitSlop={12}
+                    style={styles.dateTimeCloseBtn}
+                    accessibilityLabel="Fermer"
+                  >
+                    <Ionicons name="close" size={22} color={theme.inkMuted} />
+                  </TouchableOpacity>
+                </View>
+                <ScrollView
+                  style={styles.explorerFilterModalScroll}
+                  contentContainerStyle={{ paddingBottom: 24 }}
+                  keyboardShouldPersistTaps="handled"
+                  nestedScrollEnabled
+                >
+                  {explorerBoxFiltersChildren}
+                  {explorerBoxSortChildren}
+                </ScrollView>
+                <View style={styles.dateTimeSheetFooter}>
+                  <PrimaryButton
+                    compact
+                    stretch
+                    label="Terminé"
+                    icon="checkmark-outline"
+                    onPress={() => setShowBoxFilters(false)}
+                  />
+                </View>
+              </View>
+            </View>
+          </Modal>
+        ) : null}
       </Section>
 
       <Section
@@ -4046,216 +4530,52 @@ function ExplorerScreen() {
         subtitle="Même ensemble que sur la carte. Sélection et filtres ici."
         icon="navigate-outline"
       >
-        <OutlineButton
-          compact
-          label={
-            showTrailFilters
-              ? "Masquer filtres traces"
-              : "Afficher filtres traces"
-          }
-          icon={showTrailFilters ? "chevron-up-outline" : "options-outline"}
-          onPress={() => setShowTrailFilters((v) => !v)}
-        />
-        {showTrailFilters ? (
-          <>
-            <Text style={styles.fieldLabel}>Affichage des traces</Text>
-            <View style={styles.roleRow}>
-              <TouchableOpacity
-                style={[
-                  styles.roleChip,
-                  mapShowTrails && styles.roleChipActive,
-                ]}
-                onPress={() => setMapShowTrails(true)}
-                activeOpacity={0.85}
-              >
-                <Text
-                  style={[
-                    styles.roleChipText,
-                    mapShowTrails && styles.roleChipTextActive,
-                  ]}
-                >
-                  Afficher
-                </Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[
-                  styles.roleChip,
-                  !mapShowTrails && styles.roleChipActive,
-                ]}
-                onPress={() => setMapShowTrails(false)}
-                activeOpacity={0.85}
-              >
-                <Text
-                  style={[
-                    styles.roleChipText,
-                    !mapShowTrails && styles.roleChipTextActive,
-                  ]}
-                >
-                  Masquer
-                </Text>
-              </TouchableOpacity>
+        {explorerCompactFilters ? (
+          <View style={styles.explorerFilterSummary}>
+            <View style={{ flex: 1, minWidth: 0 }}>
+              <Text style={styles.explorerFilterSummaryKicker}>Liste des traces</Text>
+              <Text style={styles.explorerFilterSummaryTitle} numberOfLines={2}>
+                Tri : {MAP_TRAIL_SORT_LABELS[mapTrailListSort] ?? mapTrailListSort}
+              </Text>
+              <Text style={styles.explorerFilterSummaryMeta}>
+                {explorerTrailFilterBadgeCount > 0
+                  ? `${explorerTrailFilterBadgeCount} filtre(s) ou mode(s) actif(s)`
+                  : "Résumé du tri · touche « Filtrer » pour affiner la liste"}
+              </Text>
             </View>
-            <Text style={styles.fieldLabel}>Portée des traces</Text>
-            <View style={[styles.roleRow, { flexWrap: "wrap" }]}>
-              {[
-                { id: "all", label: "Toutes" },
-                ...(user
-                  ? [
-                      { id: "mine", label: "Les miennes" },
-                      { id: "others", label: "Les autres" },
-                    ]
-                  : []),
-                { id: "picked", label: "Sélection…" },
-              ].map((opt) => (
-                <TouchableOpacity
-                  key={`trail-scope-${opt.id}`}
-                  style={[
-                    styles.roleChip,
-                    mapTrailsScope === opt.id && styles.roleChipActive,
-                  ]}
-                  onPress={() => setMapTrailsScope(opt.id)}
-                  activeOpacity={0.85}
-                >
-                  <Text
-                    style={[
-                      styles.roleChipText,
-                      mapTrailsScope === opt.id && styles.roleChipTextActive,
-                    ]}
-                  >
-                    {opt.label}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-            {mapTrailsScope === "picked" ? (
-              <>
-                <View style={[styles.roleRow, { flexWrap: "wrap" }]}>
-                  <OutlineButton
-                    compact
-                    label="Mes traces (liste)"
-                    icon="person-outline"
-                    onPress={() => {
-                      if (!user?.id) return;
-                      const uid = Number(user.id);
-                      setMapTrailPickIds(
-                        trailsForPickList
-                          .filter((tr) => Number(tr.creator_user_id) === uid)
-                          .map((tr) => Number(tr.id))
-                      );
-                    }}
-                  />
-                  <OutlineButton
-                    compact
-                    label="Effacer sélection"
-                    icon="close-circle-outline"
-                    onPress={() => setMapTrailPickIds([])}
-                  />
-                </View>
-                <ScrollView
-                  style={styles.trailPickScroll}
-                  nestedScrollEnabled
-                  keyboardShouldPersistTaps="handled"
-                >
-                  {trailsForPickList.map((trail) => {
-                    const tid = Number(trail.id);
-                    const sel = mapTrailPickIds.includes(tid);
-                    const mine =
-                      user && Number(trail.creator_user_id) === Number(user.id);
-                    return (
-                      <TouchableOpacity
-                        key={`pick-tr-${trail.id}`}
-                        style={[
-                          styles.trailPickRow,
-                          sel && styles.trailPickRowActive,
-                        ]}
-                        onPress={() => {
-                          toggleExplorerPickedTrail(tid);
-                        }}
-                        activeOpacity={0.85}
-                      >
-                        <Ionicons
-                          name={sel ? "checkbox" : "square-outline"}
-                          size={22}
-                          color={theme.primary}
-                        />
-                        <View style={{ flex: 1, marginLeft: 10 }}>
-                          <Text style={styles.cardTitle}>{trail.name}</Text>
-                          <Text style={styles.cardMeta}>
-                            {trail.territory} ·{" "}
-                            {DIFFICULTY_LABELS[trail.difficulty] ||
-                              trail.difficulty}
-                            {" · "}
-                            {TRAIL_ACTIVITY_LABELS[trail.activity || "hike"]}
-                            {mine ? " · Mienne" : ""}
-                          </Text>
-                        </View>
-                      </TouchableOpacity>
-                    );
-                  })}
-                </ScrollView>
-              </>
-            ) : null}
-            <Text style={styles.helperText}>
-              Précision automatique par zoom : plus tu zoomes, plus la liste des
-              traces se réduit à la zone visible de la carte.
-            </Text>
-            <Text style={styles.fieldLabel}>Difficulté</Text>
-            <View style={styles.roleRow}>
-              {["all", "easy", "medium", "hard"].map((d) => (
-                <TouchableOpacity
-                  key={d}
-                  style={[
-                    styles.roleChip,
-                    mapTrailDifficultyFilter === d && styles.roleChipActive,
-                  ]}
-                  onPress={() => setMapTrailDifficultyFilter(d)}
-                  activeOpacity={0.85}
-                >
-                  <Text
-                    style={[
-                      styles.roleChipText,
-                      mapTrailDifficultyFilter === d &&
-                        styles.roleChipTextActive,
-                    ]}
-                  >
-                    {d === "all" ? "Tous" : DIFFICULTY_LABELS[d]}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-          </>
-        ) : null}
-        <Text style={styles.fieldLabel}>Trier la liste</Text>
-        <View style={[styles.roleRow, { flexWrap: "wrap" }]}>
-          {[
-            { id: "default", label: "Défaut" },
-            { id: "distance_desc", label: "Distance ↓" },
-            { id: "distance_asc", label: "Distance ↑" },
-            { id: "elevation_desc", label: "D+ ↓" },
-            { id: "elevation_asc", label: "D+ ↑" },
-            { id: "difficulty_easy", label: "Facile d’abord" },
-            { id: "difficulty_hard", label: "Difficile d’abord" },
-          ].map((opt) => (
             <TouchableOpacity
-              key={`trail-sort-${opt.id}`}
-              style={[
-                styles.roleChip,
-                mapTrailListSort === opt.id && styles.roleChipActive,
-              ]}
-              onPress={() => setMapTrailListSort(opt.id)}
+              style={styles.explorerFilterCTA}
+              onPress={() => setShowTrailFilters(true)}
               activeOpacity={0.85}
             >
-              <Text
-                style={[
-                  styles.roleChipText,
-                  mapTrailListSort === opt.id && styles.roleChipTextActive,
-                ]}
-              >
-                {opt.label}
-              </Text>
+              <Ionicons name="options-outline" size={22} color="#fff" />
+              <Text style={styles.explorerFilterCTAText}>Filtrer</Text>
+              {explorerTrailFilterBadgeCount > 0 ? (
+                <View style={styles.explorerFilterBadge}>
+                  <Text style={styles.explorerFilterBadgeText}>
+                    {explorerTrailFilterBadgeCount}
+                  </Text>
+                </View>
+              ) : null}
             </TouchableOpacity>
-          ))}
-        </View>
+          </View>
+        ) : (
+          <>
+            <OutlineButton
+              compact
+              label={
+                showTrailFilters
+                  ? "Masquer filtres traces"
+                  : "Afficher filtres traces"
+              }
+              icon={showTrailFilters ? "chevron-up-outline" : "options-outline"}
+              onPress={() => setShowTrailFilters((v) => !v)}
+            />
+            {showTrailFilters ? explorerTrailFiltersChildren : null}
+          </>
+        )}
+        {!explorerCompactFilters ? explorerTrailSortChildren : null}
+
         {!mapShowTrails ? (
           <Text style={styles.emptyText}>
             Active « Afficher » dans « Tracés sur la carte » pour voir les
@@ -4411,6 +4731,59 @@ function ExplorerScreen() {
             }
           />
         )}
+        {explorerCompactFilters ? (
+          <Modal
+            visible={showTrailFilters}
+            transparent
+            animationType="slide"
+            onRequestClose={() => setShowTrailFilters(false)}
+          >
+            <View style={styles.explorerFilterModalBackdrop}>
+              <TouchableOpacity
+                style={styles.explorerFilterModalDismiss}
+                activeOpacity={1}
+                onPress={() => setShowTrailFilters(false)}
+              />
+              <View style={styles.explorerFilterModalSheet}>
+                <View style={styles.dateTimeGrabber} />
+                <View style={styles.dateTimeSheetHeader}>
+                  <View style={{ flex: 1, paddingRight: 8 }}>
+                    <Text style={styles.modalSheetTitle}>Filtres des traces</Text>
+                    <Text style={styles.dateTimeSheetSubtitle}>
+                      Affichage, portée, difficulté et tri.
+                    </Text>
+                  </View>
+                  <TouchableOpacity
+                    onPress={() => setShowTrailFilters(false)}
+                    hitSlop={12}
+                    style={styles.dateTimeCloseBtn}
+                    accessibilityLabel="Fermer"
+                  >
+                    <Ionicons name="close" size={22} color={theme.inkMuted} />
+                  </TouchableOpacity>
+                </View>
+                <ScrollView
+                  style={styles.explorerFilterModalScroll}
+                  contentContainerStyle={{ paddingBottom: 24 }}
+                  keyboardShouldPersistTaps="handled"
+                  nestedScrollEnabled
+                >
+                  {explorerTrailFiltersChildren}
+                  {explorerTrailSortChildren}
+                </ScrollView>
+                <View style={styles.dateTimeSheetFooter}>
+                  <PrimaryButton
+                    compact
+                    stretch
+                    label="Terminé"
+                    icon="checkmark-outline"
+                    onPress={() => setShowTrailFilters(false)}
+                  />
+                </View>
+              </View>
+            </View>
+          </Modal>
+        ) : null}
       </Section>
     </>
   );
@@ -11878,11 +12251,16 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     borderWidth: 1,
-    borderColor: theme.border,
-    borderRadius: 16,
-    paddingVertical: 12,
-    paddingHorizontal: 14,
-    backgroundColor: theme.surfaceMuted,
+    borderColor: theme.borderSoft,
+    borderRadius: 18,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    backgroundColor: theme.surface,
+    shadowColor: theme.shadow,
+    shadowOpacity: 0.85,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 2,
   },
   dateTimeSummaryTitle: {
     fontSize: 15,
@@ -11893,6 +12271,326 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: theme.inkMuted,
     marginTop: 2,
+  },
+  dateTimeModalBackdrop: {
+    flex: 1,
+    justifyContent: "flex-end",
+    backgroundColor: "rgba(6, 27, 22, 0.48)",
+  },
+  dateTimeModalDismiss: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  dateTimeSheet: {
+    backgroundColor: theme.surface,
+    borderTopLeftRadius: 26,
+    borderTopRightRadius: 26,
+    maxHeight: Platform.OS === "web" ? "92vh" : "92%",
+    overflow: "hidden",
+    borderWidth: 1,
+    borderBottomWidth: 0,
+    borderColor: theme.borderSoft,
+    alignSelf: "stretch",
+    ...(Platform.OS === "web"
+      ? {
+          boxShadow: "0 -12px 40px rgba(6, 45, 38, 0.18)",
+          maxWidth: 520,
+          width: "100%",
+          alignSelf: "center",
+        }
+      : {
+          shadowColor: theme.shadow,
+          shadowOpacity: 1,
+          shadowRadius: 24,
+          shadowOffset: { width: 0, height: -8 },
+          elevation: 16,
+        }),
+  },
+  dateTimeGrabber: {
+    width: 40,
+    height: 5,
+    borderRadius: 3,
+    backgroundColor: theme.border,
+    alignSelf: "center",
+    marginTop: 10,
+    marginBottom: 4,
+  },
+  dateTimeSheetHeader: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    paddingHorizontal: 18,
+    paddingTop: 6,
+    paddingBottom: 12,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: theme.borderSoft,
+  },
+  dateTimeSheetSubtitle: {
+    fontSize: 13,
+    color: theme.inkMuted,
+    marginTop: 4,
+    lineHeight: 18,
+  },
+  dateTimeCloseBtn: {
+    padding: 8,
+    borderRadius: 12,
+    backgroundColor: theme.surfaceMuted,
+  },
+  dateTimeSheetBody: {
+    maxHeight: 520,
+    paddingHorizontal: 18,
+    paddingTop: 12,
+  },
+  dateTimeSheetFooter: {
+    flexDirection: "row",
+    justifyContent: "flex-end",
+    alignItems: "center",
+    gap: 10,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    paddingBottom: Platform.OS === "ios" ? 22 : 16,
+    borderTopWidth: 1,
+    borderTopColor: theme.borderSoft,
+    backgroundColor: theme.surface,
+  },
+  dateTimeCalendarCard: {
+    backgroundColor: theme.surfaceMuted,
+    borderRadius: 20,
+    paddingHorizontal: 12,
+    paddingVertical: 14,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: theme.borderSoft,
+  },
+  calendarNavBtnModern: {
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 14,
+    backgroundColor: theme.surface,
+    borderWidth: 1,
+    borderColor: theme.border,
+  },
+  calendarMonthTitleModern: {
+    fontSize: 17,
+    fontWeight: "700",
+    color: theme.ink,
+    textTransform: "capitalize",
+  },
+  calendarWeekCellModern: {
+    flex: 1,
+    textAlign: "center",
+    fontSize: 11,
+    fontWeight: "600",
+    color: theme.inkMuted,
+  },
+  calendarDayCellSelectedModern: {
+    backgroundColor: theme.primary,
+    borderRadius: 999,
+    shadowColor: theme.primary,
+    shadowOpacity: 0.35,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 3,
+  },
+  calendarDayCellTodayRing: {
+    borderWidth: 2,
+    borderColor: `${theme.primary}66`,
+    borderRadius: 999,
+  },
+  dateTimeWheelLabel: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: theme.ink,
+    marginBottom: 10,
+    marginTop: 6,
+  },
+  timeWheelSection: {
+    marginTop: 12,
+  },
+  timeWheelShell: {
+    position: "relative",
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: theme.borderSoft,
+    backgroundColor: theme.surfaceMuted,
+    overflow: "hidden",
+  },
+  timeWheelHighlightBand: {
+    position: "absolute",
+    left: 1,
+    right: 1,
+    top: TIME_WHEEL_PAD,
+    height: TIME_WHEEL_ITEM_H,
+    borderTopWidth: 1,
+    borderBottomWidth: 1,
+    borderColor: "rgba(15, 118, 110, 0.22)",
+    backgroundColor: "rgba(15, 118, 110, 0.05)",
+    zIndex: 1,
+    pointerEvents: "none",
+  },
+  timeWheelInnerRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    zIndex: 0,
+  },
+  timeWheelScrollCol: {
+    height: TIME_WHEEL_VIEW_H,
+    width: 76,
+  },
+  timeWheelItem: {
+    height: TIME_WHEEL_ITEM_H,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  timeWheelItemText: {
+    fontSize: 17,
+    fontWeight: "500",
+    color: theme.inkMuted,
+  },
+  timeWheelItemTextActive: {
+    fontSize: 19,
+    fontWeight: "700",
+    color: theme.primary,
+  },
+  timeWheelColon: {
+    fontSize: 28,
+    fontWeight: "800",
+    color: theme.inkMuted,
+    paddingHorizontal: 4,
+    marginBottom: 4,
+  },
+  dateTimeQuickDurLabel: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: theme.inkMuted,
+    marginTop: 14,
+    marginBottom: 8,
+  },
+  dateTimeQuickDurRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    marginBottom: 8,
+  },
+  dateTimeQuickChip: {
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    borderRadius: 999,
+    backgroundColor: theme.surface,
+    borderWidth: 1,
+    borderColor: theme.border,
+  },
+  dateTimeQuickChipText: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: theme.secondaryInk,
+  },
+  explorerFilterSummary: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderRadius: 18,
+    backgroundColor: theme.surface,
+    borderWidth: 1,
+    borderColor: theme.borderSoft,
+    marginBottom: 10,
+    shadowColor: theme.shadow,
+    shadowOpacity: 0.35,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 2,
+  },
+  explorerFilterSummaryKicker: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: theme.inkMuted,
+    textTransform: "uppercase",
+    letterSpacing: 0.6,
+    marginBottom: 4,
+  },
+  explorerFilterSummaryTitle: {
+    fontSize: 15,
+    fontWeight: "700",
+    color: theme.ink,
+    lineHeight: 20,
+  },
+  explorerFilterSummaryMeta: {
+    fontSize: 12,
+    color: theme.inkMuted,
+    marginTop: 4,
+    lineHeight: 17,
+  },
+  explorerFilterCTA: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingVertical: 11,
+    paddingHorizontal: 16,
+    borderRadius: 999,
+    backgroundColor: theme.primary,
+    position: "relative",
+  },
+  explorerFilterCTAText: {
+    fontSize: 15,
+    fontWeight: "700",
+    color: "#fff",
+  },
+  explorerFilterBadge: {
+    position: "absolute",
+    top: -6,
+    right: -4,
+    minWidth: 22,
+    height: 22,
+    paddingHorizontal: 6,
+    borderRadius: 11,
+    backgroundColor: "#DC2626",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  explorerFilterBadgeText: {
+    fontSize: 12,
+    fontWeight: "800",
+    color: "#fff",
+  },
+  explorerFilterModalBackdrop: {
+    flex: 1,
+    justifyContent: "flex-end",
+    backgroundColor: "rgba(6, 27, 22, 0.48)",
+  },
+  explorerFilterModalDismiss: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  explorerFilterModalSheet: {
+    backgroundColor: theme.surface,
+    borderTopLeftRadius: 26,
+    borderTopRightRadius: 26,
+    maxHeight: Platform.OS === "web" ? "92vh" : "92%",
+    overflow: "hidden",
+    borderWidth: 1,
+    borderBottomWidth: 0,
+    borderColor: theme.borderSoft,
+    alignSelf: "stretch",
+    ...(Platform.OS === "web"
+      ? {
+          boxShadow: "0 -12px 40px rgba(6, 45, 38, 0.18)",
+          maxWidth: 520,
+          width: "100%",
+          alignSelf: "center",
+        }
+      : {
+          shadowColor: theme.shadow,
+          shadowOpacity: 1,
+          shadowRadius: 24,
+          shadowOffset: { width: 0, height: -8 },
+          elevation: 16,
+        }),
+  },
+  explorerFilterModalScroll: {
+    maxHeight: 520,
+    paddingHorizontal: 18,
+    paddingTop: 4,
   },
   modalBackdrop: {
     flex: 1,
