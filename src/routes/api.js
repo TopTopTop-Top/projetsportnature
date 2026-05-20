@@ -466,14 +466,20 @@ function buildPolylineAndProfile(points, maxPoints = 450) {
       lon: points[i].lon,
       distKm: distanceKm,
       gainM: Math.round(elevationM),
+      ele:
+        typeof points[i].ele === "number" && Number.isFinite(points[i].ele)
+          ? Math.round(points[i].ele)
+          : null,
     });
   }
   const indices = pickSimplifyIndices(samples.length, maxPoints);
   const polylineLatLngs = indices.map((i) => [samples[i].lat, samples[i].lon]);
-  const profilePoints = indices.map((i) => [
-    Number(samples[i].distKm.toFixed(3)),
-    samples[i].gainM,
-  ]);
+  const profilePoints = indices.map((i) => {
+    const s = samples[i];
+    const row = [Number(s.distKm.toFixed(3)), s.gainM];
+    if (s.ele != null) row.push(s.ele);
+    return row;
+  });
   return {
     polylineLatLngs,
     profilePoints,

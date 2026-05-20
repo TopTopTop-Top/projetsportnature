@@ -26,7 +26,7 @@ import {
 } from "react-native";
 import NativeExplorerMap from "./NativeExplorerMap";
 import ExplorerWebMap from "./ExplorerWebMap";
-import { formatTrailProbeLabel } from "./trailProfile";
+import TrailElevationProfile from "./TrailElevationProfile";
 import { StatusBar } from "expo-status-bar";
 import * as DocumentPicker from "expo-document-picker";
 import {
@@ -3598,6 +3598,15 @@ function ExplorerScreen() {
                 {selectedTrail.notes}
               </Text>
             ) : null}
+            <TrailElevationProfile
+              trail={selectedTrail}
+              probe={
+                explorerTrailProbe &&
+                Number(explorerTrailProbe.trailId) === Number(selectedTrail.id)
+                  ? explorerTrailProbe
+                  : null
+              }
+            />
             <OutlineButton
               compact
               stretch
@@ -5741,21 +5750,25 @@ function TrailsScreen() {
             sauter directement sur une trace.
           </Text>
           {selectedTrailId != null ? (
-            trailsTrailProbe &&
-            Number(trailsTrailProbe.trailId) === Number(selectedTrailId) ? (
-              <View style={styles.trailProbeCard}>
-                <Text style={styles.trailProbeTitle}>Position sur le parcours</Text>
-                <Text style={styles.trailProbeValue}>
-                  {formatTrailProbeLabel(trailsTrailProbe)}
-                </Text>
-              </View>
-            ) : (
-              <Text style={styles.helperText}>
-                {Platform.OS === "web"
-                  ? "Survole le tracé sur la carte pour afficher km et D+ depuis le départ."
-                  : "Tape près du tracé sur la carte pour afficher km et D+ depuis le départ."}
-              </Text>
-            )
+            <TrailElevationProfile
+              trail={
+                trails.find((t) => Number(t.id) === Number(selectedTrailId)) ||
+                null
+              }
+              probe={
+                trailsTrailProbe &&
+                Number(trailsTrailProbe.trailId) === Number(selectedTrailId)
+                  ? trailsTrailProbe
+                  : null
+              }
+            />
+          ) : null}
+          {selectedTrailId != null && !trailsTrailProbe ? (
+            <Text style={styles.helperText}>
+              {Platform.OS === "web"
+                ? "Survole le tracé sur la carte : le profil se met à jour au curseur."
+                : "Tape près du tracé sur la carte pour positionner le curseur sur le profil."}
+            </Text>
           ) : null}
           {Platform.OS === "web" ? (
             <ExplorerWebMap

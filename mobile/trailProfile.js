@@ -1,6 +1,6 @@
 /**
- * Profil le long d'une trace : distance cumulée (km) et D+ cumulé (m).
- * profile_json : [[distKm, gainM], ...] aligné sur polyline_json.
+ * Profil le long d'une trace : distance, D+ cumulé, altitude (si GPX).
+ * profile_json : [[distKm, gainM] | [distKm, gainM, eleM], ...]
  */
 
 function haversineKm(lat1, lon1, lat2, lon2) {
@@ -19,7 +19,8 @@ function normalizePositions(polylineJson) {
   let raw = [];
   try {
     if (polylineJson) {
-      raw = typeof polylineJson === "string" ? JSON.parse(polylineJson) : polylineJson;
+      raw =
+        typeof polylineJson === "string" ? JSON.parse(polylineJson) : polylineJson;
     }
   } catch {
     raw = [];
@@ -48,7 +49,11 @@ function parseStoredProfile(profileJson) {
       const distKm = Number(row[0]);
       const gainM = Number(row[1]);
       if (!Number.isFinite(distKm)) continue;
-      profile.push([distKm, Number.isFinite(gainM) ? gainM : 0]);
+      const eleM =
+        row.length >= 3 && Number.isFinite(Number(row[2]))
+          ? Math.round(Number(row[2]))
+          : null;
+      profile.push([distKm, Number.isFinite(gainM) ? gainM : 0, eleM]);
     }
     return profile.length ? profile : null;
   } catch {
@@ -59,7 +64,7 @@ function parseStoredProfile(profileJson) {
 /** Profil distance seul ; D+ interpolé depuis elevation_m si besoin. */
 function buildFallbackProfile(positions, totalElevationM) {
   if (positions.length < 1) return { profile: [], hasGainData: false };
-  const profile = [[0, 0]];
+  const profile = [[0, 0, null]];
   let dist = 0;
   for (let i = 1; i < positions.length; i += 1) {
     dist += haversineKm(
@@ -68,7 +73,7 @@ function buildFallbackProfile(positions, totalElevationM) {
       positions[i][0],
       positions[i][1]
     );
-    profile.push([Number(dist.toFixed(3)), 0]);
+    profile.push([Number(dist.toFixed(3)), 0, null]);
   }
   const totalD = Number(totalElevationM) || 0;
   const totalKm = profile[profile.length - 1][0] || 0;
@@ -82,48 +87,146 @@ function buildFallbackProfile(positions, totalElevationM) {
     profile,
     hasGainData: totalD > 0,
     gainEstimated: totalD > 0,
+    hasElevationData: false,
   };
 }
 
 export function getTrailGeometry(trail) {
   const positions = normalizePositions(trail?.polyline_json);
   if (positions.length < 2) {
-    return { positions: [], profile: [], hasGainData: false, gainEstimated: false };
+    return {
+      positions: [],
+      profile: [],
+      hasGainData: false,
+      gainEstimated: false,
+      hasElevationData: false,
+    };
   }
   let stored = parseStoredProfile(trail?.profile_json);
   let hasGainData = false;
   let gainEstimated = false;
+  let hasElevationData = false;
   if (stored && stored.length >= 2) {
     hasGainData = stored.some((row) => row[1] > 0);
+    hasElevationData = stored.some((row) => row[2] != null);
   } else {
     const fb = buildFallbackProfile(positions, trail?.elevation_m);
     stored = fb.profile;
     hasGainData = fb.hasGainData;
     gainEstimated = fb.gainEstimated;
+    hasElevationData = false;
   }
   return {
     positions,
     profile: stored,
     hasGainData,
     gainEstimated,
+    hasElevationData,
   };
+}
+
+export function getTrailProfileStats(trail) {
+  const { profile, hasElevationData, hasGainData, gainEstimated } =
+    getTrailGeometry(trail);
+  if (!profile.length) {
+    return {
+      points: [],
+      hasElevationData: false,
+      hasGainData: false,
+      gainEstimated: false,
+      minEle: null,
+      maxEle: null,
+      totalDistKm: 0,
+      totalGainM: 0,
+      totalLossM: 0,
+    };
+  }
+  const points = profile.map(([distKm, gainM, eleM]) => ({
+    distKm,
+    gainM,
+    eleM: eleM != null ? eleM : null,
+  }));
+  let minEle = Infinity;
+  let maxEle = -Infinity;
+  let totalLossM = 0;
+  for (let i = 0; i < points.length; i += 1) {
+    const ele = points[i].eleM;
+    if (ele != null) {
+      minEle = Math.min(minEle, ele);
+      maxEle = Math.max(maxEle, ele);
+      if (i > 0 && points[i - 1].eleM != null && ele < points[i - 1].eleM) {
+        totalLossM += points[i - 1].eleM - ele;
+      }
+    }
+  }
+  const totalDistKm = points[points.length - 1]?.distKm || 0;
+  const totalGainM =
+    Number(trail?.elevation_m) ||
+    (points.length ? points[points.length - 1].gainM : 0);
+  return {
+    points,
+    hasElevationData,
+    hasGainData,
+    gainEstimated,
+    minEle: Number.isFinite(minEle) ? minEle : null,
+    maxEle: Number.isFinite(maxEle) ? maxEle : null,
+    totalDistKm,
+    totalGainM: Math.round(totalGainM),
+    totalLossM: Math.round(totalLossM),
+  };
+}
+
+/** Pente en % (montée positive). */
+export function gradePercentAtDist(profile, distKm) {
+  if (!profile?.length) return null;
+  let i = 0;
+  while (i < profile.length - 2 && profile[i + 1][0] < distKm) i += 1;
+  const a = profile[i];
+  const b = profile[Math.min(i + 1, profile.length - 1)];
+  const dDist = b[0] - a[0];
+  if (dDist <= 0) return 0;
+  const eleA = a[2];
+  const eleB = b[2];
+  if (eleA == null || eleB == null) return null;
+  const dEle = eleB - eleA;
+  return Number(((dEle / (dDist * 1000)) * 100).toFixed(1));
+}
+
+export function terrainLabelFromGrade(gradePct) {
+  if (gradePct == null || !Number.isFinite(gradePct)) return "Pente inconnue";
+  if (gradePct >= 18) return "Montée très raide";
+  if (gradePct >= 8) return "Montée soutenue";
+  if (gradePct >= 3) return "Montée douce";
+  if (gradePct > -3) return "Plat / faible pente";
+  if (gradePct > -8) return "Descente douce";
+  if (gradePct > -18) return "Descente soutenue";
+  return "Descente raide";
 }
 
 function profileAtFraction(profile, positions, segIndex, t) {
   const n = positions.length;
-  if (!profile.length || n < 2) return { distKm: 0, gainM: 0 };
+  if (!profile.length || n < 2) {
+    return { distKm: 0, gainM: 0, eleM: null, gradePct: null };
+  }
   const frac = (segIndex + Math.max(0, Math.min(1, t))) / Math.max(1, n - 1);
   const idx = frac * (profile.length - 1);
   const i = Math.min(Math.floor(idx), profile.length - 2);
   const j = i + 1;
   const localT = idx - i;
-  const pi = profile[i] || [0, 0];
+  const pi = profile[i] || [0, 0, null];
   const pj = profile[j] || pi;
   const distKm = pi[0] + (pj[0] - pi[0]) * localT;
   const gainM = pi[1] + (pj[1] - pi[1]) * localT;
+  let eleM = null;
+  if (pi[2] != null && pj[2] != null) {
+    eleM = Math.round(pi[2] + (pj[2] - pi[2]) * localT);
+  }
+  const gradePct = gradePercentAtDist(profile, distKm);
   return {
     distKm: Number(distKm.toFixed(2)),
     gainM: Math.round(gainM),
+    eleM,
+    gradePct,
   };
 }
 
@@ -155,31 +258,29 @@ function projectOnSegment(pLat, pLon, a, b) {
   };
 }
 
-/**
- * Point le plus proche sur le tracé + km / D+ depuis le départ.
- */
 export function probeTrailAt(trail, lat, lng) {
-  const { positions, profile, hasGainData, gainEstimated } = getTrailGeometry(trail);
+  const { positions, profile, hasGainData, gainEstimated, hasElevationData } =
+    getTrailGeometry(trail);
   if (positions.length < 2) return null;
 
   let best = null;
   for (let i = 1; i < positions.length; i += 1) {
-    const proj = projectOnSegment(
-      lat,
-      lng,
-      positions[i - 1],
-      positions[i]
-    );
+    const proj = projectOnSegment(lat, lng, positions[i - 1], positions[i]);
     if (!best || proj.distToPointKm < best.distToPointKm) {
       const at = profileAtFraction(profile, positions, i - 1, proj.t);
+      const terrainLabel = terrainLabelFromGrade(at.gradePct);
       best = {
         lat: proj.lat,
         lng: proj.lng,
         distToPointKm: proj.distToPointKm,
         distKm: at.distKm,
         gainM: at.gainM,
+        eleM: at.eleM,
+        gradePct: at.gradePct,
+        terrainLabel,
         hasGainData,
         gainEstimated,
+        hasElevationData,
         segmentIndex: i - 1,
       };
     }
@@ -197,5 +298,8 @@ export function formatTrailProbeLabel(probe) {
   } else if (probe.gainEstimated) {
     gainPart = `D+ ~${gain} m (estim.)`;
   }
-  return `${km} km · ${gainPart}`;
+  const parts = [`${km} km`, gainPart];
+  if (probe.eleM != null) parts.push(`${probe.eleM} m`);
+  if (probe.terrainLabel) parts.push(probe.terrainLabel);
+  return parts.join(" · ");
 }
