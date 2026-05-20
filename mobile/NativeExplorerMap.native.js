@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef } from "react";
 import { StyleSheet, View } from "react-native";
 import MapView, { Marker, Polyline } from "react-native-maps";
 import { Ionicons } from "@expo/vector-icons";
+import { probeTrailAt } from "./trailProfile";
 
 const TRAIL_DIFFICULTY_COLORS = {
   easy: "#16A34A",
@@ -77,6 +78,7 @@ export default function NativeExplorerMap({
   dimIncompatibleBoxes = false,
   onSelectBox,
   onSelectTrail,
+  onTrailProbe,
   onMapLongPress,
   onPickLocation,
   onVisibleBoundsChange,
@@ -267,6 +269,27 @@ export default function NativeExplorerMap({
     [onSelectTrail, fitTrailToMap]
   );
 
+  const activeTrail = useMemo(() => {
+    if (activeTrailIdNum == null) return null;
+    return trails.find((t) => Number(t.id) === activeTrailIdNum) || null;
+  }, [trails, activeTrailIdNum]);
+
+  const probeAtMapCoord = useCallback(
+    (lat, lng) => {
+      if (!activeTrail || typeof onTrailProbe !== "function") {
+        onTrailProbe?.(null);
+        return;
+      }
+      const probe = probeTrailAt(activeTrail, lat, lng);
+      if (!probe || probe.distToPointKm > 0.4) {
+        onTrailProbe(null);
+        return;
+      }
+      onTrailProbe({ ...probe, trailId: activeTrailIdNum });
+    },
+    [activeTrail, activeTrailIdNum, onTrailProbe]
+  );
+
   const reportBounds = (r) => {
     if (typeof onVisibleBoundsChange !== "function" || !r) return;
     const halfLat = r.latitudeDelta / 2;
@@ -296,6 +319,8 @@ export default function NativeExplorerMap({
         const lat = Number(ev?.nativeEvent?.coordinate?.latitude);
         const lng = Number(ev?.nativeEvent?.coordinate?.longitude);
         if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+        if (activeTrailIdNum != null) probeAtMapCoord(lat, lng);
+        else onTrailProbe?.(null);
         onPickLocation?.(lat, lng);
       }}
     >
@@ -393,7 +418,16 @@ export default function NativeExplorerMap({
             lineCap="round"
             lineJoin="round"
             tappable
-            onPress={() => handleSelectTrailOnMap(t.id)}
+            onPress={(e) => {
+              handleSelectTrailOnMap(t.id);
+              if (t.isActive) {
+                const lat = Number(e?.nativeEvent?.coordinate?.latitude);
+                const lng = Number(e?.nativeEvent?.coordinate?.longitude);
+                if (Number.isFinite(lat) && Number.isFinite(lng)) {
+                  probeAtMapCoord(lat, lng);
+                }
+              }
+            }}
           />
           <Marker
             coordinate={t.coordinates[0]}

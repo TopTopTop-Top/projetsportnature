@@ -26,6 +26,7 @@ import {
 } from "react-native";
 import NativeExplorerMap from "./NativeExplorerMap";
 import ExplorerWebMap from "./ExplorerWebMap";
+import { formatTrailProbeLabel } from "./trailProfile";
 import { StatusBar } from "expo-status-bar";
 import * as DocumentPicker from "expo-document-picker";
 import {
@@ -2084,6 +2085,7 @@ function ExplorerScreen() {
   } = useAppMain();
 
   const [explorerHoveredTrailId, setExplorerHoveredTrailId] = useState(null);
+  const [explorerTrailProbe, setExplorerTrailProbe] = useState(null);
 
   const trailsOnMap = Array.isArray(trailsForMap) ? trailsForMap : [];
   const boxesOnMap = Array.isArray(boxesForMap) ? boxesForMap : [];
@@ -2253,6 +2255,7 @@ function ExplorerScreen() {
       if (!Number.isFinite(tid)) return;
       // Short tap on map should focus/keep a trail, not toggle it off.
       setSelectedTrailId(tid);
+      setExplorerTrailProbe(null);
       setMapTrailPickIds((prev) =>
         Array.isArray(prev) && prev.includes(tid)
           ? prev
@@ -3481,6 +3484,7 @@ function ExplorerScreen() {
             dimIncompatibleBoxes={mapBoxesNearTrailsOnly && mapNearShowAllOnMap}
             onSelectBox={focusExplorerBox}
             onSelectTrail={focusExplorerTrail}
+            onTrailProbe={setExplorerTrailProbe}
             onMapLongPress={handleExplorerMapLongPress}
             onPickLocation={handleExplorerMapTap}
             onVisibleBoundsChange={setMapViewportBounds}
@@ -4841,6 +4845,7 @@ function ExplorerScreen() {
                     }
                     onSelectBox={focusExplorerBox}
                     onSelectTrail={focusExplorerTrail}
+                    onTrailProbe={setExplorerTrailProbe}
                     onMapLongPress={handleExplorerMapLongPress}
                     onPickLocation={handleExplorerMapTap}
                     onVisibleBoundsChange={setMapViewportBounds}
@@ -4907,6 +4912,7 @@ function ExplorerScreen() {
                 }
                 onSelectBox={focusExplorerBox}
                 onSelectTrail={focusExplorerTrail}
+                onTrailProbe={setExplorerTrailProbe}
                 onMapLongPress={handleExplorerMapLongPress}
                 onPickLocation={handleExplorerMapTap}
                 onVisibleBoundsChange={setMapViewportBounds}
@@ -4997,6 +5003,7 @@ function TrailsScreen() {
   const [trailsMapRecenterNonce, setTrailsMapRecenterNonce] = useState(0);
   const didInitialTrailsMapFocusRef = useRef(false);
   const [hoveredTrailId, setHoveredTrailId] = useState(null);
+  const [trailsTrailProbe, setTrailsTrailProbe] = useState(null);
   const mapTrailsScope = trailsTabScope;
   const setMapTrailsScope = setTrailsTabScope;
   const mapTrailPickIds = trailsTabPickIds;
@@ -5733,6 +5740,23 @@ function TrailsScreen() {
             Astuce : depuis la liste, utilise « Voir et zoomer sur carte » pour
             sauter directement sur une trace.
           </Text>
+          {selectedTrailId != null ? (
+            trailsTrailProbe &&
+            Number(trailsTrailProbe.trailId) === Number(selectedTrailId) ? (
+              <View style={styles.trailProbeCard}>
+                <Text style={styles.trailProbeTitle}>Position sur le parcours</Text>
+                <Text style={styles.trailProbeValue}>
+                  {formatTrailProbeLabel(trailsTrailProbe)}
+                </Text>
+              </View>
+            ) : (
+              <Text style={styles.helperText}>
+                {Platform.OS === "web"
+                  ? "Survole le tracé sur la carte pour afficher km et D+ depuis le départ."
+                  : "Tape près du tracé sur la carte pour afficher km et D+ depuis le départ."}
+              </Text>
+            )
+          ) : null}
           {Platform.OS === "web" ? (
             <ExplorerWebMap
               center={[
@@ -5750,7 +5774,9 @@ function TrailsScreen() {
                 const tid = Number(id);
                 if (!Number.isFinite(tid)) return;
                 setSelectedTrailId(tid);
+                setTrailsTrailProbe(null);
               }}
+              onTrailProbe={setTrailsTrailProbe}
               onHoverTrail={(id) => setHoveredTrailId(id)}
               onMapLongPress={handleTrailsMapLongPress}
               followExternalCenter={false}
@@ -5774,7 +5800,9 @@ function TrailsScreen() {
                 const tid = Number(id);
                 if (!Number.isFinite(tid)) return;
                 setSelectedTrailId(tid);
+                setTrailsTrailProbe(null);
               }}
+              onTrailProbe={setTrailsTrailProbe}
               onMapLongPress={handleTrailsMapLongPress}
               followExternalCenter={false}
               recenterNonce={trailsMapRecenterNonce}
@@ -12070,6 +12098,28 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     color: theme.ink,
     marginBottom: 4,
+  },
+  trailProbeCard: {
+    marginTop: 8,
+    marginBottom: 4,
+    borderWidth: 1,
+    borderColor: "#99F6E4",
+    backgroundColor: "#F0FDFA",
+    borderRadius: 12,
+    padding: 10,
+  },
+  trailProbeTitle: {
+    fontSize: 11,
+    fontWeight: "800",
+    color: "#0F766E",
+    textTransform: "uppercase",
+    letterSpacing: 0.4,
+    marginBottom: 4,
+  },
+  trailProbeValue: {
+    fontSize: 16,
+    fontWeight: "800",
+    color: theme.ink,
   },
   planListCard: {
     marginTop: 8,

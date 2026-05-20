@@ -427,22 +427,59 @@ function escapeXml(value) {
     .replace(/'/g, "&apos;");
 }
 
-function simplifyLatLngs(points, maxPoints) {
-  if (points.length <= maxPoints) {
-    return points.map((p) => [p.lat, p.lon]);
+function pickSimplifyIndices(length, maxPoints) {
+  if (length <= maxPoints) {
+    return Array.from({ length }, (_, i) => i);
   }
-  const step = Math.ceil(points.length / maxPoints);
+  const step = Math.ceil(length / maxPoints);
   const out = [];
-  for (let i = 0; i < points.length; i += step) {
-    out.push([points[i].lat, points[i].lon]);
-  }
-  const last = points[points.length - 1];
-  const lastPair = [last.lat, last.lon];
-  const prev = out[out.length - 1];
-  if (prev[0] !== lastPair[0] || prev[1] !== lastPair[1]) {
-    out.push(lastPair);
-  }
+  for (let i = 0; i < length; i += step) out.push(i);
+  if (out[out.length - 1] !== length - 1) out.push(length - 1);
   return out;
+}
+
+function buildPolylineAndProfile(points, maxPoints = 450) {
+  if (!points.length) {
+    return { polylineLatLngs: [], profilePoints: [] };
+  }
+  const samples = [];
+  let distanceKm = 0;
+  let elevationM = 0;
+  for (let i = 0; i < points.length; i += 1) {
+    if (i > 0) {
+      distanceKm += haversineKm(
+        points[i - 1].lat,
+        points[i - 1].lon,
+        points[i].lat,
+        points[i].lon
+      );
+      if (
+        typeof points[i - 1].ele === "number" &&
+        typeof points[i].ele === "number" &&
+        points[i].ele > points[i - 1].ele
+      ) {
+        elevationM += points[i].ele - points[i - 1].ele;
+      }
+    }
+    samples.push({
+      lat: points[i].lat,
+      lon: points[i].lon,
+      distKm: distanceKm,
+      gainM: Math.round(elevationM),
+    });
+  }
+  const indices = pickSimplifyIndices(samples.length, maxPoints);
+  const polylineLatLngs = indices.map((i) => [samples[i].lat, samples[i].lon]);
+  const profilePoints = indices.map((i) => [
+    Number(samples[i].distKm.toFixed(3)),
+    samples[i].gainM,
+  ]);
+  return {
+    polylineLatLngs,
+    profilePoints,
+    distanceKm: Number(distanceKm.toFixed(2)),
+    elevationM: Math.round(elevationM),
+  };
 }
 
 function parseGpxStats(gpxContent) {
@@ -464,31 +501,14 @@ function parseGpxStats(gpxContent) {
     }
   }
 
-  let distanceKm = 0;
-  let elevationM = 0;
-  for (let i = 1; i < points.length; i += 1) {
-    distanceKm += haversineKm(
-      points[i - 1].lat,
-      points[i - 1].lon,
-      points[i].lat,
-      points[i].lon
-    );
-    if (
-      typeof points[i - 1].ele === "number" &&
-      typeof points[i].ele === "number" &&
-      points[i].ele > points[i - 1].ele
-    ) {
-      elevationM += points[i].ele - points[i - 1].ele;
-    }
-  }
-
-  const polylineLatLngs = points.length > 0 ? simplifyLatLngs(points, 450) : [];
+  const built = buildPolylineAndProfile(points, 450);
 
   return {
     trackPoints: points.length,
-    distanceKm: Number(distanceKm.toFixed(2)),
-    elevationM: Math.round(elevationM),
-    polylineLatLngs,
+    distanceKm: built.distanceKm,
+    elevationM: built.elevationM,
+    polylineLatLngs: built.polylineLatLngs,
+    profilePoints: built.profilePoints,
   };
 }
 
@@ -1827,10 +1847,14 @@ router.post(
         stats.polylineLatLngs.length > 0
           ? JSON.stringify(stats.polylineLatLngs)
           : null;
+      const profileJson =
+        stats.profilePoints?.length > 0
+          ? JSON.stringify(stats.profilePoints)
+          : null;
 
       const { rows } = await pool.query(
-        `INSERT INTO trails (creator_user_id, name, territory, distance_km, elevation_m, difficulty, gpx_url, notes, polyline_json, activity, criteria_json)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+        `INSERT INTO trails (creator_user_id, name, territory, distance_km, elevation_m, difficulty, gpx_url, notes, polyline_json, profile_json, activity, criteria_json)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
          RETURNING *`,
         [
           req.auth.sub,
@@ -1842,6 +1866,7 @@ router.post(
           gpxUrl,
           notes,
           polylineJson,
+          profileJson,
           activity,
           criteriaJson,
         ]
@@ -1893,20 +1918,26 @@ router.post(
         stats.polylineLatLngs.length > 0
           ? JSON.stringify(stats.polylineLatLngs)
           : null;
+      const profileJson =
+        stats.profilePoints?.length > 0
+          ? JSON.stringify(stats.profilePoints)
+          : null;
 
       const { rows } = await pool.query(
         `UPDATE trails
            SET distance_km = $1,
                elevation_m = $2,
                gpx_url = $3,
-               polyline_json = $4
-         WHERE id = $5 AND creator_user_id = $6
+               polyline_json = $4,
+               profile_json = $5
+         WHERE id = $6 AND creator_user_id = $7
          RETURNING *`,
         [
           stats.distanceKm > 0 ? stats.distanceKm : 0.1,
           stats.elevationM,
           gpxUrl,
           polylineJson,
+          profileJson,
           trailId,
           req.auth.sub,
         ]

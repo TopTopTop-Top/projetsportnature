@@ -7,6 +7,10 @@ import React, {
   useState,
 } from "react";
 import { View, Text, Platform, StyleSheet } from "react-native";
+import {
+  formatTrailProbeLabel,
+  probeTrailAt,
+} from "./trailProfile";
 
 const LEAFLET_TILE_FIX_ID = "ravitobox-leaflet-rnweb-tiles";
 
@@ -31,6 +35,14 @@ function ensureLeafletTileFix() {
     .leaflet-div-icon.ravitobox-box-house {
       background: transparent !important;
       border: none !important;
+    }
+    .leaflet-tooltip.ravitobox-trail-probe-tip {
+      font-size: 12px;
+      font-weight: 600;
+      color: #0F172A;
+      border: 1px solid #99F6E4;
+      background: rgba(255,255,255,0.96);
+      box-shadow: 0 2px 8px rgba(15,23,42,0.12);
     }
   `;
   document.head.appendChild(s);
@@ -385,6 +397,8 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
   onSelectBox,
   onSelectTrail,
   onHoverTrail,
+  /** { distKm, gainM, lat, lng, ... } le long de la trace sélectionnée */
+  onTrailProbe,
   onMapLongPress,
   onPickLocation,
   onVisibleBoundsChange,
@@ -462,6 +476,10 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
   onSelectTrailRef.current = onSelectTrail;
   const onHoverTrailRef = useRef(onHoverTrail);
   onHoverTrailRef.current = onHoverTrail;
+  const onTrailProbeRef = useRef(onTrailProbe);
+  onTrailProbeRef.current = onTrailProbe;
+  const probeLayerRef = useRef(null);
+  const probeMarkerRef = useRef(null);
   const onMapLongPressRef = useRef(onMapLongPress);
   onMapLongPressRef.current = onMapLongPress;
   const selectedBoxIdRef = useRef(selectedBoxId);
@@ -514,8 +532,11 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
     osm.addTo(map);
 
     const overlay = L.featureGroup().addTo(map);
+    const probeLayer = L.featureGroup().addTo(map);
     mapRef.current = map;
     overlayRef.current = overlay;
+    probeLayerRef.current = probeLayer;
+    probeMarkerRef.current = null;
 
     const emitBounds = () => {
       const fn = onVisibleBoundsChangeRef.current;
@@ -577,9 +598,99 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
       map.remove();
       mapRef.current = null;
       overlayRef.current = null;
+      probeLayerRef.current = null;
+      probeMarkerRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- carte unique, centre géré ailleurs
   }, [inFixedPane, pickerMode]);
+
+  useEffect(() => {
+    if (Platform.OS !== "web") return undefined;
+    const map = mapRef.current;
+    const probeLayer = probeLayerRef.current;
+    if (!map || !probeLayer) return undefined;
+
+    const clearProbeVisual = () => {
+      try {
+        probeLayer.clearLayers();
+      } catch (_e) {
+        /* noop */
+      }
+      probeMarkerRef.current = null;
+    };
+
+    const emitProbe = (probe) => {
+      const fn = onTrailProbeRef.current;
+      if (typeof fn === "function") fn(probe);
+    };
+
+    if (activeTrailIdNum == null) {
+      clearProbeVisual();
+      emitProbe(null);
+      return undefined;
+    }
+
+    const activeTrail = (trails || []).find(
+      (t) => Number(t.id) === activeTrailIdNum
+    );
+    if (!activeTrail) {
+      clearProbeVisual();
+      emitProbe(null);
+      return undefined;
+    }
+
+    const maxSnapKm = 0.35;
+
+    const handleMove = (ev) => {
+      const lat = Number(ev?.latlng?.lat);
+      const lng = Number(ev?.latlng?.lng);
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+      const probe = probeTrailAt(activeTrail, lat, lng);
+      if (!probe || probe.distToPointKm > maxSnapKm) {
+        clearProbeVisual();
+        emitProbe(null);
+        return;
+      }
+      emitProbe({ ...probe, trailId: activeTrailIdNum });
+      try {
+        const L = require("leaflet");
+        clearProbeVisual();
+        const marker = L.circleMarker([probe.lat, probe.lng], {
+          radius: 9,
+          color: "#0F766E",
+          weight: 3,
+          fillColor: "#5EEAD4",
+          fillOpacity: 0.95,
+        });
+        marker.bindTooltip(formatTrailProbeLabel(probe), {
+          permanent: true,
+          direction: "top",
+          offset: [0, -10],
+          className: "ravitobox-trail-probe-tip",
+        });
+        marker.addTo(probeLayer);
+        probeMarkerRef.current = marker;
+        marker.openTooltip?.();
+      } catch (_e) {
+        /* noop */
+      }
+    };
+
+    const handleLeave = () => {
+      clearProbeVisual();
+      emitProbe(null);
+    };
+
+    map.on("mousemove", handleMove);
+    map.on("mouseout", handleLeave);
+
+    return () => {
+      map.off("mousemove", handleMove);
+      map.off("mouseout", handleLeave);
+      clearProbeVisual();
+      emitProbe(null);
+    };
+  }, [activeTrailIdNum, trails]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -817,6 +928,49 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
           }
         };
         line.on("click", focusTrail);
+        if (isActive) {
+          const hitLine = L.polyline(positions, {
+            color: "#000000",
+            weight: Math.max(18, mainWeight + 14),
+            opacity: 0.01,
+            lineCap: "round",
+            lineJoin: "round",
+          });
+          hitLine.on("click", focusTrail);
+          hitLine.on("mousemove", (ev) => {
+            const lat = Number(ev?.latlng?.lat);
+            const lng = Number(ev?.latlng?.lng);
+            if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+            const probe = probeTrailAt(trail, lat, lng);
+            if (!probe) return;
+            onTrailProbeRef.current?.({ ...probe, trailId: tid });
+            try {
+              const m = mapRef.current;
+              if (!m) return;
+              const pl = probeLayerRef.current;
+              if (!pl) return;
+              pl.clearLayers();
+              const marker = L.circleMarker([probe.lat, probe.lng], {
+                radius: 9,
+                color: lineColor,
+                weight: 3,
+                fillColor: "#F0FDFA",
+                fillOpacity: 0.95,
+              });
+              marker.bindTooltip(formatTrailProbeLabel(probe), {
+                permanent: true,
+                direction: "top",
+                offset: [0, -10],
+              });
+              marker.addTo(pl);
+              probeMarkerRef.current = marker;
+              marker.openTooltip?.();
+            } catch (_e) {
+              /* noop */
+            }
+          });
+          hitLine.addTo(group);
+        }
         line.on("mouseover", () => {
           setHoveredTrailLocalId(tid);
           onHoverTrailRef.current?.(trail.id);
@@ -957,9 +1111,11 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
         />
         <View style={styles.hint} pointerEvents="none">
           <Text style={styles.hintText}>
-            {pickerMode
+            {activeTrailIdNum != null
+              ? "Trace active : survole le tracé pour km et D+ depuis le départ"
+              : pickerMode
               ? "Mode précis: zoom max + clic exact"
-              : "OSM · zoom molette · glisser"}
+              : "OSM · zoom molette · glisser · clic trace pour la sélectionner"}
           </Text>
         </View>
       </View>

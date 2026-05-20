@@ -179,6 +179,9 @@ async function migrate() {
       `ALTER TABLE trails ADD COLUMN IF NOT EXISTS polyline_json TEXT`
     );
     await client.query(
+      `ALTER TABLE trails ADD COLUMN IF NOT EXISTS profile_json TEXT`
+    );
+    await client.query(
       `ALTER TABLE trails ADD COLUMN IF NOT EXISTS activity TEXT`
     );
     await client.query(
