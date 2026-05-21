@@ -34,6 +34,7 @@ import { formatTrailElevationSummary } from "./trailProfile";
 import {
   loadExplorerSavedProbes,
   persistExplorerSavedProbes,
+  formatExplorerProbePlanNote,
 } from "./explorerSavedProbesStorage";
 import { StatusBar } from "expo-status-bar";
 import * as DocumentPicker from "expo-document-picker";
@@ -2189,6 +2190,7 @@ function ExplorerScreen() {
     if (!Number.isFinite(tid)) return [];
     return explorerSavedProbes.filter((e) => Number(e.trailId) === tid);
   }, [explorerSavedProbes, selectedTrailId]);
+
   const safePickedBoxIds = useMemo(
     () =>
       Array.isArray(mapPickedBoxIds)
@@ -2493,6 +2495,101 @@ function ExplorerScreen() {
 
   const [planSearchQuery, setPlanSearchQuery] = useState("");
   const [routePlanDraftNotes, setRoutePlanDraftNotes] = useState("");
+  const [explorerPlanSaveName, setExplorerPlanSaveName] = useState("");
+
+  const saveExplorerRoutePlan = useCallback(async () => {
+    if (!user) {
+      userAlert(
+        "Connexion",
+        "Connecte-toi pour enregistrer un plan sur ton compte."
+      );
+      return;
+    }
+    const tid = Number(selectedTrailId);
+    if (!Number.isFinite(tid)) {
+      userAlert("Plan", "Sélectionne une trace.");
+      return;
+    }
+    const boxIds = safePickedBoxIds;
+    const probes = savedProbesForSelectedTrail;
+    if (boxIds.length === 0 && probes.length === 0) {
+      userAlert(
+        "Plan",
+        "Coche au moins une box (panneau gauche) et/ou mémorise un point sur la trace."
+      );
+      return;
+    }
+
+    let planId = Number(activePlanForSelectedTrail?.id);
+    if (!Number.isFinite(planId) || planId <= 0) planId = null;
+
+    if (!planId) {
+      const created = await actionsRef.current.createRoutePlanFromSelection?.({
+        trailId: tid,
+        boxIds,
+        name: explorerPlanSaveName.trim() || undefined,
+        notes: routePlanDraftNotes,
+      });
+      if (!created) return;
+      planId = Number(created.id);
+      setSelectedRoutePlanId(planId);
+    } else if (boxIds.length > 0) {
+      await actionsRef.current.upsertRoutePlanBoxes?.(planId, {
+        boxIds,
+        mergeWithExisting: true,
+      });
+    }
+
+    const detail = await actionsRef.current.loadRoutePlanDetail?.(planId);
+    const existing = Array.isArray(detail?.trail_notes) ? detail.trail_notes : [];
+    let addedNotes = 0;
+    for (let i = 0; i < probes.length; i += 1) {
+      const entry = probes[i];
+      const noteText = formatExplorerProbePlanNote(entry);
+      if (!noteText) continue;
+      const lat = Number(entry.probe?.lat);
+      const lon = Number(entry.probe?.lng);
+      if (!Number.isFinite(lat) || !Number.isFinite(lon)) continue;
+      const dup = existing.some((n) => {
+        const nlat = Number(n.point_lat);
+        const nlon = Number(n.point_lon);
+        return (
+          Number.isFinite(nlat) &&
+          Number.isFinite(nlon) &&
+          nlat.toFixed(5) === lat.toFixed(5) &&
+          nlon.toFixed(5) === lon.toFixed(5)
+        );
+      });
+      if (dup) continue;
+      const ok = await actionsRef.current.addRoutePlanTrailNote?.(planId, {
+        note: noteText,
+        pointLat: lat,
+        pointLon: lon,
+        sortIndex: i,
+      });
+      if (ok) addedNotes += 1;
+    }
+
+    await actionsRef.current.loadRoutePlans?.();
+    const parts = ["Trace enregistrée"];
+    if (boxIds.length) parts.push(`${boxIds.length} box`);
+    if (addedNotes) parts.push(`${addedNotes} point(s) mémorisé(s)`);
+    userAlert(
+      "Plan enregistré",
+      `${parts.join(" · ")}. Consulte l’onglet Resa ou la section Plans de cette trace.`
+    );
+  }, [
+    user,
+    selectedTrailId,
+    safePickedBoxIds,
+    savedProbesForSelectedTrail,
+    activePlanForSelectedTrail,
+    explorerPlanSaveName,
+    routePlanDraftNotes,
+    actionsRef,
+    setSelectedRoutePlanId,
+  ]);
+
   const [planNameDraft, setPlanNameDraft] = useState("");
   const [planNotesDraft, setPlanNotesDraft] = useState("");
   const [boxCommentDraftById, setBoxCommentDraftById] = useState({});
@@ -4982,6 +5079,13 @@ function ExplorerScreen() {
                   onClearSavedProbes={() =>
                     clearExplorerSavedProbesForTrail(selectedTrailId)
                   }
+                  onSaveRoutePlan={saveExplorerRoutePlan}
+                  routePlanBusy={routePlanBusy}
+                  routePlanSaveName={explorerPlanSaveName}
+                  onRoutePlanSaveNameChange={setExplorerPlanSaveName}
+                  pickedBoxCount={safePickedBoxIds.length}
+                  hasActivePlan={Boolean(activePlanForSelectedTrail)}
+                  isAuthed={Boolean(user)}
                 />
               </View>
             ) : null}
@@ -10363,11 +10467,8 @@ function RavitoApp() {
     const ids = Array.isArray(boxIds)
       ? boxIds.map((x) => Number(x)).filter(Number.isFinite)
       : [];
-    if (!Number.isFinite(tid) || tid <= 0 || ids.length === 0) {
-      userAlert(
-        "Planification",
-        "Sélectionne une trace et au moins une box pour créer ton plan."
-      );
+    if (!Number.isFinite(tid) || tid <= 0) {
+      userAlert("Planification", "Sélectionne une trace pour créer ton plan.");
       return null;
     }
     setRoutePlanBusy(true);

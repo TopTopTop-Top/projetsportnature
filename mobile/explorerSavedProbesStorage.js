@@ -33,6 +33,22 @@ export function loadExplorerSavedProbes() {
   }
 }
 
+/** Texte pour une note plan serveur (route_plan_trail_notes). */
+export function formatExplorerProbePlanNote(entry) {
+  if (!entry?.probe) return "";
+  const p = entry.probe;
+  const parts = [
+    entry.label || "Point",
+    `${Number(p.distKm || 0).toFixed(1)} km`,
+  ];
+  if (p.eleM != null) parts.push(`${p.eleM} m`);
+  if (p.gainM != null) parts.push(`D+ ${Math.round(p.gainM)} m`);
+  if (entry.notes && String(entry.notes).trim()) {
+    parts.push(String(entry.notes).trim());
+  }
+  return parts.join(" · ").slice(0, 2000);
+}
+
 export function persistExplorerSavedProbes(entries) {
   if (typeof localStorage === "undefined") return;
   try {

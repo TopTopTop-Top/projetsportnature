@@ -356,6 +356,32 @@ function bearingDegrees(lat1, lon1, lat2, lon2) {
 }
 
 /**
+ * Cap au départ du GPX (0 km → km croissants), premier segment significatif.
+ * bearing : degrés depuis le nord, sens horaire (compatible rotation CSS sur flèche vers le haut).
+ */
+export function getTrailStartBearing(positions) {
+  if (!Array.isArray(positions) || positions.length < 2) return 0;
+  let i = 1;
+  while (i < positions.length) {
+    const d = haversineKm(
+      positions[0][0],
+      positions[0][1],
+      positions[i][0],
+      positions[i][1]
+    );
+    if (d >= 0.02) break;
+    i += 1;
+  }
+  const j = Math.min(i, positions.length - 1);
+  return bearingDegrees(
+    positions[0][0],
+    positions[0][1],
+    positions[j][0],
+    positions[j][1]
+  );
+}
+
+/**
  * Repères pour flèches de sens le long d'une polyline [[lat,lng], ...].
  * fractions : ex. [0.22, 0.5, 0.78] = position le long du tracé (0 = départ).
  */

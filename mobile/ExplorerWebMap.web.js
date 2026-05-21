@@ -12,7 +12,7 @@ import {
   formatTrailProbeCoords,
   getTrailProgressSlice,
   getTrailRemainderSlice,
-  getTrailDirectionMarkers,
+  getTrailStartBearing,
   probeTrailAt,
 } from "./trailProfile";
 
@@ -91,24 +91,21 @@ function drawTrailProbeOnMap(L, probeLayer, probe, trail, lineColor, locked) {
   }
 }
 
-/** Une seule flèche au départ (rond) = sens du tracé vers la fin. */
+/** Rond au départ : flèche vers le haut = nord, rotation = cap 0 km → km+. */
 function addTrailDirectionAtStart(L, group, positions, prominent, lineColor) {
   if (!Array.isArray(positions) || positions.length < 2) return;
-  const markers = getTrailDirectionMarkers(positions, [0.03]);
-  const m = markers[0];
-  if (!m) return;
   const size = prominent ? 42 : 34;
   const bg = lineColor || "#0F766E";
-  const bearing = Number(m.bearing).toFixed(1);
+  const bearing = Number(getTrailStartBearing(positions)).toFixed(1);
   const html = `<div style="width:${size}px;height:${size + 14}px;position:relative;">
     <div style="width:${size}px;height:${size}px;border-radius:50%;background:${bg};border:3px solid #fff;box-shadow:0 2px 8px rgba(15,23,42,0.35);display:flex;align-items:center;justify-content:center;">
-      <div style="transform:rotate(${bearing}deg);margin-top:-1px;">
-        <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true">
-          <path d="M5 12 L19 12 M13 7 L19 12 L13 17" fill="none" stroke="#fff" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/>
+      <div style="width:24px;height:24px;transform:rotate(${bearing}deg);display:flex;align-items:center;justify-content:center;">
+        <svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M12 4 L12 20 M8 10 L12 4 L16 10" fill="none" stroke="#fff" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/>
         </svg>
       </div>
     </div>
-    <div style="position:absolute;left:50%;bottom:0;transform:translateX(-50%);font-size:9px;font-weight:800;color:#0F766E;white-space:nowrap;background:rgba(255,255,255,0.92);padding:1px 5px;border-radius:4px;border:1px solid #99F6E4;">Départ</div>
+    <div style="position:absolute;left:50%;bottom:0;transform:translateX(-50%);font-size:9px;font-weight:800;color:#0F766E;white-space:nowrap;background:rgba(255,255,255,0.92);padding:1px 5px;border-radius:4px;border:1px solid #99F6E4;">Départ · 0 km</div>
   </div>`;
   const icon = L.divIcon({
     className: "ravitobox-trail-dir",

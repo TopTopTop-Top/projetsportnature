@@ -40,6 +40,13 @@ export default function TrailProfileRail({
   onFocusSavedProbe,
   onUpdateSavedProbeNotes,
   onClearSavedProbes,
+  onSaveRoutePlan,
+  routePlanBusy = false,
+  routePlanSaveName = "",
+  onRoutePlanSaveNameChange,
+  pickedBoxCount = 0,
+  hasActivePlan = false,
+  isAuthed = false,
 }) {
   const handleChartProbe = useCallback(
     (distKm) => {
@@ -197,6 +204,48 @@ export default function TrailProfileRail({
             Survole la carte ou la courbe · clic pour figer
           </Text>
         )}
+
+        <View style={styles.planSaveBlock}>
+          <Text style={styles.planSaveTitle}>Enregistrer le plan</Text>
+          <Text style={styles.planSaveHint}>
+            Trace active
+            {pickedBoxCount > 0 ? ` · ${pickedBoxCount} box cochée(s)` : ""}
+            {savedProbes.length > 0
+              ? ` · ${savedProbes.length} point(s) mémorisé(s)`
+              : ""}
+            {hasActivePlan ? " · plan existant mis à jour" : ""}
+          </Text>
+          {!isAuthed ? (
+            <Text style={styles.planSaveWarn}>
+              Connecte-toi pour sauvegarder sur ton compte (onglet Resa).
+            </Text>
+          ) : null}
+          <TextInput
+            style={styles.planSaveInput}
+            value={routePlanSaveName}
+            onChangeText={onRoutePlanSaveNameChange}
+            placeholder="Nom du plan (optionnel)"
+            placeholderTextColor="#94A3B8"
+          />
+          <Pressable
+            onPress={onSaveRoutePlan}
+            disabled={routePlanBusy || !isAuthed}
+            style={[
+              styles.actionBtn,
+              styles.actionBtnPrimary,
+              styles.planSaveBtn,
+              (routePlanBusy || !isAuthed) && styles.planSaveBtnDisabled,
+            ]}
+          >
+            <Text style={styles.actionBtnTextPrimary}>
+              {routePlanBusy
+                ? "Enregistrement…"
+                : hasActivePlan
+                ? "Mettre à jour le plan"
+                : "Enregistrer le plan complet"}
+            </Text>
+          </Pressable>
+        </View>
 
         {savedProbes.length > 0 ? (
           <View style={styles.savedBlock}>
@@ -530,6 +579,53 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: "700",
     color: "#FFFFFF",
+  },
+  planSaveBlock: {
+    marginHorizontal: 12,
+    marginTop: 12,
+    padding: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#D1FAE5",
+    backgroundColor: "#F0FDF4",
+    gap: 8,
+  },
+  planSaveTitle: {
+    fontSize: 11,
+    fontWeight: "800",
+    color: "#047857",
+    textTransform: "uppercase",
+    letterSpacing: 0.35,
+  },
+  planSaveHint: {
+    fontSize: 10,
+    fontWeight: "600",
+    color: "#065F46",
+    lineHeight: 14,
+  },
+  planSaveWarn: {
+    fontSize: 10,
+    fontWeight: "600",
+    color: "#B45309",
+  },
+  planSaveInput: {
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "#A7F3D0",
+    backgroundColor: "#FFFFFF",
+    fontSize: 12,
+    fontWeight: "600",
+    color: "#0C1B16",
+    ...(Platform.OS === "web" ? { outlineStyle: "none" } : {}),
+  },
+  planSaveBtn: {
+    alignSelf: "stretch",
+    alignItems: "center",
+  },
+  planSaveBtnDisabled: {
+    opacity: 0.55,
   },
   savedBlock: {
     marginHorizontal: 12,

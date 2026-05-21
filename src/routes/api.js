@@ -286,7 +286,7 @@ const updateMyRoleSchema = z.object({
 
 const createRoutePlanSchema = z.object({
   trailId: z.number().int().positive(),
-  boxIds: z.array(z.number().int().positive()).min(1).max(100),
+  boxIds: z.array(z.number().int().positive()).max(100).default([]),
   name: z.string().min(3).max(200).optional(),
   notes: z.string().max(4000).optional(),
 });
@@ -2051,11 +2051,12 @@ router.post("/route-plans", requireAuth, async (req, res) => {
   const input = parsed.data;
   const athleteUserId = req.auth.sub;
   const uniqBoxIds = Array.from(
-    new Set(input.boxIds.map((x) => Number(x)).filter(Number.isFinite))
+    new Set(
+      (Array.isArray(input.boxIds) ? input.boxIds : [])
+        .map((x) => Number(x))
+        .filter(Number.isFinite)
+    )
   );
-  if (uniqBoxIds.length === 0) {
-    return res.status(400).json({ error: "Select at least one box" });
-  }
 
   const { rows: trailRows } = await pool.query(
     `SELECT id, name FROM trails WHERE id = $1`,
@@ -2064,14 +2065,17 @@ router.post("/route-plans", requireAuth, async (req, res) => {
   const trail = trailRows[0];
   if (!trail) return res.status(404).json({ error: "Trail not found" });
 
-  const { rows: validBoxRows } = await pool.query(
-    `SELECT id FROM boxes WHERE id = ANY($1::int[]) AND is_active = 1`,
-    [uniqBoxIds]
-  );
-  const validSet = new Set(validBoxRows.map((r) => Number(r.id)));
-  const filteredBoxIds = uniqBoxIds.filter((id) => validSet.has(Number(id)));
-  if (filteredBoxIds.length === 0) {
-    return res.status(400).json({ error: "No active box selected" });
+  let filteredBoxIds = [];
+  if (uniqBoxIds.length > 0) {
+    const { rows: validBoxRows } = await pool.query(
+      `SELECT id FROM boxes WHERE id = ANY($1::int[]) AND is_active = 1`,
+      [uniqBoxIds]
+    );
+    const validSet = new Set(validBoxRows.map((r) => Number(r.id)));
+    filteredBoxIds = uniqBoxIds.filter((id) => validSet.has(Number(id)));
+    if (filteredBoxIds.length === 0) {
+      return res.status(400).json({ error: "No active box selected" });
+    }
   }
 
   const client = await pool.connect();
@@ -2093,13 +2097,15 @@ router.post("/route-plans", requireAuth, async (req, res) => {
       [athleteUserId, input.trailId, planName, notes]
     );
     const plan = createdRows[0];
-    for (let i = 0; i < filteredBoxIds.length; i += 1) {
-      await client.query(
-        `INSERT INTO route_plan_boxes (route_plan_id, box_id, sort_index)
-         VALUES ($1, $2, $3)
-         ON CONFLICT (route_plan_id, box_id) DO NOTHING`,
-        [plan.id, filteredBoxIds[i], i]
-      );
+    if (filteredBoxIds.length > 0) {
+      for (let i = 0; i < filteredBoxIds.length; i += 1) {
+        await client.query(
+          `INSERT INTO route_plan_boxes (route_plan_id, box_id, sort_index)
+           VALUES ($1, $2, $3)
+           ON CONFLICT (route_plan_id, box_id) DO NOTHING`,
+          [plan.id, filteredBoxIds[i], i]
+        );
+      }
     }
     await client.query("COMMIT");
     const detail = await getRoutePlanDetailsForUser(plan.id, athleteUserId);
