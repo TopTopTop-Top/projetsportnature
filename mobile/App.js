@@ -12257,8 +12257,10 @@ const styles = StyleSheet.create({
     width: 300,
     minWidth: 260,
     maxWidth: 320,
+    flex: 1,
     minHeight: 0,
     alignSelf: "stretch",
+    flexDirection: "column",
   },
   explorerWebMapPane: {
     flex: 1,

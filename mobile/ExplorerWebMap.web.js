@@ -91,42 +91,35 @@ function drawTrailProbeOnMap(L, probeLayer, probe, trail, lineColor, locked) {
   }
 }
 
-function buildDirectionArrowIcon(L, bearingDeg, prominent) {
-  const size = prominent ? 26 : 18;
-  const fill = prominent ? "#FFFFFF" : "rgba(255,255,255,0.92)";
-  const stroke = prominent ? "#0F766E" : "#334155";
-  const sw = prominent ? 2.2 : 1.6;
-  const html = `<div style="width:${size}px;height:${size}px;display:flex;align-items:center;justify-content:center;transform:rotate(${Number(bearingDeg).toFixed(1)}deg);filter:drop-shadow(0 1px 2px rgba(15,23,42,0.35));">
-    <svg width="${size}" height="${size}" viewBox="0 0 24 24" aria-hidden="true">
-      <path d="M4 12 L20 12 M14 6 L20 12 L14 18" fill="none" stroke="${stroke}" stroke-width="${sw}" stroke-linecap="round" stroke-linejoin="round"/>
-      <path d="M4 12 L20 12 M14 6 L20 12 L14 18" fill="${fill}" fill-opacity="0.85" stroke="${stroke}" stroke-width="${sw * 0.6}" stroke-linecap="round" stroke-linejoin="round"/>
-    </svg>
+/** Une seule flèche au départ (rond) = sens du tracé vers la fin. */
+function addTrailDirectionAtStart(L, group, positions, prominent, lineColor) {
+  if (!Array.isArray(positions) || positions.length < 2) return;
+  const markers = getTrailDirectionMarkers(positions, [0.03]);
+  const m = markers[0];
+  if (!m) return;
+  const size = prominent ? 42 : 34;
+  const bg = lineColor || "#0F766E";
+  const bearing = Number(m.bearing).toFixed(1);
+  const html = `<div style="width:${size}px;height:${size + 14}px;position:relative;">
+    <div style="width:${size}px;height:${size}px;border-radius:50%;background:${bg};border:3px solid #fff;box-shadow:0 2px 8px rgba(15,23,42,0.35);display:flex;align-items:center;justify-content:center;">
+      <div style="transform:rotate(${bearing}deg);margin-top:-1px;">
+        <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M5 12 L19 12 M13 7 L19 12 L13 17" fill="none" stroke="#fff" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </div>
+    </div>
+    <div style="position:absolute;left:50%;bottom:0;transform:translateX(-50%);font-size:9px;font-weight:800;color:#0F766E;white-space:nowrap;background:rgba(255,255,255,0.92);padding:1px 5px;border-radius:4px;border:1px solid #99F6E4;">Départ</div>
   </div>`;
-  return L.divIcon({
+  const icon = L.divIcon({
     className: "ravitobox-trail-dir",
     html,
-    iconSize: [size, size],
+    iconSize: [size, size + 14],
     iconAnchor: [size / 2, size / 2],
   });
-}
-
-function addTrailDirectionArrows(L, group, positions, prominent) {
-  const fracs = prominent ? [0.18, 0.42, 0.68, 0.88] : [0.55];
-  const markers = getTrailDirectionMarkers(positions, fracs);
-  markers.forEach((m) => {
-    const icon = buildDirectionArrowIcon(L, m.bearing, prominent);
-    L.marker([m.lat, m.lng], { icon, interactive: false }).addTo(group);
-  });
-  if (positions.length >= 2) {
-    const start = positions[0];
-    const startIcon = L.divIcon({
-      className: "ravitobox-trail-dir",
-      html: `<div style="font-size:9px;font-weight:800;color:#fff;background:#0F766E;border:1.5px solid #fff;border-radius:6px;padding:1px 5px;box-shadow:0 1px 3px rgba(0,0,0,0.25);">Départ</div>`,
-      iconSize: [44, 18],
-      iconAnchor: [22, 9],
-    });
-    L.marker(start, { icon: startIcon, interactive: false }).addTo(group);
-  }
+  L.marker([positions[0][0], positions[0][1]], {
+    icon,
+    interactive: false,
+  }).addTo(group);
 }
 
 function drawSavedProbesOnMap(L, probeLayer, savedProbes) {
@@ -1190,7 +1183,7 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
         };
         line.on("click", focusTrail);
         if (isActive || isPicked) {
-          addTrailDirectionArrows(L, group, positions, isActive);
+          addTrailDirectionAtStart(L, group, positions, isActive, lineColor);
         }
         if (isActive) {
           const hitLine = L.polyline(positions, {

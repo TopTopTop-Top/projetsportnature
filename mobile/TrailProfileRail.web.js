@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   View,
   Text,
@@ -71,6 +71,14 @@ export default function TrailProfileRail({
     onProbeChange?.(null);
   }, [onProbeLock, onProbeChange]);
 
+  const scrollRef = useRef(null);
+
+  const scrollToBottom = useCallback(() => {
+    requestAnimationFrame(() => {
+      scrollRef.current?.scrollToEnd?.({ animated: true });
+    });
+  }, []);
+
   if (!trail) return null;
 
   const altMeta = getTrailAltitudeMeta(trail);
@@ -85,10 +93,13 @@ export default function TrailProfileRail({
   return (
     <View style={styles.rail}>
       <ScrollView
+        ref={scrollRef}
         style={styles.railScroll}
         contentContainerStyle={styles.railScrollContent}
         showsVerticalScrollIndicator
         keyboardShouldPersistTaps="handled"
+        nestedScrollEnabled
+        bounces={false}
       >
         <View style={styles.hero}>
           <Text style={styles.heroLabel}>Trace active</Text>
@@ -211,6 +222,7 @@ export default function TrailProfileRail({
                 onSaveNotes={(notes) =>
                   onUpdateSavedProbeNotes?.(entry.id, notes)
                 }
+                onExpandEditor={scrollToBottom}
               />
             ))}
           </View>
@@ -220,13 +232,23 @@ export default function TrailProfileRail({
   );
 }
 
-function SavedProbeCard({ entry, onFocus, onRemove, onSaveNotes }) {
+function SavedProbeCard({
+  entry,
+  onFocus,
+  onRemove,
+  onSaveNotes,
+  onExpandEditor,
+}) {
   const [draft, setDraft] = useState(entry.notes || "");
   const [expanded, setExpanded] = useState(false);
 
   useEffect(() => {
     setDraft(entry.notes || "");
   }, [entry.id, entry.notes]);
+
+  useEffect(() => {
+    if (expanded) onExpandEditor?.();
+  }, [expanded, onExpandEditor]);
 
   const saveNotes = useCallback(() => {
     onSaveNotes?.(draft);
@@ -261,7 +283,13 @@ function SavedProbeCard({ entry, onFocus, onRemove, onSaveNotes }) {
           ) : null}
         </Pressable>
         <Pressable
-          onPress={() => setExpanded((v) => !v)}
+          onPress={() => {
+            setExpanded((v) => {
+              const next = !v;
+              if (next) onExpandEditor?.();
+              return next;
+            });
+          }}
           style={styles.savedNoteBtn}
         >
           <Text style={styles.savedNoteBtnText}>{expanded ? "▲" : "✎"}</Text>
@@ -341,9 +369,13 @@ const styles = StyleSheet.create({
   railScroll: {
     flex: 1,
     minHeight: 0,
+    ...(Platform.OS === "web"
+      ? { overflowY: "auto", overflowX: "hidden", WebkitOverflowScrolling: "touch" }
+      : {}),
   },
   railScrollContent: {
-    paddingBottom: 16,
+    paddingBottom: 120,
+    flexGrow: 0,
   },
   hero: {
     backgroundColor: "#062D26",
@@ -421,7 +453,8 @@ const styles = StyleSheet.create({
     borderRadius: 2,
   },
   chartZone: {
-    minHeight: 168,
+    height: 168,
+    maxHeight: 168,
     marginTop: 6,
     paddingHorizontal: 8,
   },
