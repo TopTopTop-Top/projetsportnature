@@ -187,18 +187,24 @@ function WebElevationChart({
             const rect = e.currentTarget.getBoundingClientRect();
             handlePointer(e.clientX, rect, false);
           },
-          onMouseDown: (e) => {
-            if (e.button !== 0) return;
-            e.preventDefault();
+          onClick: (e) => {
             const rect = e.currentTarget.getBoundingClientRect();
-            handlePointer(e.clientX, rect, true);
-            onProbeClick?.();
+            if (probeLocked) {
+              onProbeLock?.(false);
+              handlePointer(e.clientX, rect, false);
+            } else {
+              handlePointer(e.clientX, rect, true);
+              onProbeClick?.();
+            }
           },
           onMouseEnter: () => onChartHoverStart?.(),
           onMouseLeave: () => {
             onChartHoverEnd?.();
           },
-          style: { display: "block", cursor: probeLocked ? "default" : "crosshair" },
+          style: {
+            display: "block",
+            cursor: probeLocked ? "pointer" : "crosshair",
+          },
         }
       : { style: { display: "block" } };
 

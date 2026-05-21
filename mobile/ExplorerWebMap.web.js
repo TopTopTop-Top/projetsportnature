@@ -781,8 +781,13 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
               /* noop */
             }
             const fullProbe = { ...probe, trailId: tid, source: "map" };
+            const wasLocked = lockTrailProbeRef.current;
             onTrailProbeRef.current?.(fullProbe);
-            onTrailProbeLockRef.current?.(true);
+            if (wasLocked) {
+              onTrailProbeLockRef.current?.(false);
+            } else {
+              onTrailProbeLockRef.current?.(true);
+            }
             return;
           }
         }
@@ -1190,19 +1195,34 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
             lineCap: "round",
             lineJoin: "round",
           });
-          const emitTrailProbe = (ev, lock) => {
+          const emitTrailProbe = (ev, isClick) => {
             const lat = Number(ev?.latlng?.lat);
             const lng = Number(ev?.latlng?.lng);
             if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
             const probe = probeTrailAt(trail, lat, lng);
             if (!probe) return;
             const fullProbe = { ...probe, trailId: tid, source: "map" };
+            const wasLocked = lockTrailProbeRef.current;
             onTrailProbeRef.current?.(fullProbe);
-            if (lock) onTrailProbeLockRef.current?.(true);
+            if (isClick) {
+              if (wasLocked) {
+                onTrailProbeLockRef.current?.(false);
+              } else {
+                onTrailProbeLockRef.current?.(true);
+              }
+            }
             try {
               const pl = probeLayerRef.current;
               if (!pl) return;
-              drawTrailProbeOnMap(L, pl, fullProbe, trail, lineColor, !!lock);
+              const lockedNow = isClick ? !wasLocked : lockTrailProbeRef.current;
+              drawTrailProbeOnMap(
+                L,
+                pl,
+                fullProbe,
+                trail,
+                lineColor,
+                !!lockedNow
+              );
             } catch (_e) {
               /* noop */
             }

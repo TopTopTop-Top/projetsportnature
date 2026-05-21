@@ -179,10 +179,12 @@ export default function TrailProfileRail({
               {formatTrailProbeCoords(probe)}
             </Text>
             {probeLocked ? (
-              <Text style={styles.probeLockedLabel}>Point figé — zoom libre</Text>
+              <Text style={styles.probeLockedLabel}>
+                Point figé — clic ailleurs sur la courbe ou le tracé pour suivre à nouveau
+              </Text>
             ) : (
               <Text style={styles.probeHint}>
-                Clic sur la courbe ou le tracé pour figer le point
+                Clic sur la courbe ou le tracé pour figer · survol = suivi libre
               </Text>
             )}
             <View style={styles.probeActions}>

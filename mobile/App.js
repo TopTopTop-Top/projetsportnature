@@ -2140,7 +2140,7 @@ function ExplorerScreen() {
         probe: { ...explorerTrailProbe },
       },
     ]);
-    setExplorerProbeLock(true);
+    setExplorerProbeLock(false);
   }, [
     explorerTrailProbe,
     selectedTrailId,
@@ -2153,7 +2153,7 @@ function ExplorerScreen() {
   const focusExplorerSavedProbe = useCallback((entry) => {
     if (!entry?.probe) return;
     setExplorerTrailProbe({ ...entry.probe });
-    setExplorerProbeLock(true);
+    setExplorerProbeLock(false);
   }, [setExplorerProbeLock]);
   const clearExplorerSavedProbesForTrail = useCallback((trailId) => {
     const tid = Number(trailId);
