@@ -40,14 +40,45 @@ export default function TrailProfileRail({
   onFocusSavedProbe,
   onUpdateSavedProbeNotes,
   onClearSavedProbes,
+  onExitTrailSelection,
   onSaveRoutePlan,
   routePlanBusy = false,
   routePlanSaveName = "",
   onRoutePlanSaveNameChange,
+  routePlanDraftNotes = "",
+  onRoutePlanDraftNotesChange,
   pickedBoxCount = 0,
+  pickedBoxes = [],
+  linkableBoxes = [],
+  plansForTrail = [],
+  selectedPlanId = null,
+  onSelectPlan,
+  activePlan = null,
+  onUpsertPickedBoxesToPlan,
+  onApplyPlanToMap,
+  onSaveActivePlanDrafts,
+  onBookBox,
+  onFocusBox,
+  planNameDraft = "",
+  onPlanNameDraftChange,
+  planNotesDraft = "",
+  onPlanNotesDraftChange,
+  onUpdateSavedProbeLinkedBox,
   hasActivePlan = false,
   isAuthed = false,
+  trailGeneralNotes = "",
+  isTrailCreator = false,
+  trailTips = [],
+  sharedPlans = [],
+  sharedPlansBusy = false,
+  onRefreshCommunity,
+  onForkSharedPlan,
+  onPublishTrailTip,
+  onDeleteTrailTip,
+  activePlanVisibility = "private",
+  onSetPlanVisibility,
 }) {
+  const [workspaceTab, setWorkspaceTab] = useState("composer");
   const handleChartProbe = useCallback(
     (distKm) => {
       if (!trail) return;
@@ -109,7 +140,19 @@ export default function TrailProfileRail({
         bounces={false}
       >
         <View style={styles.hero}>
-          <Text style={styles.heroLabel}>Trace active</Text>
+          <View style={styles.heroTop}>
+            <Text style={styles.heroLabel}>Trace active</Text>
+            {onExitTrailSelection ? (
+              <Pressable
+                onPress={onExitTrailSelection}
+                hitSlop={8}
+                accessibilityRole="button"
+                accessibilityLabel="Quitter la trace sélectionnée"
+              >
+                <Text style={styles.heroExit}>Quitter</Text>
+              </Pressable>
+            ) : null}
+          </View>
           <Text style={styles.heroTitle} numberOfLines={2}>
             {trail.name || "Sans nom"}
           </Text>
@@ -118,6 +161,43 @@ export default function TrailProfileRail({
           </Text>
         </View>
 
+        <View style={styles.workspaceLegend}>
+          <Text style={styles.workspaceLegendText}>
+            <Text style={styles.workspaceLegendBold}>Composer</Text> — préparer
+            · <Text style={styles.workspaceLegendBold}>Mon plan</Text> — ton
+            compte · <Text style={styles.workspaceLegendBold}>Communauté</Text>{" "}
+            — conseils & modèles partagés
+          </Text>
+        </View>
+
+        <View style={styles.tabBar}>
+          {[
+            { id: "composer", label: "Composer" },
+            { id: "plan", label: "Mon plan" },
+            { id: "community", label: "Communauté" },
+          ].map((t) => (
+            <Pressable
+              key={t.id}
+              onPress={() => setWorkspaceTab(t.id)}
+              style={[
+                styles.tabBtn,
+                workspaceTab === t.id && styles.tabBtnActive,
+              ]}
+            >
+              <Text
+                style={[
+                  styles.tabBtnText,
+                  workspaceTab === t.id && styles.tabBtnTextActive,
+                ]}
+              >
+                {t.label}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
+
+        {workspaceTab === "composer" ? (
+          <>
         <View style={styles.stats}>
           <Stat label="Distance" value={`${totalKm} km`} />
           {altMeta.status === "profile" ? (
@@ -192,8 +272,18 @@ export default function TrailProfileRail({
                 onPress={onSaveProbe}
                 style={[styles.actionBtn, styles.actionBtnPrimary]}
               >
-                <Text style={styles.actionBtnTextPrimary}>Mémoriser</Text>
+                <Text style={styles.actionBtnTextPrimary}>
+                  Mémoriser (brouillon)
+                </Text>
               </Pressable>
+              {isTrailCreator && probe ? (
+                <Pressable
+                  onPress={onPublishTrailTip}
+                  style={[styles.actionBtn, styles.actionBtnCreator]}
+                >
+                  <Text style={styles.actionBtnText}>Publier conseil trace</Text>
+                </Pressable>
+              ) : null}
               {probeLocked ? (
                 <Pressable onPress={handleClearProbe} style={styles.actionBtn}>
                   <Text style={styles.actionBtnText}>Déverrouiller</Text>
@@ -207,53 +297,19 @@ export default function TrailProfileRail({
           </Text>
         )}
 
-        <View style={styles.planSaveBlock}>
-          <Text style={styles.planSaveTitle}>Enregistrer le plan</Text>
-          <Text style={styles.planSaveHint}>
-            Trace active
-            {pickedBoxCount > 0 ? ` · ${pickedBoxCount} box cochée(s)` : ""}
-            {savedProbes.length > 0
-              ? ` · ${savedProbes.length} point(s) mémorisé(s)`
-              : ""}
-            {hasActivePlan ? " · plan existant mis à jour" : ""}
+        <View style={styles.composerHintBox}>
+          <Text style={styles.composerHintTitle}>Étape suivante</Text>
+          <Text style={styles.composerHintText}>
+            Coche des box sur la carte (panneau gauche), puis passe à l’onglet
+            Mon plan pour enregistrer sur ton compte.
           </Text>
-          {!isAuthed ? (
-            <Text style={styles.planSaveWarn}>
-              Connecte-toi pour sauvegarder sur ton compte (onglet Resa).
-            </Text>
-          ) : null}
-          <TextInput
-            style={styles.planSaveInput}
-            value={routePlanSaveName}
-            onChangeText={onRoutePlanSaveNameChange}
-            placeholder="Nom du plan (optionnel)"
-            placeholderTextColor="#94A3B8"
-          />
-          <Pressable
-            onPress={onSaveRoutePlan}
-            disabled={routePlanBusy || !isAuthed}
-            style={[
-              styles.actionBtn,
-              styles.actionBtnPrimary,
-              styles.planSaveBtn,
-              (routePlanBusy || !isAuthed) && styles.planSaveBtnDisabled,
-            ]}
-          >
-            <Text style={styles.actionBtnTextPrimary}>
-              {routePlanBusy
-                ? "Enregistrement…"
-                : hasActivePlan
-                ? "Mettre à jour le plan"
-                : "Enregistrer le plan complet"}
-            </Text>
-          </Pressable>
         </View>
 
         {savedProbes.length > 0 ? (
           <View style={styles.savedBlock}>
             <View style={styles.savedHeader}>
               <Text style={styles.savedTitle}>
-                Points mémorisés ({savedProbes.length})
+                Brouillon — points ({savedProbes.length})
               </Text>
               {onClearSavedProbes ? (
                 <Pressable onPress={onClearSavedProbes}>
@@ -262,32 +318,496 @@ export default function TrailProfileRail({
               ) : null}
             </View>
             <Text style={styles.savedHint}>
-              Tips, ravitaillement, box à réserver… (enregistré sur cet appareil)
+              Enregistrés sur cet appareil jusqu’à « Enregistrer le plan complet »
+              (onglet Mon plan).
             </Text>
             {savedProbes.map((entry) => (
               <SavedProbeCard
                 key={entry.id}
                 entry={entry}
+                linkableBoxes={linkableBoxes}
                 onFocus={() => onFocusSavedProbe?.(entry)}
                 onRemove={() => onRemoveSavedProbe?.(entry.id)}
                 onSaveNotes={(notes) =>
                   onUpdateSavedProbeNotes?.(entry.id, notes)
+                }
+                onLinkBoxChange={(boxId) =>
+                  onUpdateSavedProbeLinkedBox?.(entry.id, boxId)
                 }
                 onExpandEditor={scrollToBottom}
               />
             ))}
           </View>
         ) : null}
+          </>
+        ) : null}
+
+        {workspaceTab === "plan" ? (
+        <TrailPlanHub
+          isAuthed={isAuthed}
+          routePlanBusy={routePlanBusy}
+          pickedBoxCount={pickedBoxCount}
+          pickedBoxes={pickedBoxes}
+          savedProbeCount={savedProbes.length}
+          plansForTrail={plansForTrail}
+          selectedPlanId={selectedPlanId}
+          onSelectPlan={onSelectPlan}
+          activePlan={activePlan}
+          routePlanSaveName={routePlanSaveName}
+          onRoutePlanSaveNameChange={onRoutePlanSaveNameChange}
+          routePlanDraftNotes={routePlanDraftNotes}
+          onRoutePlanDraftNotesChange={onRoutePlanDraftNotesChange}
+          planNameDraft={planNameDraft}
+          onPlanNameDraftChange={onPlanNameDraftChange}
+          planNotesDraft={planNotesDraft}
+          onPlanNotesDraftChange={onPlanNotesDraftChange}
+          hasActivePlan={hasActivePlan}
+          onSaveRoutePlan={onSaveRoutePlan}
+          onUpsertPickedBoxesToPlan={onUpsertPickedBoxesToPlan}
+          onApplyPlanToMap={onApplyPlanToMap}
+          onSaveActivePlanDrafts={onSaveActivePlanDrafts}
+          onBookBox={onBookBox}
+          onFocusBox={onFocusBox}
+          activePlanVisibility={activePlanVisibility}
+          onSetPlanVisibility={onSetPlanVisibility}
+          onForkSharedPlan={onForkSharedPlan}
+          savedProbeCount={savedProbes.length}
+        />
+        ) : null}
+
+        {workspaceTab === "community" ? (
+          <CommunityPanel
+            trailGeneralNotes={trailGeneralNotes}
+            isTrailCreator={isTrailCreator}
+            trailTips={trailTips}
+            sharedPlans={sharedPlans}
+            sharedPlansBusy={sharedPlansBusy}
+            isAuthed={isAuthed}
+            onRefresh={onRefreshCommunity}
+            onForkPlan={onForkSharedPlan}
+            onDeleteTrailTip={onDeleteTrailTip}
+          />
+        ) : null}
       </ScrollView>
+    </View>
+  );
+}
+
+function CommunityPanel({
+  trailGeneralNotes,
+  isTrailCreator,
+  trailTips,
+  sharedPlans,
+  sharedPlansBusy,
+  isAuthed,
+  onRefresh,
+  onForkPlan,
+  onDeleteTrailTip,
+}) {
+  return (
+    <View style={styles.communityBlock}>
+      <Text style={styles.communityTitle}>Communauté sur cette trace</Text>
+      <Text style={styles.communityIntro}>
+        Conseils officiels du créateur et plans partagés par d’autres athlètes.
+        Tu peux repartir d’un plan partagé pour créer le tien (box et créneaux à
+        adapter).
+      </Text>
+      <Pressable onPress={onRefresh} style={styles.communityRefresh}>
+        <Text style={styles.communityRefreshText}>
+          {sharedPlansBusy ? "Actualisation…" : "Actualiser"}
+        </Text>
+      </Pressable>
+
+      {String(trailGeneralNotes || "").trim() ? (
+        <View style={styles.communityCard}>
+          <Text style={styles.communityCardLabel}>Note du créateur (trace)</Text>
+          <Text style={styles.communityCardBody}>{trailGeneralNotes}</Text>
+        </View>
+      ) : null}
+
+      <Text style={styles.communitySectionLabel}>
+        Conseils sur le tracé ({trailTips.length})
+      </Text>
+      {isTrailCreator ? (
+        <Text style={styles.communityHint}>
+          Tu es le créateur : publie un conseil depuis l’onglet Composer (bouton
+          « Publier conseil trace » sur un point figé).
+        </Text>
+      ) : null}
+      {trailTips.length === 0 ? (
+        <Text style={styles.communityEmpty}>Aucun conseil publié pour l’instant.</Text>
+      ) : (
+        trailTips.map((tip) => (
+          <View key={`tip-${tip.id}`} style={styles.communityCard}>
+            <Text style={styles.communityCardLabel}>
+              {tip.label || "Conseil"} · {tip.author_label || "—"}
+            </Text>
+            <Text style={styles.communityCardBody}>{tip.note}</Text>
+            {tip.dist_km != null ? (
+              <Text style={styles.communityCardMeta}>
+                {Number(tip.dist_km).toFixed(1)} km sur le tracé
+              </Text>
+            ) : null}
+            {isTrailCreator && onDeleteTrailTip ? (
+              <Pressable
+                onPress={() => onDeleteTrailTip(tip.id)}
+                style={styles.communityDeleteBtn}
+              >
+                <Text style={styles.communityDeleteText}>Supprimer</Text>
+              </Pressable>
+            ) : null}
+          </View>
+        ))
+      )}
+
+      <Text style={styles.communitySectionLabel}>
+        Plans partagés ({sharedPlans.length})
+      </Text>
+      {!isAuthed ? (
+        <Text style={styles.communityHint}>
+          Connecte-toi pour copier un plan partagé sur ton compte.
+        </Text>
+      ) : null}
+      {sharedPlans.length === 0 ? (
+        <Text style={styles.communityEmpty}>
+          Aucun plan partagé. Partage le tien depuis Mon plan (bouton ci-dessous
+          quand un plan est actif).
+        </Text>
+      ) : (
+        sharedPlans.map((plan) => (
+          <View key={`shared-${plan.id}`} style={styles.communityCard}>
+            <Text style={styles.communityCardLabel}>
+              {plan.name} · {plan.author_label || "Athlète"}
+            </Text>
+            <Text style={styles.communityCardMeta}>
+              {plan.box_count || 0} box · {plan.tip_count || 0} conseil(s) GPS
+            </Text>
+            {plan.notes ? (
+              <Text style={styles.communityCardBody} numberOfLines={3}>
+                {plan.notes}
+              </Text>
+            ) : null}
+            {isAuthed && onForkPlan ? (
+              <Pressable
+                onPress={() => onForkPlan(Number(plan.id))}
+                style={[styles.actionBtn, styles.actionBtnPrimary, { marginTop: 8 }]}
+              >
+                <Text style={styles.actionBtnTextPrimary}>
+                  Créer mon plan à partir de celui-ci
+                </Text>
+              </Pressable>
+            ) : null}
+          </View>
+        ))
+      )}
+    </View>
+  );
+}
+
+function TrailPlanHub({
+  isAuthed,
+  routePlanBusy,
+  pickedBoxCount,
+  pickedBoxes,
+  savedProbeCount,
+  plansForTrail,
+  selectedPlanId,
+  onSelectPlan,
+  activePlan,
+  routePlanSaveName,
+  onRoutePlanSaveNameChange,
+  routePlanDraftNotes,
+  onRoutePlanDraftNotesChange,
+  planNameDraft,
+  onPlanNameDraftChange,
+  planNotesDraft,
+  onPlanNotesDraftChange,
+  hasActivePlan,
+  onSaveRoutePlan,
+  onUpsertPickedBoxesToPlan,
+  onApplyPlanToMap,
+  onSaveActivePlanDrafts,
+  onBookBox,
+  onFocusBox,
+  activePlanVisibility = "private",
+  onSetPlanVisibility,
+  onForkSharedPlan,
+}) {
+  const planBoxes = Array.isArray(activePlan?.boxes) ? activePlan.boxes : [];
+
+  return (
+    <View style={styles.planSaveBlock}>
+      <Text style={styles.planSaveTitle}>Mon plan (compte RavitoBox)</Text>
+      <Text style={styles.planWorkflow}>
+        Enregistre ici trace + box cochées + brouillons de l’onglet Composer.
+        Réservations : bouton Réserver par box. Partage : rends ton plan visible
+        dans Communauté pour inspirer les autres.
+      </Text>
+
+      {isAuthed && plansForTrail.length > 0 ? (
+        <View style={styles.planChipsWrap}>
+          <Text style={styles.planSubLabel}>Plans sur cette trace</Text>
+          <View style={styles.planChipsRow}>
+            {plansForTrail.slice(0, 6).map((plan) => {
+              const pid = Number(plan.id);
+              const active = Number(selectedPlanId) === pid;
+              return (
+                <Pressable
+                  key={`rail-plan-${pid}`}
+                  onPress={() => onSelectPlan?.(pid)}
+                  style={[styles.planChip, active && styles.planChipActive]}
+                >
+                  <Text
+                    style={[
+                      styles.planChipText,
+                      active && styles.planChipTextActive,
+                    ]}
+                    numberOfLines={1}
+                  >
+                    {plan.name || `Plan #${pid}`}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+        </View>
+      ) : null}
+
+      {hasActivePlan && activePlan ? (
+        <View style={styles.planActiveCard}>
+          <Text style={styles.planActiveTitle}>
+            Plan actif : {activePlan.name}
+          </Text>
+          <Text style={styles.planActiveMeta}>
+            {(activePlan.validated_box_count || 0) + (activePlan.pending_box_count || 0)} box
+            · {Array.isArray(activePlan.trail_notes) ? activePlan.trail_notes.length : 0}{" "}
+            note(s) enregistrée(s)
+          </Text>
+          {onPlanNameDraftChange ? (
+            <TextInput
+              style={styles.planSaveInput}
+              value={planNameDraft}
+              onChangeText={onPlanNameDraftChange}
+              placeholder="Nom du plan"
+              placeholderTextColor="#94A3B8"
+            />
+          ) : null}
+          {onPlanNotesDraftChange ? (
+            <TextInput
+              style={[styles.planSaveInput, styles.planNotesInput]}
+              value={planNotesDraft}
+              onChangeText={onPlanNotesDraftChange}
+              placeholder="Notes générales du plan"
+              placeholderTextColor="#94A3B8"
+              multiline
+            />
+          ) : null}
+          <View style={styles.planBtnRow}>
+            {onSaveActivePlanDrafts ? (
+              <Pressable
+                onPress={onSaveActivePlanDrafts}
+                style={[styles.actionBtn, styles.planBtnHalf]}
+              >
+                <Text style={styles.actionBtnText}>Sauver nom & notes</Text>
+              </Pressable>
+            ) : null}
+            {onApplyPlanToMap ? (
+              <Pressable
+                onPress={() => onApplyPlanToMap(activePlan)}
+                style={[styles.actionBtn, styles.planBtnHalf]}
+              >
+                <Text style={styles.actionBtnText}>Carte</Text>
+              </Pressable>
+            ) : null}
+          </View>
+          {onSetPlanVisibility ? (
+            <Pressable
+              onPress={() =>
+                onSetPlanVisibility(
+                  activePlanVisibility === "shared" ? "private" : "shared"
+                )
+              }
+              style={[
+                styles.shareToggle,
+                activePlanVisibility === "shared" && styles.shareToggleOn,
+              ]}
+            >
+              <Text
+                style={[
+                  styles.shareToggleText,
+                  activePlanVisibility === "shared" &&
+                    styles.shareToggleTextOn,
+                ]}
+              >
+                {activePlanVisibility === "shared"
+                  ? "Plan partagé — visible en Communauté"
+                  : "Rendre ce plan public (Communauté)"}
+              </Text>
+            </Pressable>
+          ) : null}
+          {onForkSharedPlan && activePlan?.id ? (
+            <Pressable
+              onPress={() => onForkSharedPlan(Number(activePlan.id))}
+              style={[styles.actionBtn, { marginTop: 6 }]}
+            >
+              <Text style={styles.actionBtnText}>Dupliquer ce plan</Text>
+            </Pressable>
+          ) : null}
+        </View>
+      ) : (
+        <Text style={styles.planSaveHint}>
+          Pas de plan chargé — enregistre pour créer le lien trace + box + points.
+        </Text>
+      )}
+
+      {pickedBoxes.length > 0 ? (
+        <View style={styles.planBoxesSection}>
+          <Text style={styles.planSubLabel}>
+            Box cochées ({pickedBoxCount})
+          </Text>
+          {pickedBoxes.map((b) => (
+            <View key={`picked-box-${b.id}`} style={styles.planBoxRow}>
+              <Pressable
+                style={styles.planBoxRowMain}
+                onPress={() => onFocusBox?.(b.id)}
+              >
+                <Text style={styles.planBoxTitle} numberOfLines={1}>
+                  {b.title}
+                </Text>
+                <Text style={styles.planBoxMeta} numberOfLines={1}>
+                  {b.city || "—"}
+                  {b.inPlan ? " · dans le plan" : " · à ajouter au plan"}
+                </Text>
+              </Pressable>
+              {onBookBox ? (
+                <Pressable
+                  onPress={() => onBookBox(b.id)}
+                  style={styles.planBoxBookBtn}
+                >
+                  <Text style={styles.planBoxBookText}>Réserver</Text>
+                </Pressable>
+              ) : null}
+            </View>
+          ))}
+          {onUpsertPickedBoxesToPlan ? (
+            <Pressable
+              onPress={onUpsertPickedBoxesToPlan}
+              disabled={routePlanBusy || !isAuthed}
+              style={[styles.actionBtn, styles.planSyncBtn]}
+            >
+              <Text style={styles.actionBtnText}>
+                {hasActivePlan
+                  ? "Ajouter les box cochées au plan"
+                  : "Créer un plan avec ces box"}
+              </Text>
+            </Pressable>
+          ) : null}
+        </View>
+      ) : (
+        <Text style={styles.planSaveHint}>
+          Coche des box sur la carte (clic ou appui long) pour les lier à ce
+          plan.
+        </Text>
+      )}
+
+      {hasActivePlan && planBoxes.length > 0 ? (
+        <View style={styles.planBoxesSection}>
+          <Text style={styles.planSubLabel}>Box du plan (compte)</Text>
+          {planBoxes.map((b) => {
+            const status = String(b.validation_status || "pending");
+            const bookingStatus = String(
+              b.latest_booking_status || ""
+            ).toLowerCase();
+            const hasBooking =
+              bookingStatus &&
+              bookingStatus !== "cancelled" &&
+              bookingStatus !== "canceled";
+            return (
+              <View key={`plan-box-${b.id}`} style={styles.planBoxRow}>
+                <Pressable
+                  style={styles.planBoxRowMain}
+                  onPress={() => onFocusBox?.(Number(b.id))}
+                >
+                  <Text style={styles.planBoxTitle} numberOfLines={1}>
+                    {b.title || "Box"}
+                  </Text>
+                  <Text style={styles.planBoxMeta} numberOfLines={1}>
+                    {status}
+                    {hasBooking ? " · créneau lié" : " · pas encore réservée"}
+                  </Text>
+                </Pressable>
+                {onBookBox ? (
+                  <Pressable
+                    onPress={() => onBookBox(Number(b.id))}
+                    style={styles.planBoxBookBtn}
+                  >
+                    <Text style={styles.planBoxBookText}>Réserver</Text>
+                  </Pressable>
+                ) : null}
+              </View>
+            );
+          })}
+        </View>
+      ) : null}
+
+      {!isAuthed ? (
+        <Text style={styles.planSaveWarn}>
+          Connecte-toi pour sauvegarder sur ton compte.
+        </Text>
+      ) : null}
+
+      <TextInput
+        style={styles.planSaveInput}
+        value={routePlanSaveName}
+        onChangeText={onRoutePlanSaveNameChange}
+        placeholder="Nom du plan (nouveau ou complet)"
+        placeholderTextColor="#94A3B8"
+      />
+      {onRoutePlanDraftNotesChange ? (
+        <TextInput
+          style={[styles.planSaveInput, styles.planNotesInput]}
+          value={routePlanDraftNotes}
+          onChangeText={onRoutePlanDraftNotesChange}
+          placeholder="Notes plan (stratégie, ravitos…)"
+          placeholderTextColor="#94A3B8"
+          multiline
+        />
+      ) : null}
+      <Text style={styles.planSaveHint}>
+        {pickedBoxCount > 0 ? `${pickedBoxCount} box cochée(s)` : "0 box"}
+        {savedProbeCount > 0
+          ? ` · ${savedProbeCount} point(s) mémorisé(s) → notes GPS au save`
+          : ""}
+      </Text>
+      <Pressable
+        onPress={onSaveRoutePlan}
+        disabled={routePlanBusy || !isAuthed}
+        style={[
+          styles.actionBtn,
+          styles.actionBtnPrimary,
+          styles.planSaveBtn,
+          (routePlanBusy || !isAuthed) && styles.planSaveBtnDisabled,
+        ]}
+      >
+        <Text style={styles.actionBtnTextPrimary}>
+          {routePlanBusy
+            ? "Enregistrement…"
+            : hasActivePlan
+            ? "Enregistrer le plan complet"
+            : "Créer le plan (trace + box + points)"}
+        </Text>
+      </Pressable>
     </View>
   );
 }
 
 function SavedProbeCard({
   entry,
+  linkableBoxes = [],
   onFocus,
   onRemove,
   onSaveNotes,
+  onLinkBoxChange,
   onExpandEditor,
 }) {
   const [draft, setDraft] = useState(entry.notes || "");
@@ -307,6 +827,8 @@ function SavedProbeCard({
   }, [draft, onSaveNotes]);
 
   const hasNotes = String(entry.notes || "").trim().length > 0;
+  const linkedId = Number(entry.linkedBoxId);
+  const linkedBox = linkableBoxes.find((b) => Number(b.id) === linkedId);
 
   return (
     <View style={styles.savedCard}>
@@ -351,6 +873,61 @@ function SavedProbeCard({
       </View>
       {expanded ? (
         <View style={styles.savedNoteEditor}>
+          {linkableBoxes.length > 0 && onLinkBoxChange ? (
+            <View style={styles.linkBoxRow}>
+              <Text style={styles.linkBoxLabel}>Lier à une box</Text>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                style={styles.linkBoxScroll}
+              >
+                <Pressable
+                  onPress={() => onLinkBoxChange(null)}
+                  style={[
+                    styles.linkBoxChip,
+                    !Number.isFinite(linkedId) && styles.linkBoxChipActive,
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.linkBoxChipText,
+                      !Number.isFinite(linkedId) && styles.linkBoxChipTextActive,
+                    ]}
+                  >
+                    Aucune
+                  </Text>
+                </Pressable>
+                {linkableBoxes.map((b) => {
+                  const active = linkedId === Number(b.id);
+                  return (
+                    <Pressable
+                      key={`link-box-${b.id}-${entry.id}`}
+                      onPress={() => onLinkBoxChange(b.id)}
+                      style={[
+                        styles.linkBoxChip,
+                        active && styles.linkBoxChipActive,
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          styles.linkBoxChipText,
+                          active && styles.linkBoxChipTextActive,
+                        ]}
+                        numberOfLines={1}
+                      >
+                        {b.title}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </ScrollView>
+            </View>
+          ) : null}
+          {linkedBox ? (
+            <Text style={styles.linkedBoxPreview}>
+              Lié à : {linkedBox.title}
+            </Text>
+          ) : null}
           <TextInput
             style={styles.savedNoteInput}
             value={draft}
@@ -428,11 +1005,193 @@ const styles = StyleSheet.create({
     paddingBottom: 120,
     flexGrow: 0,
   },
+  workspaceLegend: {
+    marginHorizontal: 12,
+    marginTop: 8,
+    padding: 8,
+    backgroundColor: "#F8FAFC",
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
+  },
+  workspaceLegendText: {
+    fontSize: 10,
+    lineHeight: 14,
+    color: "#64748B",
+  },
+  workspaceLegendBold: {
+    fontWeight: "800",
+    color: "#0F766E",
+  },
+  tabBar: {
+    flexDirection: "row",
+    marginHorizontal: 10,
+    marginTop: 8,
+    gap: 6,
+  },
+  tabBtn: {
+    flex: 1,
+    paddingVertical: 8,
+    borderRadius: 10,
+    backgroundColor: "#F1F5F9",
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
+  },
+  tabBtnActive: {
+    backgroundColor: "#062D26",
+    borderColor: "#062D26",
+  },
+  tabBtnText: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: "#475569",
+  },
+  tabBtnTextActive: {
+    color: "#FFFFFF",
+  },
+  composerHintBox: {
+    marginHorizontal: 12,
+    marginTop: 8,
+    padding: 10,
+    backgroundColor: "#FFFBEB",
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: "#FDE68A",
+  },
+  composerHintTitle: {
+    fontSize: 10,
+    fontWeight: "800",
+    color: "#92400E",
+    textTransform: "uppercase",
+    letterSpacing: 0.35,
+  },
+  composerHintText: {
+    marginTop: 4,
+    fontSize: 11,
+    lineHeight: 15,
+    color: "#78350F",
+  },
+  actionBtnCreator: {
+    backgroundColor: "#4F46E5",
+    borderColor: "#4338CA",
+  },
+  communityBlock: {
+    marginHorizontal: 10,
+    marginTop: 4,
+    padding: 12,
+    gap: 8,
+  },
+  communityTitle: {
+    fontSize: 12,
+    fontWeight: "800",
+    color: "#062D26",
+  },
+  communityIntro: {
+    fontSize: 11,
+    lineHeight: 15,
+    color: "#475569",
+  },
+  communityRefresh: {
+    alignSelf: "flex-start",
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+    backgroundColor: "#E2E8F0",
+  },
+  communityRefreshText: {
+    fontSize: 10,
+    fontWeight: "700",
+    color: "#334155",
+  },
+  communitySectionLabel: {
+    marginTop: 6,
+    fontSize: 10,
+    fontWeight: "800",
+    color: "#64748B",
+    textTransform: "uppercase",
+    letterSpacing: 0.4,
+  },
+  communityCard: {
+    padding: 10,
+    borderRadius: 10,
+    backgroundColor: "#FFFFFF",
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
+  },
+  communityCardLabel: {
+    fontSize: 11,
+    fontWeight: "800",
+    color: "#0F172A",
+  },
+  communityCardBody: {
+    marginTop: 4,
+    fontSize: 11,
+    lineHeight: 15,
+    color: "#334155",
+  },
+  communityCardMeta: {
+    marginTop: 4,
+    fontSize: 10,
+    color: "#64748B",
+  },
+  communityHint: {
+    fontSize: 10,
+    color: "#64748B",
+    lineHeight: 14,
+  },
+  communityEmpty: {
+    fontSize: 11,
+    color: "#94A3B8",
+    fontStyle: "italic",
+  },
+  communityDeleteBtn: {
+    marginTop: 6,
+    alignSelf: "flex-start",
+  },
+  communityDeleteText: {
+    fontSize: 10,
+    fontWeight: "700",
+    color: "#DC2626",
+  },
+  shareToggle: {
+    marginTop: 8,
+    padding: 10,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: "#CBD5E1",
+    backgroundColor: "#F8FAFC",
+  },
+  shareToggleOn: {
+    backgroundColor: "#ECFDF5",
+    borderColor: "#34D399",
+  },
+  shareToggleText: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: "#475569",
+    textAlign: "center",
+  },
+  shareToggleTextOn: {
+    color: "#047857",
+  },
   hero: {
     backgroundColor: "#062D26",
     paddingHorizontal: 14,
     paddingTop: 14,
     paddingBottom: 12,
+  },
+  heroTop: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 4,
+  },
+  heroExit: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: "#FBBF24",
+    textDecorationLine: "underline",
   },
   heroLabel: {
     fontSize: 10,
@@ -440,7 +1199,7 @@ const styles = StyleSheet.create({
     color: "rgba(255,255,255,0.55)",
     textTransform: "uppercase",
     letterSpacing: 0.6,
-    marginBottom: 4,
+    marginBottom: 0,
   },
   heroTitle: {
     fontSize: 15,
@@ -591,6 +1350,158 @@ const styles = StyleSheet.create({
     borderColor: "#D1FAE5",
     backgroundColor: "#F0FDF4",
     gap: 8,
+  },
+  planWorkflow: {
+    fontSize: 11,
+    lineHeight: 15,
+    color: "#475569",
+  },
+  planSubLabel: {
+    fontSize: 10,
+    fontWeight: "700",
+    color: "#64748B",
+    textTransform: "uppercase",
+    letterSpacing: 0.4,
+  },
+  planChipsWrap: {
+    gap: 6,
+  },
+  planChipsRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 6,
+  },
+  planChip: {
+    maxWidth: "100%",
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+    backgroundColor: "#FFFFFF",
+    borderWidth: 1,
+    borderColor: "#CBD5E1",
+  },
+  planChipActive: {
+    backgroundColor: "#062D26",
+    borderColor: "#062D26",
+  },
+  planChipText: {
+    fontSize: 11,
+    fontWeight: "600",
+    color: "#334155",
+    maxWidth: 140,
+  },
+  planChipTextActive: {
+    color: "#FFFFFF",
+  },
+  planActiveCard: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 10,
+    padding: 10,
+    borderWidth: 1,
+    borderColor: "#99F6E4",
+    gap: 6,
+  },
+  planActiveTitle: {
+    fontSize: 12,
+    fontWeight: "800",
+    color: "#062D26",
+  },
+  planActiveMeta: {
+    fontSize: 11,
+    color: "#64748B",
+  },
+  planBtnRow: {
+    flexDirection: "row",
+    gap: 8,
+  },
+  planBtnHalf: {
+    flex: 1,
+  },
+  planBoxesSection: {
+    gap: 6,
+  },
+  planBoxRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#FFFFFF",
+    borderRadius: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
+  },
+  planBoxRowMain: {
+    flex: 1,
+    minWidth: 0,
+  },
+  planBoxTitle: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: "#0F172A",
+  },
+  planBoxMeta: {
+    fontSize: 10,
+    color: "#64748B",
+    marginTop: 2,
+  },
+  planBoxBookBtn: {
+    marginLeft: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+    backgroundColor: "#062D26",
+  },
+  planBoxBookText: {
+    fontSize: 10,
+    fontWeight: "700",
+    color: "#FFFFFF",
+  },
+  planSyncBtn: {
+    marginTop: 2,
+  },
+  planNotesInput: {
+    minHeight: 56,
+    textAlignVertical: "top",
+  },
+  linkBoxRow: {
+    marginBottom: 8,
+  },
+  linkBoxLabel: {
+    fontSize: 10,
+    fontWeight: "700",
+    color: "#64748B",
+    marginBottom: 4,
+  },
+  linkBoxScroll: {
+    flexGrow: 0,
+  },
+  linkBoxChip: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+    backgroundColor: "#F1F5F9",
+    marginRight: 6,
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
+  },
+  linkBoxChipActive: {
+    backgroundColor: "#0F766E",
+    borderColor: "#0F766E",
+  },
+  linkBoxChipText: {
+    fontSize: 10,
+    fontWeight: "600",
+    color: "#475569",
+    maxWidth: 120,
+  },
+  linkBoxChipTextActive: {
+    color: "#FFFFFF",
+  },
+  linkedBoxPreview: {
+    fontSize: 10,
+    color: "#0F766E",
+    fontWeight: "600",
+    marginBottom: 6,
   },
   planSaveTitle: {
     fontSize: 11,

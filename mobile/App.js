@@ -1143,6 +1143,21 @@ function confirmDestructive(title, message) {
   });
 }
 
+function confirmExitTrailSelection() {
+  const title = "Quitter la trace";
+  const message =
+    "Êtes-vous sûr de vouloir quitter la trace sélectionnée ?";
+  if (Platform.OS === "web") {
+    return Promise.resolve(window.confirm(`${title}\n\n${message}`));
+  }
+  return new Promise((resolve) => {
+    Alert.alert(title, message, [
+      { text: "Annuler", style: "cancel", onPress: () => resolve(false) },
+      { text: "Quitter", onPress: () => resolve(true) },
+    ]);
+  });
+}
+
 function Section({ title, subtitle, icon, children, onLayout }) {
   return (
     <View style={styles.section} onLayout={onLayout}>
@@ -2172,6 +2187,23 @@ function ExplorerScreen() {
       )
     );
   }, []);
+  const updateExplorerSavedProbeLinkedBox = useCallback((id, linkedBoxId) => {
+    const bid =
+      linkedBoxId == null || linkedBoxId === ""
+        ? undefined
+        : Number(linkedBoxId);
+    setExplorerSavedProbes((prev) =>
+      prev.map((e) =>
+        e.id === id
+          ? {
+              ...e,
+              linkedBoxId: Number.isFinite(bid) ? bid : undefined,
+              updatedAt: Date.now(),
+            }
+          : e
+      )
+    );
+  }, []);
 
   const trailsOnMap = Array.isArray(trailsForMap) ? trailsForMap : [];
   const boxesOnMap = Array.isArray(boxesForMap) ? boxesForMap : [];
@@ -2248,6 +2280,45 @@ function ExplorerScreen() {
     () => new Set(activePlanBoxIds),
     [activePlanBoxIds]
   );
+  const pickedBoxesForExplorer = useMemo(() => {
+    const planSet = activePlanBoxIdSet;
+    const findBox = (id) =>
+      boxes.find((b) => Number(b.id) === id) ||
+      boxesOnMap.find((b) => Number(b.id) === id);
+    return safePickedBoxIds.map((id) => {
+      const b = findBox(id);
+      return {
+        id,
+        title: b?.title || `Box #${id}`,
+        city: b?.city || "",
+        inPlan: planSet.has(id),
+      };
+    });
+  }, [safePickedBoxIds, boxes, boxesOnMap, activePlanBoxIdSet]);
+  const linkableBoxesForExplorer = useMemo(() => {
+    const seen = new Set();
+    const out = [];
+    for (const b of pickedBoxesForExplorer) {
+      if (!seen.has(b.id)) {
+        seen.add(b.id);
+        out.push(b);
+      }
+    }
+    if (activePlanForSelectedTrail) {
+      for (const b of activePlanForSelectedTrail.boxes || []) {
+        const id = Number(b.id);
+        if (!Number.isFinite(id) || seen.has(id)) continue;
+        seen.add(id);
+        out.push({
+          id,
+          title: b.title || `Box #${id}`,
+          city: b.city || "",
+          inPlan: true,
+        });
+      }
+    }
+    return out;
+  }, [pickedBoxesForExplorer, activePlanForSelectedTrail]);
   const selectedBoxInActivePlan = useMemo(() => {
     const bid = Number(selectedBoxId);
     return Number.isFinite(bid) && activePlanBoxIdSet.has(bid);
@@ -2351,6 +2422,23 @@ function ExplorerScreen() {
     },
     [toggleExplorerPickedBox]
   );
+  const highlightExplorerBoxOnMap = useCallback((boxId) => {
+    const bid = Number(boxId);
+    if (!Number.isFinite(bid)) return;
+    setSelectedBoxId(bid);
+    setMapPickedBoxIds((prev) => {
+      const list = Array.isArray(prev) ? prev : [];
+      return list.includes(bid) ? list : [...list, bid];
+    });
+    const box = boxes.find((b) => Number(b.id) === bid);
+    const bl = Number(box?.latitude);
+    const bLng = Number(box?.longitude);
+    if (Number.isFinite(bl) && Number.isFinite(bLng)) {
+      setMapLat(bl.toFixed(6));
+      setMapLon(bLng.toFixed(6));
+      setMapExplorerRecenterNonce((n) => n + 1);
+    }
+  }, [boxes, setSelectedBoxId, setMapPickedBoxIds, setMapLat, setMapLon]);
   const focusExplorerTrail = useCallback(
     (trailId) => {
       const tid = Number(trailId);
@@ -2368,6 +2456,15 @@ function ExplorerScreen() {
     },
     [setSelectedTrailId, setMapTrailPickIds]
   );
+  const handleRequestExitExplorerTrail = useCallback(async () => {
+    if (selectedTrailId == null) return;
+    const ok = await confirmExitTrailSelection();
+    if (!ok) return;
+    setSelectedTrailId(null);
+    setExplorerTrailProbe(null);
+    setExplorerProbeLock(false);
+    setChartProbeHover(false);
+  }, [selectedTrailId]);
   const handleExplorerMapLongPress = useCallback(
     (lat, lng) => {
       const plat = Number(lat);
@@ -2496,6 +2593,103 @@ function ExplorerScreen() {
   const [planSearchQuery, setPlanSearchQuery] = useState("");
   const [routePlanDraftNotes, setRoutePlanDraftNotes] = useState("");
   const [explorerPlanSaveName, setExplorerPlanSaveName] = useState("");
+  const [sharedPlansForTrail, setSharedPlansForTrail] = useState([]);
+  const [sharedPlansBusy, setSharedPlansBusy] = useState(false);
+  const [trailTips, setTrailTips] = useState([]);
+  const isTrailCreator = useMemo(() => {
+    if (!user || !selectedTrail) return false;
+    return (
+      Number(selectedTrail.creator_user_id) === Number(user.id)
+    );
+  }, [user, selectedTrail]);
+
+  const refreshTrailCommunityData = useCallback(async () => {
+    const tid = Number(selectedTrailId);
+    if (!Number.isFinite(tid)) {
+      setSharedPlansForTrail([]);
+      setTrailTips([]);
+      return;
+    }
+    setSharedPlansBusy(true);
+    try {
+      const [shared, tips] = await Promise.all([
+        actionsRef.current.loadSharedPlansForTrail?.(tid),
+        actionsRef.current.loadTrailTips?.(tid),
+      ]);
+      setSharedPlansForTrail(Array.isArray(shared) ? shared : []);
+      setTrailTips(Array.isArray(tips) ? tips : []);
+    } catch (_e) {
+      setSharedPlansForTrail([]);
+      setTrailTips([]);
+    } finally {
+      setSharedPlansBusy(false);
+    }
+  }, [selectedTrailId]);
+
+  useEffect(() => {
+    refreshTrailCommunityData();
+  }, [selectedTrailId, refreshTrailCommunityData]);
+
+  const setActivePlanVisibility = useCallback(
+    async (visibility) => {
+      const plan = activePlanForSelectedTrail;
+      if (!plan) return;
+      const pid = Number(plan.id);
+      if (!Number.isFinite(pid)) return;
+      await updateRoutePlan?.(pid, { visibility });
+      await actionsRef.current.loadRoutePlanDetail?.(pid);
+      await refreshTrailCommunityData();
+      userAlert(
+        visibility === "shared" ? "Plan partagé" : "Plan privé",
+        visibility === "shared"
+          ? "D’autres athlètes peuvent s’en inspirer (onglet Communauté)."
+          : "Ce plan n’est plus visible dans la communauté."
+      );
+    },
+    [
+      activePlanForSelectedTrail,
+      updateRoutePlan,
+      refreshTrailCommunityData,
+    ]
+  );
+
+  const publishTrailTipFromProbe = useCallback(async () => {
+    if (!isTrailCreator || !selectedTrail || !explorerTrailProbe) {
+      userAlert(
+        "Conseil trace",
+        "Positionne un point sur le tracé, puis publie-le comme conseil officiel."
+      );
+      return;
+    }
+    const tid = Number(selectedTrail.id);
+    const p = explorerTrailProbe;
+    const ok = await actionsRef.current.createTrailTip?.(tid, {
+      label: "Conseil créateur",
+      note: `Conseil · ${Number(p.distKm || 0).toFixed(1)} km`,
+      pointLat: p.lat,
+      pointLon: p.lng,
+      distKm: p.distKm,
+    });
+    if (ok) {
+      await refreshTrailCommunityData();
+      userAlert("Conseil publié", "Visible pour tous sur cette trace.");
+    }
+  }, [
+    isTrailCreator,
+    selectedTrail,
+    explorerTrailProbe,
+    refreshTrailCommunityData,
+  ]);
+
+  const deleteTrailTipById = useCallback(
+    async (tipId) => {
+      const tid = Number(selectedTrailId);
+      if (!Number.isFinite(tid)) return;
+      const ok = await actionsRef.current.deleteTrailTip?.(tid, tipId);
+      if (ok) await refreshTrailCommunityData();
+    },
+    [selectedTrailId, refreshTrailCommunityData]
+  );
 
   const saveExplorerRoutePlan = useCallback(async () => {
     if (!user) {
@@ -2545,7 +2739,15 @@ function ExplorerScreen() {
     let addedNotes = 0;
     for (let i = 0; i < probes.length; i += 1) {
       const entry = probes[i];
-      const noteText = formatExplorerProbePlanNote(entry);
+      const linkedId = Number(entry.linkedBoxId);
+      let linkedBoxTitle = "";
+      if (Number.isFinite(linkedId)) {
+        const lb =
+          boxes.find((b) => Number(b.id) === linkedId) ||
+          boxesOnMap.find((b) => Number(b.id) === linkedId);
+        linkedBoxTitle = lb?.title || `Box #${linkedId}`;
+      }
+      const noteText = formatExplorerProbePlanNote(entry, { linkedBoxTitle });
       if (!noteText) continue;
       const lat = Number(entry.probe?.lat);
       const lon = Number(entry.probe?.lng);
@@ -2583,6 +2785,112 @@ function ExplorerScreen() {
     selectedTrailId,
     safePickedBoxIds,
     savedProbesForSelectedTrail,
+    activePlanForSelectedTrail,
+    explorerPlanSaveName,
+    routePlanDraftNotes,
+    actionsRef,
+    setSelectedRoutePlanId,
+    boxes,
+    boxesOnMap,
+  ]);
+
+  const selectExplorerRoutePlan = useCallback(
+    async (planId) => {
+      const pid = Number(planId);
+      if (!Number.isFinite(pid) || pid <= 0) return;
+      setSelectedRoutePlanId(pid);
+      const detail = await actionsRef.current.loadRoutePlanDetail?.(pid);
+      if (!detail) return;
+      const trailId = Number(detail.trail_id);
+      if (Number.isFinite(trailId)) {
+        setSelectedTrailId(trailId);
+        setMapTrailPickIds((prev) =>
+          Array.isArray(prev) && prev.includes(trailId)
+            ? prev
+            : [...(prev || []), trailId]
+        );
+      }
+      const boxIds = (Array.isArray(detail.boxes) ? detail.boxes : [])
+        .map((b) => Number(b.id))
+        .filter((id) => Number.isFinite(id));
+      if (boxIds.length > 0) {
+        setMapShowBoxes(true);
+        setMapPickedBoxIds(boxIds);
+        setSelectedBoxId(boxIds[0]);
+        setMapBoxSelectionMode("picked");
+      }
+    },
+    [actionsRef, setSelectedTrailId, setMapTrailPickIds, setMapPickedBoxIds]
+  );
+
+  const forkExplorerRoutePlan = useCallback(
+    async (planId, planName) => {
+      if (!user) {
+        userAlert("Connexion", "Connecte-toi pour repartir d’un plan partagé.");
+        return;
+      }
+      const detail = await actionsRef.current.forkRoutePlan?.(planId, {
+        name: planName,
+      });
+      if (!detail) return;
+      const pid = Number(detail.id);
+      if (Number.isFinite(pid)) {
+        await selectExplorerRoutePlan(pid);
+      }
+      await refreshTrailCommunityData();
+      userAlert(
+        "Plan copié",
+        "Un plan personnel a été créé à partir de ce modèle. Tu peux le modifier dans l’onglet Mon plan."
+      );
+    },
+    [user, selectExplorerRoutePlan, refreshTrailCommunityData]
+  );
+
+  const upsertPickedBoxesToActivePlan = useCallback(async () => {
+    if (!user) {
+      userAlert(
+        "Connexion",
+        "Connecte-toi pour enregistrer les box dans un plan."
+      );
+      return;
+    }
+    const tid = Number(selectedTrailId);
+    if (!Number.isFinite(tid)) {
+      userAlert("Plan", "Sélectionne une trace.");
+      return;
+    }
+    if (safePickedBoxIds.length === 0) {
+      userAlert(
+        "Plan",
+        "Coche au moins une box sur la carte (clic ou appui long)."
+      );
+      return;
+    }
+    let planId = Number(activePlanForSelectedTrail?.id);
+    if (!Number.isFinite(planId) || planId <= 0) {
+      const created = await actionsRef.current.createRoutePlanFromSelection?.({
+        trailId: tid,
+        boxIds: safePickedBoxIds,
+        name: explorerPlanSaveName.trim() || undefined,
+        notes: routePlanDraftNotes,
+      });
+      if (!created) return;
+      planId = Number(created.id);
+      setSelectedRoutePlanId(planId);
+      await actionsRef.current.loadRoutePlanDetail?.(planId);
+      userAlert("Plan", "Plan créé avec les box cochées.");
+      return;
+    }
+    await actionsRef.current.upsertRoutePlanBoxes?.(planId, {
+      boxIds: safePickedBoxIds,
+      mergeWithExisting: true,
+    });
+    await actionsRef.current.loadRoutePlanDetail?.(planId);
+    userAlert("Plan", "Box cochées ajoutées au plan actif.");
+  }, [
+    user,
+    selectedTrailId,
+    safePickedBoxIds,
     activePlanForSelectedTrail,
     explorerPlanSaveName,
     routePlanDraftNotes,
@@ -3813,7 +4121,8 @@ function ExplorerScreen() {
                 </Text>
                 <TrailAltitudeBadge trail={selectedTrail} compact />
                 <Text style={styles.helperText}>
-                  Profil et courbe à droite de cette colonne.
+                  Profil, plan (trace + box + points mémorisés) et courbe dans
+                  la colonne du milieu. Coche les box ici à gauche sur la carte.
                 </Text>
               </>
             ) : (
@@ -3865,6 +4174,16 @@ function ExplorerScreen() {
                 }
               />
             ) : null}
+            {webDesktopSplit ? (
+              <View style={[styles.infoBanner, { marginTop: 8 }]}>
+                <Text style={styles.infoBannerText}>
+                  Composition du parcours (trace, box, points, partage) : colonne
+                  centrale — onglets Composer · Mon plan · Communauté.
+                </Text>
+              </View>
+            ) : null}
+            {!webDesktopSplit ? (
+            <>
             <OutlineButton
               compact
               stretch
@@ -4307,6 +4626,8 @@ function ExplorerScreen() {
                   ))}
                 </View>
               </>
+            ) : null}
+            </>
             ) : null}
           </View>
         ) : null}
@@ -5079,13 +5400,47 @@ function ExplorerScreen() {
                   onClearSavedProbes={() =>
                     clearExplorerSavedProbesForTrail(selectedTrailId)
                   }
+                  onExitTrailSelection={handleRequestExitExplorerTrail}
                   onSaveRoutePlan={saveExplorerRoutePlan}
                   routePlanBusy={routePlanBusy}
                   routePlanSaveName={explorerPlanSaveName}
                   onRoutePlanSaveNameChange={setExplorerPlanSaveName}
+                  routePlanDraftNotes={routePlanDraftNotes}
+                  onRoutePlanDraftNotesChange={setRoutePlanDraftNotes}
                   pickedBoxCount={safePickedBoxIds.length}
+                  pickedBoxes={pickedBoxesForExplorer}
+                  linkableBoxes={linkableBoxesForExplorer}
+                  plansForTrail={plansForSelectedTrailSorted}
+                  selectedPlanId={selectedRoutePlanId}
+                  onSelectPlan={selectExplorerRoutePlan}
+                  activePlan={activePlanForSelectedTrail}
+                  onUpsertPickedBoxesToPlan={upsertPickedBoxesToActivePlan}
+                  onApplyPlanToMap={(plan) =>
+                    actionsRef.current.showRoutePlanOnMap?.(plan)
+                  }
+                  onSaveActivePlanDrafts={saveActiveRoutePlanDrafts}
+                  onBookBox={startBookingFromExplorer}
+                  onFocusBox={highlightExplorerBoxOnMap}
+                  planNameDraft={planNameDraft}
+                  onPlanNameDraftChange={setPlanNameDraft}
+                  planNotesDraft={planNotesDraft}
+                  onPlanNotesDraftChange={setPlanNotesDraft}
+                  onUpdateSavedProbeLinkedBox={updateExplorerSavedProbeLinkedBox}
                   hasActivePlan={Boolean(activePlanForSelectedTrail)}
                   isAuthed={Boolean(user)}
+                  trailGeneralNotes={selectedTrail.notes || ""}
+                  isTrailCreator={isTrailCreator}
+                  trailTips={trailTips}
+                  sharedPlans={sharedPlansForTrail}
+                  sharedPlansBusy={sharedPlansBusy}
+                  onRefreshCommunity={refreshTrailCommunityData}
+                  onForkSharedPlan={forkExplorerRoutePlan}
+                  onPublishTrailTip={publishTrailTipFromProbe}
+                  onDeleteTrailTip={deleteTrailTipById}
+                  activePlanVisibility={
+                    activePlanForSelectedTrail?.visibility || "private"
+                  }
+                  onSetPlanVisibility={setActivePlanVisibility}
                 />
               </View>
             ) : null}
@@ -5138,8 +5493,10 @@ function ExplorerScreen() {
                         : null
                     }
                     savedTrailProbes={savedProbesForSelectedTrail}
+                    communityTrailTips={trailTips}
                     lockTrailProbe={explorerProbeLocked || chartProbeHover}
                     onTrailProbeLock={setExplorerProbeLock}
+                    onRequestExitTrailSelection={handleRequestExitExplorerTrail}
                     onMapLongPress={handleExplorerMapLongPress}
                     onPickLocation={handleExplorerMapTap}
                     onVisibleBoundsChange={setMapViewportBounds}
@@ -5221,8 +5578,10 @@ function ExplorerScreen() {
                     : null
                 }
                 savedTrailProbes={savedProbesForSelectedTrail}
+                communityTrailTips={trailTips}
                 lockTrailProbe={explorerProbeLocked || chartProbeHover}
                 onTrailProbeLock={setExplorerProbeLock}
+                onRequestExitTrailSelection={handleRequestExitExplorerTrail}
                 onMapLongPress={handleExplorerMapLongPress}
                 onPickLocation={handleExplorerMapTap}
                 onVisibleBoundsChange={setMapViewportBounds}
@@ -10568,7 +10927,83 @@ function RavitoApp() {
     }
   };
 
-  const updateRoutePlan = async (routePlanId, { name, notes } = {}) => {
+  const loadTrailTips = async (trailId) => {
+    const tid = Number(trailId);
+    if (!Number.isFinite(tid) || tid <= 0) return [];
+    try {
+      return await apiFetch(`/trails/${tid}/tips`);
+    } catch (_e) {
+      return [];
+    }
+  };
+
+  const loadSharedPlansForTrail = async (trailId) => {
+    const tid = Number(trailId);
+    if (!Number.isFinite(tid) || tid <= 0) return [];
+    try {
+      return await apiFetch(`/trails/${tid}/shared-plans`);
+    } catch (_e) {
+      return [];
+    }
+  };
+
+  const forkRoutePlan = async (routePlanId, { name } = {}) => {
+    if (!token) return null;
+    const pid = Number(routePlanId);
+    if (!Number.isFinite(pid) || pid <= 0) return null;
+    setRoutePlanBusy(true);
+    try {
+      const detail = await apiFetch(`/route-plans/${pid}/fork`, {
+        method: "POST",
+        token,
+        body: name ? { name } : {},
+      });
+      await loadRoutePlans();
+      setSelectedRoutePlanId(Number(detail?.id) || null);
+      setSelectedRoutePlanDetail(detail || null);
+      return detail || null;
+    } catch (error) {
+      userAlert("Erreur", error.message);
+      return null;
+    } finally {
+      setRoutePlanBusy(false);
+    }
+  };
+
+  const createTrailTip = async (trailId, payload = {}) => {
+    if (!token) return null;
+    const tid = Number(trailId);
+    if (!Number.isFinite(tid) || tid <= 0) return null;
+    try {
+      return await apiFetch(`/trails/${tid}/tips`, {
+        method: "POST",
+        token,
+        body: payload,
+      });
+    } catch (error) {
+      userAlert("Erreur", error.message);
+      return null;
+    }
+  };
+
+  const deleteTrailTip = async (trailId, tipId) => {
+    if (!token) return false;
+    const tid = Number(trailId);
+    const id = Number(tipId);
+    if (!Number.isFinite(tid) || !Number.isFinite(id)) return false;
+    try {
+      await apiFetch(`/trails/${tid}/tips/${id}`, {
+        method: "DELETE",
+        token,
+      });
+      return true;
+    } catch (error) {
+      userAlert("Erreur", error.message);
+      return false;
+    }
+  };
+
+  const updateRoutePlan = async (routePlanId, { name, notes, visibility } = {}) => {
     if (!token) return null;
     const pid = Number(routePlanId);
     if (!Number.isFinite(pid) || pid <= 0) return null;
@@ -10576,6 +11011,7 @@ function RavitoApp() {
       const payload = {
         ...(name != null ? { name } : {}),
         ...(notes != null ? { notes } : {}),
+        ...(visibility != null ? { visibility } : {}),
       };
       let detail = null;
       try {
@@ -10598,6 +11034,9 @@ function RavitoApp() {
                 ...p,
                 ...(detail?.name != null ? { name: detail.name } : {}),
                 ...(detail?.notes !== undefined ? { notes: detail.notes } : {}),
+                ...(detail?.visibility != null
+                  ? { visibility: detail.visibility }
+                  : {}),
               }
             : p
         )
@@ -11981,6 +12420,11 @@ function RavitoApp() {
     loadTrails,
     loadRoutePlans,
     loadRoutePlanDetail,
+    loadTrailTips,
+    loadSharedPlansForTrail,
+    forkRoutePlan,
+    createTrailTip,
+    deleteTrailTip,
     createRoutePlanFromSelection,
     upsertRoutePlanBoxes,
     updateRoutePlan,

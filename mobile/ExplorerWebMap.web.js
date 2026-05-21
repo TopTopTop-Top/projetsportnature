@@ -12,7 +12,6 @@ import {
   formatTrailProbeCoords,
   getTrailProgressSlice,
   getTrailRemainderSlice,
-  getTrailStartBearing,
   probeTrailAt,
 } from "./trailProfile";
 
@@ -91,34 +90,6 @@ function drawTrailProbeOnMap(L, probeLayer, probe, trail, lineColor, locked) {
   }
 }
 
-/** Rond au départ : flèche vers le haut = nord, rotation = cap 0 km → km+. */
-function addTrailDirectionAtStart(L, group, positions, prominent, lineColor) {
-  if (!Array.isArray(positions) || positions.length < 2) return;
-  const size = prominent ? 42 : 34;
-  const bg = lineColor || "#0F766E";
-  const bearing = Number(getTrailStartBearing(positions)).toFixed(1);
-  const html = `<div style="width:${size}px;height:${size + 14}px;position:relative;">
-    <div style="width:${size}px;height:${size}px;border-radius:50%;background:${bg};border:3px solid #fff;box-shadow:0 2px 8px rgba(15,23,42,0.35);display:flex;align-items:center;justify-content:center;">
-      <div style="width:24px;height:24px;transform:rotate(${bearing}deg);display:flex;align-items:center;justify-content:center;">
-        <svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true">
-          <path d="M12 4 L12 20 M8 10 L12 4 L16 10" fill="none" stroke="#fff" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/>
-        </svg>
-      </div>
-    </div>
-    <div style="position:absolute;left:50%;bottom:0;transform:translateX(-50%);font-size:9px;font-weight:800;color:#0F766E;white-space:nowrap;background:rgba(255,255,255,0.92);padding:1px 5px;border-radius:4px;border:1px solid #99F6E4;">Départ · 0 km</div>
-  </div>`;
-  const icon = L.divIcon({
-    className: "ravitobox-trail-dir",
-    html,
-    iconSize: [size, size + 14],
-    iconAnchor: [size / 2, size / 2],
-  });
-  L.marker([positions[0][0], positions[0][1]], {
-    icon,
-    interactive: false,
-  }).addTo(group);
-}
-
 function drawSavedProbesOnMap(L, probeLayer, savedProbes) {
   if (!Array.isArray(savedProbes) || !savedProbes.length) return;
   savedProbes.forEach((entry, index) => {
@@ -157,6 +128,35 @@ function drawSavedProbesOnMap(L, probeLayer, savedProbes) {
     } catch (_e) {
       /* noop */
     }
+  });
+}
+
+function drawCommunityTrailTipsOnMap(L, layer, tips) {
+  if (!Array.isArray(tips) || !tips.length) return;
+  tips.forEach((tip, index) => {
+    const lat = Number(tip.point_lat);
+    const lon = Number(tip.point_lon);
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
+    const marker = L.circleMarker([lat, lon], {
+      pane: PROBE_MARKER_PANE,
+      radius: 8,
+      color: "#FFFFFF",
+      weight: 3,
+      fillColor: "#6366F1",
+      fillOpacity: 1,
+    });
+    const lines = [
+      tip.label || `Conseil ${index + 1}`,
+      tip.author_label ? `Par ${tip.author_label}` : null,
+      tip.note || null,
+    ].filter(Boolean);
+    marker.bindTooltip(lines.join("<br/>"), {
+      permanent: false,
+      direction: "top",
+      offset: [0, -10],
+      className: "ravitobox-trail-probe-tip",
+    });
+    marker.addTo(layer);
   });
 }
 
@@ -204,10 +204,6 @@ function ensureLeafletTileFix() {
       border: 1px solid #99F6E4;
       background: rgba(255,255,255,0.96);
       box-shadow: 0 2px 8px rgba(15,23,42,0.12);
-    }
-    .leaflet-div-icon.ravitobox-trail-dir {
-      background: transparent !important;
-      border: none !important;
     }
   `;
   document.head.appendChild(s);
@@ -572,6 +568,10 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
   onTrailProbeLock,
   /** Points mémorisés sur la trace active (affichés sur la carte). */
   savedTrailProbes = [],
+  /** Conseils publics sur la trace. */
+  communityTrailTips = [],
+  /** Appui long hors tracé → quitter la trace sélectionnée. */
+  onRequestExitTrailSelection,
   onMapLongPress,
   onPickLocation,
   onVisibleBoundsChange,
@@ -658,7 +658,13 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
   const onTrailProbeLockRef = useRef(onTrailProbeLock);
   onTrailProbeLockRef.current = onTrailProbeLock;
   const probeLayerRef = useRef(null);
+  const savedProbeLayerRef = useRef(null);
+  const communityTipsLayerRef = useRef(null);
   const probeMarkerRef = useRef(null);
+  const onRequestExitTrailSelectionRef = useRef(onRequestExitTrailSelection);
+  onRequestExitTrailSelectionRef.current = onRequestExitTrailSelection;
+  const communityTrailTipsRef = useRef(communityTrailTips);
+  communityTrailTipsRef.current = communityTrailTips;
   const onMapLongPressRef = useRef(onMapLongPress);
   onMapLongPressRef.current = onMapLongPress;
   const selectedBoxIdRef = useRef(selectedBoxId);
@@ -720,10 +726,48 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
 
     const overlay = L.featureGroup().addTo(map);
     const probeLayer = L.featureGroup().addTo(map);
+    const savedProbeLayer = L.featureGroup().addTo(map);
+    const communityTipsLayer = L.featureGroup().addTo(map);
     mapRef.current = map;
     overlayRef.current = overlay;
     probeLayerRef.current = probeLayer;
+    savedProbeLayerRef.current = savedProbeLayer;
+    communityTipsLayerRef.current = communityTipsLayer;
     probeMarkerRef.current = null;
+
+    let exitTrailTimer = null;
+    const EXIT_TRAIL_MS = 650;
+    const exitTrailMaxSnapKm = 2.5;
+    const clearExitTrailTimer = () => {
+      if (exitTrailTimer) {
+        clearTimeout(exitTrailTimer);
+        exitTrailTimer = null;
+      }
+    };
+    map.on("mousedown", (ev) => {
+      const tid = Number(activeTrailIdRef.current);
+      if (!Number.isFinite(tid)) return;
+      const lat = Number(ev?.latlng?.lat);
+      const lng = Number(ev?.latlng?.lng);
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+      const activeTrail = (trailsRef.current || []).find(
+        (t) => Number(t.id) === tid
+      );
+      if (!activeTrail) return;
+      const snap = probeTrailAt(activeTrail, lat, lng);
+      if (snap && snap.distToPointKm <= exitTrailMaxSnapKm) {
+        clearExitTrailTimer();
+        return;
+      }
+      clearExitTrailTimer();
+      exitTrailTimer = setTimeout(() => {
+        exitTrailTimer = null;
+        onRequestExitTrailSelectionRef.current?.();
+      }, EXIT_TRAIL_MS);
+    });
+    map.on("mouseup", clearExitTrailTimer);
+    map.on("mouseleave", clearExitTrailTimer);
+    map.on("dragstart", clearExitTrailTimer);
 
     const emitBounds = () => {
       const fn = onVisibleBoundsChangeRef.current;
@@ -810,12 +854,15 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
     scheduleInvalidate();
 
     return () => {
+      clearExitTrailTimer();
       if (raf) cancelAnimationFrame(raf);
       window.removeEventListener("resize", onWindowResize);
       map.remove();
       mapRef.current = null;
       overlayRef.current = null;
       probeLayerRef.current = null;
+      savedProbeLayerRef.current = null;
+      communityTipsLayerRef.current = null;
       probeMarkerRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- carte unique, centre géré ailleurs
@@ -827,7 +874,7 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
     const probeLayer = probeLayerRef.current;
     if (!map || !probeLayer) return undefined;
 
-    const clearProbeVisual = () => {
+    const clearLiveProbeVisual = () => {
       try {
         probeLayer.clearLayers();
       } catch (_e) {
@@ -842,7 +889,7 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
     };
 
     if (activeTrailIdNum == null) {
-      clearProbeVisual();
+      clearLiveProbeVisual();
       emitProbe(null);
       return undefined;
     }
@@ -851,7 +898,7 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
       (t) => Number(t.id) === activeTrailIdNum
     );
     if (!activeTrail) {
-      clearProbeVisual();
+      clearLiveProbeVisual();
       emitProbe(null);
       return undefined;
     }
@@ -865,7 +912,7 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
       if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
       const probe = probeTrailAt(activeTrail, lat, lng);
       if (!probe || probe.distToPointKm > maxSnapKm) {
-        clearProbeVisual();
+        clearLiveProbeVisual();
         emitProbe(null);
         return;
       }
@@ -892,7 +939,7 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
 
     const handleLeave = () => {
       if (lockTrailProbeRef.current || mapZoomingRef.current) return;
-      clearProbeVisual();
+      clearLiveProbeVisual();
       emitProbe(null);
     };
 
@@ -903,11 +950,51 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
       map.off("mousemove", handleMove);
       map.off("mouseout", handleLeave);
       if (!lockTrailProbeRef.current) {
-        clearProbeVisual();
+        clearLiveProbeVisual();
         emitProbe(null);
       }
     };
   }, [activeTrailIdNum]);
+
+  useEffect(() => {
+    if (Platform.OS !== "web") return undefined;
+    const savedLayer = savedProbeLayerRef.current;
+    if (!savedLayer) return undefined;
+    const L = require("leaflet");
+    const tid = activeTrailIdNum;
+    try {
+      savedLayer.clearLayers();
+    } catch (_e) {
+      /* noop */
+    }
+    if (tid != null) {
+      const saved = (savedTrailProbesRef.current || []).filter(
+        (e) => Number(e?.trailId) === tid
+      );
+      drawSavedProbesOnMap(L, savedLayer, saved);
+    }
+    return undefined;
+  }, [savedTrailProbes, activeTrailIdNum]);
+
+  useEffect(() => {
+    if (Platform.OS !== "web") return undefined;
+    const layer = communityTipsLayerRef.current;
+    if (!layer) return undefined;
+    const L = require("leaflet");
+    try {
+      layer.clearLayers();
+    } catch (_e) {
+      /* noop */
+    }
+    if (activeTrailIdNum != null) {
+      drawCommunityTrailTipsOnMap(
+        L,
+        layer,
+        communityTrailTipsRef.current || []
+      );
+    }
+    return undefined;
+  }, [communityTrailTips, activeTrailIdNum]);
 
   useEffect(() => {
     if (Platform.OS !== "web") return undefined;
@@ -939,14 +1026,8 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
         lockTrailProbeRef.current
       );
     }
-    if (tid != null) {
-      const saved = (savedTrailProbesRef.current || []).filter(
-        (e) => Number(e?.trailId) === tid
-      );
-      drawSavedProbesOnMap(L, probeLayer, saved);
-    }
     return undefined;
-  }, [trailProbe, activeTrailIdNum, trails, lockTrailProbe, savedTrailProbes]);
+  }, [trailProbe, activeTrailIdNum, trails, lockTrailProbe]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -1184,9 +1265,6 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
           }
         };
         line.on("click", focusTrail);
-        if (isActive || isPicked) {
-          addTrailDirectionAtStart(L, group, positions, isActive, lineColor);
-        }
         if (isActive) {
           const hitLine = L.polyline(positions, {
             color: "#000000",
@@ -1386,7 +1464,7 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
         <View style={styles.hint} pointerEvents="none">
           <Text style={styles.hintText}>
             {activeTrailIdNum != null
-              ? "Survole le tracé ou le profil en bas — km, D+ et surbrillance"
+              ? "Orange = brouillon · violet = conseils · appui long hors tracé = quitter"
               : pickerMode
               ? "Mode précis: zoom max + clic exact"
               : "OSM · zoom molette · glisser · clic trace pour la sélectionner"}

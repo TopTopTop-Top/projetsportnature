@@ -9,11 +9,13 @@ function normalizeEntry(raw) {
   if (!probe || !Number.isFinite(probe.lat) || !Number.isFinite(probe.lng)) {
     return null;
   }
+  const linkedBoxId = Number(raw.linkedBoxId);
   return {
     id: String(id),
     trailId,
     label: String(raw.label || "Point"),
     notes: String(raw.notes || ""),
+    linkedBoxId: Number.isFinite(linkedBoxId) ? linkedBoxId : undefined,
     savedAt: Number(raw.savedAt) || Date.now(),
     updatedAt: Number(raw.updatedAt) || Number(raw.savedAt) || Date.now(),
     probe: { ...probe },
@@ -34,7 +36,7 @@ export function loadExplorerSavedProbes() {
 }
 
 /** Texte pour une note plan serveur (route_plan_trail_notes). */
-export function formatExplorerProbePlanNote(entry) {
+export function formatExplorerProbePlanNote(entry, { linkedBoxTitle } = {}) {
   if (!entry?.probe) return "";
   const p = entry.probe;
   const parts = [
@@ -43,6 +45,7 @@ export function formatExplorerProbePlanNote(entry) {
   ];
   if (p.eleM != null) parts.push(`${p.eleM} m`);
   if (p.gainM != null) parts.push(`D+ ${Math.round(p.gainM)} m`);
+  if (linkedBoxTitle) parts.push(`Box: ${linkedBoxTitle}`);
   if (entry.notes && String(entry.notes).trim()) {
     parts.push(String(entry.notes).trim());
   }

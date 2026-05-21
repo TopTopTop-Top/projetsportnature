@@ -392,6 +392,35 @@ async function migrate() {
       `CREATE INDEX IF NOT EXISTS idx_box_trail_pins_trail ON box_trail_pins(trail_id)`
     );
 
+    await client.query(
+      `ALTER TABLE route_plans ADD COLUMN IF NOT EXISTS visibility TEXT NOT NULL DEFAULT 'private'`
+    );
+    await client.query(
+      `ALTER TABLE route_plans ADD COLUMN IF NOT EXISTS forked_from_plan_id INTEGER REFERENCES route_plans(id) ON DELETE SET NULL`
+    );
+    await client.query(
+      `CREATE INDEX IF NOT EXISTS idx_route_plans_trail_shared ON route_plans(trail_id, updated_at DESC) WHERE visibility = 'shared'`
+    );
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS trail_tips (
+        id SERIAL PRIMARY KEY,
+        trail_id INTEGER NOT NULL REFERENCES trails(id) ON DELETE CASCADE,
+        author_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        label TEXT NOT NULL DEFAULT 'Conseil',
+        note TEXT NOT NULL,
+        point_lat DOUBLE PRECISION NOT NULL,
+        point_lon DOUBLE PRECISION NOT NULL,
+        dist_km DOUBLE PRECISION,
+        sort_index INTEGER NOT NULL DEFAULT 0,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `);
+    await client.query(
+      `CREATE INDEX IF NOT EXISTS idx_trail_tips_trail_sort ON trail_tips(trail_id, sort_index, created_at)`
+    );
+
     await client.query("COMMIT");
     console.log("Migration PostgreSQL OK");
   } catch (e) {

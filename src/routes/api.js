@@ -290,19 +290,36 @@ const createRoutePlanSchema = z.object({
   name: z.string().min(3).max(200).optional(),
   notes: z.string().max(4000).optional(),
 });
+const routePlanVisibilityEnum = z.enum(["private", "shared"]);
 const updateRoutePlanSchema = z
   .object({
     name: z.string().min(2).max(200).optional(),
     notes: z.union([z.string().max(4000), z.literal("")]).optional(),
+    visibility: routePlanVisibilityEnum.optional(),
   })
   .superRefine((val, ctx) => {
-    if (val.name === undefined && val.notes === undefined) {
+    if (
+      val.name === undefined &&
+      val.notes === undefined &&
+      val.visibility === undefined
+    ) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         message: "At least one field is required",
       });
     }
   });
+const createTrailTipSchema = z.object({
+  label: z.string().min(1).max(80).optional(),
+  note: z.string().min(1).max(2000),
+  pointLat: z.number().min(-90).max(90),
+  pointLon: z.number().min(-180).max(180),
+  distKm: z.number().min(0).optional(),
+  sortIndex: z.number().int().min(0).optional(),
+});
+const forkRoutePlanSchema = z.object({
+  name: z.string().min(3).max(200).optional(),
+});
 const updateRoutePlanBoxSchema = z.object({
   comment: z.union([z.string().max(2000), z.literal("")]).optional(),
 });
@@ -2043,6 +2060,140 @@ async function getRoutePlanDetailsForUser(routePlanId, athleteUserId) {
   };
 }
 
+function authorDisplayLabel(fullName) {
+  const parts = String(fullName || "")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+  if (parts.length === 0) return "Athlète";
+  if (parts.length === 1) return parts[0];
+  return `${parts[0]} ${parts[1].charAt(0)}.`;
+}
+
+async function getSharedRoutePlanPublicDetail(routePlanId) {
+  const { rows: planRows } = await pool.query(
+    `SELECT rp.id, rp.name, rp.notes, rp.trail_id, rp.visibility, rp.created_at, rp.updated_at,
+            rp.forked_from_plan_id,
+            t.name AS trail_name, t.territory, t.distance_km,
+            u.full_name AS author_name
+     FROM route_plans rp
+     JOIN trails t ON t.id = rp.trail_id
+     JOIN users u ON u.id = rp.athlete_user_id
+     WHERE rp.id = $1 AND rp.visibility = 'shared'`,
+    [routePlanId]
+  );
+  const plan = planRows[0];
+  if (!plan) return null;
+
+  const { rows: boxRows } = await pool.query(
+    `SELECT rpb.sort_index, rpb.comment AS plan_box_comment,
+            b.id, b.title, b.city, b.latitude, b.longitude
+     FROM route_plan_boxes rpb
+     JOIN boxes b ON b.id = rpb.box_id
+     WHERE rpb.route_plan_id = $1
+     ORDER BY rpb.sort_index ASC, rpb.created_at ASC`,
+    [routePlanId]
+  );
+  const { rows: trailNoteRows } = await pool.query(
+    `SELECT id, note, point_lat, point_lon, sort_index, created_at
+     FROM route_plan_trail_notes
+     WHERE route_plan_id = $1
+     ORDER BY sort_index ASC, created_at ASC`,
+    [routePlanId]
+  );
+
+  return {
+    ...plan,
+    author_label: authorDisplayLabel(plan.author_name),
+    boxes: boxRows,
+    trail_notes: trailNoteRows,
+    box_count: boxRows.length,
+    tip_count: trailNoteRows.length,
+  };
+}
+
+async function forkRoutePlanForUser(sourcePlanId, athleteUserId, customName) {
+  const { rows: sourceRows } = await pool.query(
+    `SELECT * FROM route_plans
+     WHERE id = $1
+       AND (visibility = 'shared' OR athlete_user_id = $2)`,
+    [sourcePlanId, athleteUserId]
+  );
+  const source = sourceRows[0];
+  if (!source) return null;
+
+  const { rows: boxRows } = await pool.query(
+    `SELECT box_id, sort_index, comment
+     FROM route_plan_boxes
+     WHERE route_plan_id = $1
+     ORDER BY sort_index ASC`,
+    [sourcePlanId]
+  );
+  const { rows: noteRows } = await pool.query(
+    `SELECT note, point_lat, point_lon, sort_index
+     FROM route_plan_trail_notes
+     WHERE route_plan_id = $1
+     ORDER BY sort_index ASC`,
+    [sourcePlanId]
+  );
+
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const planName =
+      customName?.trim() ||
+      `Mon plan · ${String(source.name || "trace").slice(0, 120)}`;
+    const { rows: createdRows } = await client.query(
+      `INSERT INTO route_plans (
+         athlete_user_id, trail_id, name, notes, visibility,
+         forked_from_plan_id, updated_at
+       )
+       VALUES ($1, $2, $3, $4, 'private', $5, NOW())
+       RETURNING id`,
+      [
+        athleteUserId,
+        source.trail_id,
+        planName.slice(0, 200),
+        source.notes,
+        sourcePlanId,
+      ]
+    );
+    const newId = createdRows[0].id;
+    for (let i = 0; i < boxRows.length; i += 1) {
+      const b = boxRows[i];
+      await client.query(
+        `INSERT INTO route_plan_boxes (route_plan_id, box_id, sort_index, comment)
+         VALUES ($1, $2, $3, $4)
+         ON CONFLICT (route_plan_id, box_id) DO NOTHING`,
+        [newId, b.box_id, b.sort_index ?? i, b.comment]
+      );
+    }
+    for (let i = 0; i < noteRows.length; i += 1) {
+      const n = noteRows[i];
+      await client.query(
+        `INSERT INTO route_plan_trail_notes (
+           route_plan_id, note, point_lat, point_lon, sort_index
+         )
+         VALUES ($1, $2, $3, $4, $5)`,
+        [
+          newId,
+          n.note,
+          n.point_lat,
+          n.point_lon,
+          n.sort_index ?? i,
+        ]
+      );
+    }
+    await client.query("COMMIT");
+    return getRoutePlanDetailsForUser(newId, athleteUserId);
+  } catch (e) {
+    await client.query("ROLLBACK");
+    throw e;
+  } finally {
+    client.release();
+  }
+}
+
 router.post("/route-plans", requireAuth, async (req, res) => {
   const parsed = createRoutePlanSchema.safeParse(req.body);
   if (!parsed.success) {
@@ -2148,6 +2299,159 @@ router.get("/route-plans/:id", requireAuth, async (req, res) => {
   return res.json(detail);
 });
 
+router.get("/route-plans/shared/:id", async (req, res) => {
+  const routePlanId = Number(req.params.id);
+  if (!Number.isInteger(routePlanId) || routePlanId <= 0) {
+    return res.status(400).json({ error: "Invalid route plan id" });
+  }
+  const detail = await getSharedRoutePlanPublicDetail(routePlanId);
+  if (!detail) return res.status(404).json({ error: "Shared plan not found" });
+  return res.json(detail);
+});
+
+router.get("/trails/:trailId/shared-plans", async (req, res) => {
+  const trailId = Number(req.params.trailId);
+  if (!Number.isInteger(trailId) || trailId <= 0) {
+    return res.status(400).json({ error: "Invalid trail id" });
+  }
+  const { rows } = await pool.query(
+    `SELECT rp.id, rp.name, rp.notes, rp.updated_at, rp.created_at,
+            u.full_name AS author_name,
+            COUNT(DISTINCT rpb.id)::int AS box_count,
+            COUNT(DISTINCT rtn.id)::int AS tip_count
+     FROM route_plans rp
+     JOIN users u ON u.id = rp.athlete_user_id
+     LEFT JOIN route_plan_boxes rpb ON rpb.route_plan_id = rp.id
+     LEFT JOIN route_plan_trail_notes rtn ON rtn.route_plan_id = rp.id
+     WHERE rp.trail_id = $1 AND rp.visibility = 'shared'
+     GROUP BY rp.id, u.full_name
+     ORDER BY rp.updated_at DESC
+     LIMIT 40`,
+    [trailId]
+  );
+  return res.json(
+    rows.map((r) => ({
+      ...r,
+      author_label: authorDisplayLabel(r.author_name),
+    }))
+  );
+});
+
+router.post("/route-plans/:id/fork", requireAuth, async (req, res) => {
+  const routePlanId = Number(req.params.id);
+  if (!Number.isInteger(routePlanId) || routePlanId <= 0) {
+    return res.status(400).json({ error: "Invalid route plan id" });
+  }
+  const parsed = forkRoutePlanSchema.safeParse(req.body || {});
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error.flatten() });
+  }
+  try {
+    const detail = await forkRoutePlanForUser(
+      routePlanId,
+      req.auth.sub,
+      parsed.data.name
+    );
+    if (!detail) {
+      return res.status(404).json({ error: "Plan not found or not accessible" });
+    }
+    return res.status(201).json(detail);
+  } catch (_e) {
+    return res.status(500).json({ error: "Failed to fork route plan" });
+  }
+});
+
+router.get("/trails/:trailId/tips", async (req, res) => {
+  const trailId = Number(req.params.trailId);
+  if (!Number.isInteger(trailId) || trailId <= 0) {
+    return res.status(400).json({ error: "Invalid trail id" });
+  }
+  const { rows } = await pool.query(
+    `SELECT tt.*, u.full_name AS author_name
+     FROM trail_tips tt
+     JOIN users u ON u.id = tt.author_user_id
+     WHERE tt.trail_id = $1
+     ORDER BY tt.sort_index ASC, tt.created_at ASC`,
+    [trailId]
+  );
+  return res.json(
+    rows.map((r) => ({
+      ...r,
+      author_label: authorDisplayLabel(r.author_name),
+    }))
+  );
+});
+
+router.post("/trails/:trailId/tips", requireAuth, async (req, res) => {
+  const trailId = Number(req.params.trailId);
+  if (!Number.isInteger(trailId) || trailId <= 0) {
+    return res.status(400).json({ error: "Invalid trail id" });
+  }
+  const parsed = createTrailTipSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error.flatten() });
+  }
+  const { rows: trailRows } = await pool.query(
+    `SELECT id, creator_user_id FROM trails WHERE id = $1`,
+    [trailId]
+  );
+  const trail = trailRows[0];
+  if (!trail) return res.status(404).json({ error: "Trail not found" });
+  if (Number(trail.creator_user_id) !== Number(req.auth.sub)) {
+    return res
+      .status(403)
+      .json({ error: "Seul le créateur de la trace peut publier des conseils" });
+  }
+  const input = parsed.data;
+  const { rows } = await pool.query(
+    `INSERT INTO trail_tips (
+       trail_id, author_user_id, label, note, point_lat, point_lon, dist_km, sort_index
+     )
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+     RETURNING *`,
+    [
+      trailId,
+      req.auth.sub,
+      (input.label || "Conseil").trim().slice(0, 80),
+      input.note.trim(),
+      input.pointLat,
+      input.pointLon,
+      input.distKm ?? null,
+      input.sortIndex ?? 0,
+    ]
+  );
+  return res.status(201).json(rows[0]);
+});
+
+router.delete("/trails/:trailId/tips/:tipId", requireAuth, async (req, res) => {
+  const trailId = Number(req.params.trailId);
+  const tipId = Number(req.params.tipId);
+  if (
+    !Number.isInteger(trailId) ||
+    trailId <= 0 ||
+    !Number.isInteger(tipId) ||
+    tipId <= 0
+  ) {
+    return res.status(400).json({ error: "Invalid trail or tip id" });
+  }
+  const { rows: trailRows } = await pool.query(
+    `SELECT creator_user_id FROM trails WHERE id = $1`,
+    [trailId]
+  );
+  if (!trailRows[0]) return res.status(404).json({ error: "Trail not found" });
+  if (Number(trailRows[0].creator_user_id) !== Number(req.auth.sub)) {
+    return res.status(403).json({ error: "Forbidden" });
+  }
+  const { rows } = await pool.query(
+    `DELETE FROM trail_tips
+     WHERE id = $1 AND trail_id = $2
+     RETURNING id`,
+    [tipId, trailId]
+  );
+  if (!rows[0]) return res.status(404).json({ error: "Tip not found" });
+  return res.json({ ok: true });
+});
+
 async function applyRoutePlanUpdate(req, res) {
   const routePlanId = Number(req.params.id);
   if (!Number.isInteger(routePlanId) || routePlanId <= 0) {
@@ -2168,6 +2472,10 @@ async function applyRoutePlanUpdate(req, res) {
   if (u.notes !== undefined) {
     parts.push(`notes = $${n++}`);
     vals.push(String(u.notes).trim() === "" ? null : String(u.notes));
+  }
+  if (u.visibility !== undefined) {
+    parts.push(`visibility = $${n++}`);
+    vals.push(u.visibility);
   }
   parts.push(`updated_at = NOW()`);
   vals.push(routePlanId, req.auth.sub);
