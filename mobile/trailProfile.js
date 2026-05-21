@@ -275,31 +275,83 @@ export function terrainLabelFromGrade(gradePct) {
   return "Descente raide";
 }
 
-function profileAtFraction(profile, positions, segIndex, t) {
-  const n = positions.length;
-  if (!profile.length || n < 2) {
+/** Interpolation le long du profil par distance cumulée (km), pas par index. */
+function profileAtDistKm(profile, distKm) {
+  if (!profile?.length) {
     return { distKm: 0, gainM: 0, eleM: null, gradePct: null };
   }
-  const frac = (segIndex + Math.max(0, Math.min(1, t))) / Math.max(1, n - 1);
-  const idx = frac * (profile.length - 1);
-  const i = Math.min(Math.floor(idx), profile.length - 2);
-  const j = i + 1;
-  const localT = idx - i;
-  const pi = profile[i] || [0, 0, null];
-  const pj = profile[j] || pi;
-  const distKm = pi[0] + (pj[0] - pi[0]) * localT;
-  const gainM = pi[1] + (pj[1] - pi[1]) * localT;
+  const target = Math.max(0, Number(distKm) || 0);
+  const first = profile[0];
+  const last = profile[profile.length - 1];
+  if (target <= first[0]) {
+    const g = gradePercentAtDist(profile, first[0]);
+    return {
+      distKm: Number(first[0].toFixed(2)),
+      gainM: Math.round(first[1] || 0),
+      eleM: first[2] != null ? first[2] : null,
+      gradePct: g,
+    };
+  }
+  if (target >= last[0]) {
+    const g = gradePercentAtDist(profile, last[0]);
+    return {
+      distKm: Number(last[0].toFixed(2)),
+      gainM: Math.round(last[1] || 0),
+      eleM: last[2] != null ? last[2] : null,
+      gradePct: g,
+    };
+  }
+  let i = 0;
+  while (i < profile.length - 1 && profile[i + 1][0] < target) i += 1;
+  const pi = profile[i];
+  const pj = profile[Math.min(i + 1, profile.length - 1)];
+  const seg = pj[0] - pi[0];
+  const t = seg > 1e-9 ? (target - pi[0]) / seg : 0;
+  const dist = pi[0] + seg * t;
+  const gainM = pi[1] + (pj[1] - pi[1]) * t;
   let eleM = null;
   if (pi[2] != null && pj[2] != null) {
-    eleM = Math.round(pi[2] + (pj[2] - pi[2]) * localT);
+    eleM = Math.round(pi[2] + (pj[2] - pi[2]) * t);
   }
-  const gradePct = gradePercentAtDist(profile, distKm);
+  const gradePct = gradePercentAtDist(profile, dist);
   return {
-    distKm: Number(distKm.toFixed(2)),
+    distKm: Number(dist.toFixed(2)),
     gainM: Math.round(gainM),
     eleM,
     gradePct,
   };
+}
+
+/** Longueur du tracé sur la carte (km, distances haversine entre points). */
+export function getTrailRouteLengthKm(trail) {
+  const { positions } = getTrailGeometry(trail);
+  if (positions.length >= 2) {
+    const dists = trailCumulativeDistances(positions);
+    return dists[dists.length - 1] || 0;
+  }
+  const { profile } = getTrailGeometry(trail);
+  if (profile.length) return profile[profile.length - 1][0];
+  return Number(trail?.distance_km) || 0;
+}
+
+/** Distance profil (axe courbe) à partir d'une distance route (carte). */
+export function profileDistFromRouteKm(trail, routeDistKm) {
+  const { profile } = getTrailGeometry(trail);
+  const routeTotal = getTrailRouteLengthKm(trail);
+  const profileTotal = profile.length ? profile[profile.length - 1][0] : routeTotal;
+  if (routeTotal <= 0 || profileTotal <= 0) return Math.max(0, Number(routeDistKm) || 0);
+  const frac = Math.min(1, Math.max(0, Number(routeDistKm) / routeTotal));
+  return frac * profileTotal;
+}
+
+/** Distance route (carte / surbrillance) à partir d'une distance profil (courbe). */
+export function routeDistFromProfileKm(trail, profileDistKm) {
+  const { profile } = getTrailGeometry(trail);
+  const routeTotal = getTrailRouteLengthKm(trail);
+  const profileTotal = profile.length ? profile[profile.length - 1][0] : routeTotal;
+  if (profileTotal <= 0) return Math.max(0, Number(profileDistKm) || 0);
+  const frac = Math.min(1, Math.max(0, Number(profileDistKm) / profileTotal));
+  return frac * routeTotal;
 }
 
 function projectOnSegment(pLat, pLon, a, b) {
@@ -426,48 +478,50 @@ export function getTrailHighlightSlice(trail, distKm, windowKm = 0.5) {
 }
 
 /** Position sur le tracé à une distance cumulée depuis le départ (km). */
-export function probeTrailAtDist(trail, distKm) {
+export function probeTrailAtDist(trail, profileDistKm) {
   const { positions, profile, hasGainData, gainEstimated, hasElevationData } =
     getTrailGeometry(trail);
   if (positions.length < 2) return null;
-  const target = Math.max(0, Number(distKm) || 0);
-  let cumDist = 0;
+  const profileTarget = Math.max(0, Number(profileDistKm) || 0);
+  const routeDistKm = routeDistFromProfileKm(trail, profileTarget);
+  const dists = trailCumulativeDistances(positions);
+  const total = dists[dists.length - 1] || 0;
+  const clamped = Math.min(routeDistKm, total);
+
+  let segIdx = 1;
   for (let i = 1; i < positions.length; i += 1) {
-    const segLen = haversineKm(
-      positions[i - 1][0],
-      positions[i - 1][1],
-      positions[i][0],
-      positions[i][1]
-    );
-    const prevCum = cumDist;
-    cumDist += segLen;
-    if (cumDist >= target || i === positions.length - 1) {
-      const t =
-        target <= prevCum
-          ? 0
-          : Math.min(1, (target - prevCum) / Math.max(segLen, 1e-9));
-      const lat = positions[i - 1][0] + t * (positions[i][0] - positions[i - 1][0]);
-      const lng = positions[i - 1][1] + t * (positions[i][1] - positions[i - 1][1]);
-      const at = profileAtFraction(profile, positions, i - 1, t);
-      const gradePct = gradePercentAtDist(profile, at.distKm);
-      return {
-        lat,
-        lng,
-        distToPointKm: 0,
-        distKm: at.distKm,
-        gainM: at.gainM,
-        eleM: at.eleM,
-        gradePct,
-        terrainLabel: terrainLabelFromGrade(gradePct),
-        hasGainData,
-        gainEstimated,
-        hasElevationData,
-        segmentIndex: i - 1,
-        source: "chart",
-      };
+    if (dists[i] >= clamped) {
+      segIdx = i;
+      break;
     }
   }
-  return null;
+  const prevCum = dists[segIdx - 1];
+  const segLen = dists[segIdx] - prevCum;
+  const t =
+    segLen > 1e-9 ? Math.min(1, Math.max(0, (clamped - prevCum) / segLen)) : 0;
+  const lat =
+    positions[segIdx - 1][0] +
+    t * (positions[segIdx][0] - positions[segIdx - 1][0]);
+  const lng =
+    positions[segIdx - 1][1] +
+    t * (positions[segIdx][1] - positions[segIdx - 1][1]);
+  const at = profileAtDistKm(profile, profileTarget);
+  return {
+    lat,
+    lng,
+    distToPointKm: 0,
+    distKm: Number(clamped.toFixed(2)),
+    profileDistKm: Number(profileTarget.toFixed(2)),
+    gainM: at.gainM,
+    eleM: at.eleM,
+    gradePct: at.gradePct,
+    terrainLabel: terrainLabelFromGrade(at.gradePct),
+    hasGainData,
+    gainEstimated,
+    hasElevationData,
+    segmentIndex: segIdx - 1,
+    source: "chart",
+  };
 }
 
 export function probeTrailAt(trail, lat, lng) {
@@ -475,21 +529,26 @@ export function probeTrailAt(trail, lat, lng) {
     getTrailGeometry(trail);
   if (positions.length < 2) return null;
 
+  const dists = trailCumulativeDistances(positions);
   let best = null;
   for (let i = 1; i < positions.length; i += 1) {
     const proj = projectOnSegment(lat, lng, positions[i - 1], positions[i]);
     if (!best || proj.distToPointKm < best.distToPointKm) {
-      const at = profileAtFraction(profile, positions, i - 1, proj.t);
-      const terrainLabel = terrainLabelFromGrade(at.gradePct);
+      const prevCum = dists[i - 1];
+      const segLen = dists[i] - prevCum;
+      const routeDistKm = prevCum + proj.t * segLen;
+      const profileDist = profileDistFromRouteKm(trail, routeDistKm);
+      const at = profileAtDistKm(profile, profileDist);
       best = {
         lat: proj.lat,
         lng: proj.lng,
         distToPointKm: proj.distToPointKm,
-        distKm: at.distKm,
+        distKm: Number(routeDistKm.toFixed(2)),
+        profileDistKm: Number(profileDist.toFixed(2)),
         gainM: at.gainM,
         eleM: at.eleM,
         gradePct: at.gradePct,
-        terrainLabel,
+        terrainLabel: terrainLabelFromGrade(at.gradePct),
         hasGainData,
         gainEstimated,
         hasElevationData,
@@ -515,4 +574,11 @@ export function formatTrailProbeLabel(probe) {
   if (probe.eleM != null) parts.push(`${probe.eleM} m`);
   if (probe.terrainLabel) parts.push(probe.terrainLabel);
   return parts.join(" · ");
+}
+
+export function formatTrailProbeCoords(probe) {
+  if (!probe || !Number.isFinite(probe.lat) || !Number.isFinite(probe.lng)) {
+    return "";
+  }
+  return `Lat ${Number(probe.lat).toFixed(5)} · Lon ${Number(probe.lng).toFixed(5)}`;
 }

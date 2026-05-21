@@ -5,6 +5,7 @@ import {
   getTrailAltitudeMeta,
   terrainLabelFromGrade,
   gradePercentAtDist,
+  profileDistFromRouteKm,
 } from "./trailProfile";
 
 const CHART_H_INLINE = 128;
@@ -87,6 +88,8 @@ function WebElevationChart({
   onProbeAtDist,
   onChartHoverStart,
   onChartHoverEnd,
+  onProbeClick,
+  trail,
 }) {
   const svgRef = useRef(null);
 
@@ -100,15 +103,29 @@ function WebElevationChart({
   );
 
   if (!series.length) return null;
-  const linePath = series
-    .map((p, i) => `${i === 0 ? "M" : "L"} ${p.x.toFixed(1)} ${p.y.toFixed(1)}`)
-    .join(" ");
-  const areaPath = `${linePath} L ${chartW} ${chartH} L 0 ${chartH} Z`;
+  const profileDist =
+    probe?.profileDistKm != null
+      ? probe.profileDistKm
+      : probe?.distKm != null && trail
+      ? profileDistFromRouteKm(trail, probe.distKm)
+      : probe?.distKm;
   const probeX =
-    probe?.distKm != null && stats.totalDistKm > 0
-      ? (probe.distKm / stats.totalDistKm) * chartW
+    profileDist != null && stats.totalDistKm > 0
+      ? (profileDist / stats.totalDistKm) * chartW
       : null;
   const probeY = probe ? probeYOnChart(probe, stats, chartH) : null;
+
+  let progressAreaPath = null;
+  let progressLinePath = null;
+  if (probeX != null && probeX > 0) {
+    const pts = series.filter((p) => p.x <= probeX + 0.5);
+    if (pts.length >= 2) {
+      progressLinePath = pts
+        .map((p, i) => `${i === 0 ? "M" : "L"} ${p.x.toFixed(1)} ${p.y.toFixed(1)}`)
+        .join(" ");
+      progressAreaPath = `${progressLinePath} L ${probeX.toFixed(1)} ${chartH} L 0 ${chartH} Z`;
+    }
+  }
 
   const pointerHandlers =
     Platform.OS === "web" && interactive
@@ -116,6 +133,11 @@ function WebElevationChart({
           onMouseMove: (e) => {
             const rect = e.currentTarget.getBoundingClientRect();
             handlePointer(e.clientX, rect);
+          },
+          onClick: (e) => {
+            const rect = e.currentTarget.getBoundingClientRect();
+            handlePointer(e.clientX, rect);
+            onProbeClick?.();
           },
           onMouseEnter: () => onChartHoverStart?.(),
           onMouseLeave: () => {
@@ -151,43 +173,51 @@ function WebElevationChart({
           strokeWidth="1"
         />
       ))}
-      <path d={areaPath} fill="url(#ravitobox-elev-fill)" />
-      {series.map((p, i) =>
-        i === 0 ? null : (
+      {progressAreaPath ? (
+        <path d={progressAreaPath} fill="url(#ravitobox-elev-fill)" />
+      ) : null}
+      {series.map((p, i) => {
+        if (i === 0) return null;
+        const afterProbe = probeX != null && p.x > probeX + 0.5;
+        return (
           <line
             key={`seg-${i}`}
             x1={series[i - 1].x}
             y1={series[i - 1].y}
             x2={p.x}
             y2={p.y}
-            stroke={slopeColor(p.gradePct)}
-            strokeWidth={interactive ? 4.5 : 3.5}
+            stroke={afterProbe ? "#CBD5E1" : slopeColor(p.gradePct)}
+            strokeWidth={afterProbe ? 2.5 : interactive ? 4.5 : 3.5}
             strokeLinecap="round"
+            opacity={afterProbe ? 0.45 : 1}
           />
-        )
-      )}
+        );
+      })}
       {probeX != null ? (
-        <>
+        <g className="ravitobox-probe-marker">
           <line
             x1={probeX}
             y1={0}
             x2={probeX}
             y2={chartH}
             stroke="#EA580C"
-            strokeWidth="2"
-            opacity="0.95"
+            strokeWidth="2.5"
+            opacity="1"
           />
           {probeY != null ? (
-            <circle
-              cx={probeX}
-              cy={probeY}
-              r="7"
-              fill="#EA580C"
-              stroke="#fff"
-              strokeWidth="2.5"
-            />
+            <>
+              <circle
+                cx={probeX}
+                cy={probeY}
+                r="11"
+                fill="rgba(255,255,255,0.95)"
+                stroke="#EA580C"
+                strokeWidth="3"
+              />
+              <circle cx={probeX} cy={probeY} r="5" fill="#EA580C" />
+            </>
           ) : null}
-        </>
+        </g>
       ) : null}
       <text x={4} y={12} fontSize="9" fill="#64748B" fontWeight="600">
         {stats.maxEle} m
@@ -246,6 +276,7 @@ export default function TrailElevationProfile({
   onProbeAtDist,
   onChartHoverStart,
   onChartHoverEnd,
+  onProbeClick,
 }) {
   const isOverlay = variant === "overlay";
   const isRail = variant === "rail";
@@ -362,9 +393,11 @@ export default function TrailElevationProfile({
                 chartW={chartW}
                 chartH={chartH}
                 interactive={interactive}
+                trail={trail}
                 onProbeAtDist={onProbeAtDist}
                 onChartHoverStart={onChartHoverStart}
                 onChartHoverEnd={onChartHoverEnd}
+                onProbeClick={onProbeClick}
               />
             ) : (
               <NativeElevationChart
@@ -465,7 +498,8 @@ const styles = StyleSheet.create({
   },
   legendRowRail: {
     marginTop: 4,
-    gap: 8,
+    marginBottom: 4,
+    gap: 6,
     paddingHorizontal: 2,
   },
   title: {

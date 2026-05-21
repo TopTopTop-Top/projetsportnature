@@ -1,7 +1,19 @@
 import React, { useCallback } from "react";
-import { View, Text, StyleSheet } from "react-native";
+import {
+  View,
+  Text,
+  ScrollView,
+  StyleSheet,
+  Pressable,
+  Platform,
+} from "react-native";
 import TrailElevationProfile from "./TrailElevationProfile";
-import { getTrailAltitudeMeta, probeTrailAtDist } from "./trailProfile";
+import {
+  getTrailAltitudeMeta,
+  getTrailRouteLengthKm,
+  probeTrailAtDist,
+  formatTrailProbeCoords,
+} from "./trailProfile";
 import TrailAltitudeBadge from "./TrailAltitudeBadge";
 
 const DIFFICULTY_LABELS = {
@@ -16,20 +28,22 @@ const DIFFICULTY_LABELS = {
 export default function TrailProfileRail({
   trail,
   probe,
+  probeLocked = false,
   onProbeChange,
   onChartHoverActive,
+  onProbeLock,
 }) {
   const handleChartProbe = useCallback(
     (distKm) => {
       if (!trail) return;
       if (distKm == null) {
-        onProbeChange?.(null);
+        if (!probeLocked) onProbeChange?.(null);
         return;
       }
       const p = probeTrailAtDist(trail, distKm);
       if (p) onProbeChange?.({ ...p, trailId: Number(trail.id) });
     },
-    [trail, onProbeChange]
+    [trail, onProbeChange, probeLocked]
   );
 
   const handleChartHoverStart = useCallback(() => {
@@ -38,100 +52,121 @@ export default function TrailProfileRail({
 
   const handleChartHoverEnd = useCallback(() => {
     onChartHoverActive?.(false);
-  }, [onChartHoverActive]);
+    if (!probeLocked) onProbeChange?.(null);
+  }, [onChartHoverActive, onProbeChange, probeLocked]);
 
-  const handleRailLeave = useCallback(() => {
-    onChartHoverActive?.(false);
+  const handleChartClick = useCallback(() => {
+    onProbeLock?.(true);
+  }, [onProbeLock]);
+
+  const handleClearProbe = useCallback(() => {
+    onProbeLock?.(false);
     onProbeChange?.(null);
-  }, [onChartHoverActive, onProbeChange]);
+  }, [onProbeLock, onProbeChange]);
 
   if (!trail) return null;
 
   const altMeta = getTrailAltitudeMeta(trail);
   const diff = DIFFICULTY_LABELS[trail.difficulty] || trail.difficulty || "—";
-  const totalKm = Number(trail.distance_km || 0).toFixed(1);
+  const routeLenKm = getTrailRouteLengthKm(trail);
+  const totalKm = routeLenKm > 0 ? routeLenKm.toFixed(1) : Number(trail.distance_km || 0).toFixed(1);
   const pct =
-    probe?.distKm != null && Number(trail.distance_km) > 0
-      ? Math.min(
-          100,
-          Math.round(
-            (Number(probe.distKm) / Number(trail.distance_km)) * 100
-          )
-        )
+    probe?.distKm != null && routeLenKm > 0
+      ? Math.min(100, Math.round((Number(probe.distKm) / routeLenKm) * 100))
       : null;
 
   return (
-    <View style={styles.rail} onMouseLeave={handleRailLeave}>
-      <View style={styles.hero}>
-        <Text style={styles.heroLabel}>Trace active</Text>
-        <Text style={styles.heroTitle} numberOfLines={2}>
-          {trail.name || "Sans nom"}
-        </Text>
-        <Text style={styles.heroMeta} numberOfLines={1}>
-          {trail.territory || "—"} · {diff}
-        </Text>
-      </View>
+    <View style={styles.rail}>
+      <ScrollView
+        style={styles.railScroll}
+        contentContainerStyle={styles.railScrollContent}
+        showsVerticalScrollIndicator
+        keyboardShouldPersistTaps="handled"
+      >
+        <View style={styles.hero}>
+          <Text style={styles.heroLabel}>Trace active</Text>
+          <Text style={styles.heroTitle} numberOfLines={2}>
+            {trail.name || "Sans nom"}
+          </Text>
+          <Text style={styles.heroMeta} numberOfLines={1}>
+            {trail.territory || "—"} · {diff}
+          </Text>
+        </View>
 
-      <View style={styles.stats}>
-        <Stat label="Distance" value={`${totalKm} km`} />
-        {altMeta.status === "profile" ? (
-          <Stat label="Dénivelé" value={`${altMeta.elevationM} m`} />
-        ) : (
-          <Stat label="Dénivelé" value="—" muted />
-        )}
-        {probe ? (
-          <Stat
-            label="Position"
-            value={`${Number(probe.distKm).toFixed(1)} km`}
-            accent
-          />
+        <View style={styles.stats}>
+          <Stat label="Distance" value={`${totalKm} km`} />
+          {altMeta.status === "profile" ? (
+            <Stat label="Dénivelé" value={`${altMeta.elevationM} m`} />
+          ) : (
+            <Stat label="Dénivelé" value="—" muted />
+          )}
+          {probe ? (
+            <Stat
+              label="Position"
+              value={`${Number(probe.distKm).toFixed(1)} km`}
+              accent
+            />
+          ) : null}
+        </View>
+
+        <TrailAltitudeBadge trail={trail} compact />
+
+        {pct != null ? (
+          <View style={styles.progressTrack}>
+            <View style={[styles.progressFill, { width: `${pct}%` }]} />
+          </View>
         ) : null}
-      </View>
 
-      <TrailAltitudeBadge trail={trail} compact />
-
-      {pct != null ? (
-        <View style={styles.progressTrack}>
-          <View style={[styles.progressFill, { width: `${pct}%` }]} />
+        <View style={styles.chartZone}>
+          {altMeta.canShowElevationChart ? (
+            <TrailElevationProfile
+              trail={trail}
+              probe={probe}
+              variant="rail"
+              interactive
+              onProbeAtDist={handleChartProbe}
+              onChartHoverStart={handleChartHoverStart}
+              onChartHoverEnd={handleChartHoverEnd}
+              onProbeClick={handleChartClick}
+            />
+          ) : (
+            <TrailElevationProfile trail={trail} probe={null} variant="rail" />
+          )}
         </View>
-      ) : null}
 
-      <View style={styles.chartZone}>
-        {altMeta.canShowElevationChart ? (
-          <TrailElevationProfile
-            trail={trail}
-            probe={probe}
-            variant="rail"
-            interactive
-            onProbeAtDist={handleChartProbe}
-            onChartHoverStart={handleChartHoverStart}
-            onChartHoverEnd={handleChartHoverEnd}
-          />
-        ) : (
-          <TrailElevationProfile trail={trail} probe={null} variant="rail" />
-        )}
-      </View>
-
-      {probe ? (
-        <View style={styles.probeStrip}>
-          <Text style={styles.probeKm}>{Number(probe.distKm).toFixed(1)} km</Text>
-          {probe.eleM != null ? (
-            <Text style={styles.probeDetail}>{probe.eleM} m</Text>
-          ) : null}
-          {probe.gainM != null ? (
-            <Text style={styles.probeDetail}>D+ {Math.round(probe.gainM)} m</Text>
-          ) : null}
-          {probe.terrainLabel ? (
-            <Text style={styles.probeTerrain} numberOfLines={1}>
-              {probe.terrainLabel}
+        {probe ? (
+          <View style={styles.probeStrip}>
+            <Text style={styles.probeKm}>{Number(probe.distKm).toFixed(1)} km</Text>
+            {probe.eleM != null ? (
+              <Text style={styles.probeDetail}>{probe.eleM} m</Text>
+            ) : null}
+            {probe.gainM != null ? (
+              <Text style={styles.probeDetail}>D+ {Math.round(probe.gainM)} m</Text>
+            ) : null}
+            {probe.terrainLabel ? (
+              <Text style={styles.probeTerrain} numberOfLines={1}>
+                {probe.terrainLabel}
+              </Text>
+            ) : null}
+            <Text style={styles.probeCoords} numberOfLines={2}>
+              {formatTrailProbeCoords(probe)}
             </Text>
-          ) : null}
-        </View>
-      ) : (
-        <Text style={styles.hint}>
-          Survole la carte ou la courbe
-        </Text>
-      )}
+            {probeLocked ? (
+              <Pressable onPress={handleClearProbe} style={styles.clearBtn}>
+                <Text style={styles.clearBtnText}>Déverrouiller</Text>
+              </Pressable>
+            ) : (
+              <Text style={styles.probeHint}>
+                Clic sur la courbe ou le tracé pour figer le point
+              </Text>
+            )}
+          </View>
+        ) : (
+          <Text style={styles.hint}>
+            Survole la carte ou la courbe · clic pour figer
+          </Text>
+        )}
+      </ScrollView>
     </View>
   );
 }
@@ -168,7 +203,13 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 1,
     shadowRadius: 16,
-    paddingBottom: 10,
+  },
+  railScroll: {
+    flex: 1,
+    minHeight: 0,
+  },
+  railScrollContent: {
+    paddingBottom: 16,
   },
   hero: {
     backgroundColor: "#062D26",
@@ -246,24 +287,20 @@ const styles = StyleSheet.create({
     borderRadius: 2,
   },
   chartZone: {
-    flex: 1,
-    minHeight: 140,
+    minHeight: 168,
     marginTop: 6,
     paddingHorizontal: 8,
   },
   probeStrip: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    alignItems: "center",
-    gap: 8,
     marginHorizontal: 12,
-    marginTop: 4,
-    paddingVertical: 8,
+    marginTop: 8,
+    paddingVertical: 10,
     paddingHorizontal: 10,
     backgroundColor: "#FFF7ED",
     borderRadius: 10,
     borderWidth: 1,
     borderColor: "#FED7AA",
+    gap: 4,
   },
   probeKm: {
     fontSize: 14,
@@ -276,15 +313,41 @@ const styles = StyleSheet.create({
     color: "#9A3412",
   },
   probeTerrain: {
-    flex: 1,
-    minWidth: "100%",
     fontSize: 11,
     fontWeight: "600",
     color: "#B45309",
   },
+  probeCoords: {
+    fontSize: 10,
+    fontWeight: "600",
+    color: "#78350F",
+    fontFamily: Platform.OS === "web" ? "ui-monospace, monospace" : undefined,
+  },
+  probeHint: {
+    marginTop: 4,
+    fontSize: 10,
+    fontWeight: "600",
+    color: "#B45309",
+  },
+  clearBtn: {
+    alignSelf: "flex-start",
+    marginTop: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    backgroundColor: "#FFEDD5",
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "#FDBA74",
+  },
+  clearBtnText: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: "#C2410C",
+  },
   hint: {
     marginHorizontal: 12,
-    marginTop: 8,
+    marginTop: 10,
+    marginBottom: 4,
     fontSize: 11,
     fontWeight: "600",
     color: "#94A3B8",

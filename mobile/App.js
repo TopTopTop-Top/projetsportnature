@@ -2090,7 +2090,8 @@ function ExplorerScreen() {
 
   const [explorerHoveredTrailId, setExplorerHoveredTrailId] = useState(null);
   const [explorerTrailProbe, setExplorerTrailProbe] = useState(null);
-  const [chartProbeLock, setChartProbeLock] = useState(false);
+  const [chartProbeHover, setChartProbeHover] = useState(false);
+  const [explorerProbeLocked, setExplorerProbeLocked] = useState(false);
 
   const trailsOnMap = Array.isArray(trailsForMap) ? trailsForMap : [];
   const boxesOnMap = Array.isArray(boxesForMap) ? boxesForMap : [];
@@ -2261,7 +2262,8 @@ function ExplorerScreen() {
       // Short tap on map should focus/keep a trail, not toggle it off.
       setSelectedTrailId(tid);
       setExplorerTrailProbe(null);
-      setChartProbeLock(false);
+      setExplorerProbeLocked(false);
+      setChartProbeHover(false);
       setMapTrailPickIds((prev) =>
         Array.isArray(prev) && prev.includes(tid)
           ? prev
@@ -2385,6 +2387,13 @@ function ExplorerScreen() {
     });
     return () => cancelAnimationFrame(id);
   }, [selectedTrailId, selectedBoxId]);
+
+  useEffect(() => {
+    setExplorerTrailProbe(null);
+    setExplorerProbeLocked(false);
+    setChartProbeHover(false);
+  }, [selectedTrailId]);
+
   const [planSearchQuery, setPlanSearchQuery] = useState("");
   const [routePlanDraftNotes, setRoutePlanDraftNotes] = useState("");
   const [planNameDraft, setPlanNameDraft] = useState("");
@@ -4863,8 +4872,10 @@ function ExplorerScreen() {
                       ? explorerTrailProbe
                       : null
                   }
+                  probeLocked={explorerProbeLocked}
                   onProbeChange={setExplorerTrailProbe}
-                  onChartHoverActive={setChartProbeLock}
+                  onChartHoverActive={setChartProbeHover}
+                  onProbeLock={setExplorerProbeLocked}
                 />
               </View>
             ) : null}
@@ -4916,7 +4927,8 @@ function ExplorerScreen() {
                         ? explorerTrailProbe
                         : null
                     }
-                    lockTrailProbe={chartProbeLock}
+                    lockTrailProbe={explorerProbeLocked || chartProbeHover}
+                    onTrailProbeLock={setExplorerProbeLocked}
                     onMapLongPress={handleExplorerMapLongPress}
                     onPickLocation={handleExplorerMapTap}
                     onVisibleBoundsChange={setMapViewportBounds}
@@ -4997,7 +5009,8 @@ function ExplorerScreen() {
                     ? explorerTrailProbe
                     : null
                 }
-                lockTrailProbe={chartProbeLock}
+                lockTrailProbe={explorerProbeLocked || chartProbeHover}
+                onTrailProbeLock={setExplorerProbeLocked}
                 onMapLongPress={handleExplorerMapLongPress}
                 onPickLocation={handleExplorerMapTap}
                 onVisibleBoundsChange={setMapViewportBounds}
@@ -5025,7 +5038,9 @@ function ExplorerScreen() {
                       : null
                   }
                   onProbeChange={setExplorerTrailProbe}
-                  onChartHoverActive={setChartProbeLock}
+                  onChartHoverActive={setChartProbeHover}
+                  onProbeLock={setExplorerProbeLocked}
+                  probeLocked={explorerProbeLocked}
                 />
               ) : null}
             </View>

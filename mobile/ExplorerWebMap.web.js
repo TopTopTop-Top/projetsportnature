@@ -9,12 +9,13 @@ import React, {
 import { View, Text, Platform, StyleSheet } from "react-native";
 import {
   formatTrailProbeLabel,
+  formatTrailProbeCoords,
   getTrailProgressSlice,
   getTrailRemainderSlice,
   probeTrailAt,
 } from "./trailProfile";
 
-function drawTrailProbeOnMap(L, probeLayer, probe, trail, lineColor) {
+function drawTrailProbeOnMap(L, probeLayer, probe, trail, lineColor, locked) {
   try {
     probeLayer.clearLayers();
   } catch (_e) {
@@ -58,18 +59,22 @@ function drawTrailProbeOnMap(L, probeLayer, probe, trail, lineColor) {
     }).addTo(probeLayer);
   }
   const marker = L.circleMarker([probe.lat, probe.lng], {
-    radius: 12,
+    radius: locked ? 14 : 12,
     color: "#FFFFFF",
-    weight: 4,
+    weight: locked ? 5 : 4,
     fillColor: "#EA580C",
     fillOpacity: 1,
   });
-  marker.bindTooltip(formatTrailProbeLabel(probe), {
-    permanent: false,
+  const tipLines = [formatTrailProbeLabel(probe)];
+  const coords = formatTrailProbeCoords(probe);
+  if (coords) tipLines.push(coords);
+  marker.bindTooltip(tipLines.join("<br/>"), {
+    permanent: !!locked,
     direction: "top",
-    offset: [0, -14],
+    offset: [0, -16],
     className: "ravitobox-trail-probe-tip",
   });
+  if (locked) marker.openTooltip();
   marker.addTo(probeLayer);
 }
 
@@ -462,8 +467,10 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
   onTrailProbe,
   /** Sonde pilotée par le parent (ex. survol du profil altimétrique). */
   trailProbe = null,
-  /** Quand true, la carte ne efface pas la sonde au mouseout (survol courbe). */
+  /** Quand true, la carte ne efface pas la sonde au mouseout (survol courbe / clic). */
   lockTrailProbe = false,
+  /** Clic sur le tracé : verrouille la sonde (coords + tooltip). */
+  onTrailProbeLock,
   onMapLongPress,
   onPickLocation,
   onVisibleBoundsChange,
@@ -547,6 +554,8 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
   trailProbeRef.current = trailProbe;
   const lockTrailProbeRef = useRef(lockTrailProbe);
   lockTrailProbeRef.current = lockTrailProbe;
+  const onTrailProbeLockRef = useRef(onTrailProbeLock);
+  onTrailProbeLockRef.current = onTrailProbeLock;
   const probeLayerRef = useRef(null);
   const probeMarkerRef = useRef(null);
   const onMapLongPressRef = useRef(onMapLongPress);
@@ -708,7 +717,7 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
       return undefined;
     }
 
-    const maxSnapKm = 0.35;
+    const maxSnapKm = 2.5;
 
     const handleMove = (ev) => {
       if (lockTrailProbeRef.current) return;
@@ -729,7 +738,14 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
           activeTrail.id,
           activeTrail.difficulty
         );
-        drawTrailProbeOnMap(L, probeLayer, fullProbe, activeTrail, lineColor);
+        drawTrailProbeOnMap(
+          L,
+          probeLayer,
+          fullProbe,
+          activeTrail,
+          lineColor,
+          false
+        );
       } catch (_e) {
         /* noop */
       }
@@ -772,9 +788,16 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
     const trail = (trails || []).find((t) => Number(t.id) === tid);
     if (!trail) return undefined;
     const lineColor = trailDisplayColor(trail.id, trail.difficulty);
-    drawTrailProbeOnMap(L, probeLayer, probe, trail, lineColor);
+    drawTrailProbeOnMap(
+      L,
+      probeLayer,
+      probe,
+      trail,
+      lineColor,
+      lockTrailProbeRef.current
+    );
     return undefined;
-  }, [trailProbe, activeTrailIdNum, trails]);
+  }, [trailProbe, activeTrailIdNum, trails, lockTrailProbe]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -1021,7 +1044,7 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
             lineJoin: "round",
           });
           hitLine.on("click", focusTrail);
-          hitLine.on("mousemove", (ev) => {
+          const emitTrailProbe = (ev, lock) => {
             const lat = Number(ev?.latlng?.lat);
             const lng = Number(ev?.latlng?.lng);
             if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
@@ -1029,13 +1052,22 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
             if (!probe) return;
             const fullProbe = { ...probe, trailId: tid, source: "map" };
             onTrailProbeRef.current?.(fullProbe);
+            if (lock) onTrailProbeLockRef.current?.(true);
             try {
               const pl = probeLayerRef.current;
               if (!pl) return;
-              drawTrailProbeOnMap(L, pl, fullProbe, trail, lineColor);
+              drawTrailProbeOnMap(L, pl, fullProbe, trail, lineColor, !!lock);
             } catch (_e) {
               /* noop */
             }
+          };
+          hitLine.on("mousemove", (ev) => {
+            if (lockTrailProbeRef.current) return;
+            emitTrailProbe(ev, false);
+          });
+          hitLine.on("click", (ev) => {
+            L.DomEvent.stopPropagation(ev);
+            emitTrailProbe(ev, true);
           });
           hitLine.addTo(group);
         }
