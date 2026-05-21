@@ -2021,11 +2021,13 @@ async function getRoutePlanDetailsForUser(routePlanId, athleteUserId) {
             lb.booking_date AS latest_booking_date,
             lb.start_time AS latest_booking_start_time,
             lb.end_time AS latest_booking_end_time,
-            lb.amount_cents AS latest_booking_amount_cents
+            lb.amount_cents AS latest_booking_amount_cents,
+            lb.special_request AS latest_booking_special_request
      FROM route_plan_boxes rpb
      JOIN boxes b ON b.id = rpb.box_id
      LEFT JOIN LATERAL (
-       SELECT id, approval_status, status, booking_date, start_time, end_time, amount_cents
+       SELECT id, approval_status, status, booking_date, start_time, end_time,
+              amount_cents, special_request
        FROM bookings
        WHERE athlete_user_id = $1 AND box_id = rpb.box_id
        ORDER BY created_at DESC

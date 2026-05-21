@@ -17,6 +17,14 @@ import {
 } from "./trailProfile";
 import { isEntryPublishedOnTrail } from "./explorerSavedProbesStorage";
 import TrailAltitudeBadge from "./TrailAltitudeBadge";
+import {
+  planBoxValidationLabel,
+  planBoxApprovalLabel,
+  planBoxHasActiveBooking,
+  formatPlanBoxSlot,
+  formatPlanBoxPrice,
+  planBoxStatusColors,
+} from "./planBoxReservation";
 
 const DIFFICULTY_LABELS = {
   easy: "Facile",
@@ -79,6 +87,18 @@ export default function TrailProfileRail({
   onSelectSharedPlan,
   onShowSharedPlanOnMap,
   onFocusPlanTrailNote,
+  boxCommentDraftById = {},
+  onBoxCommentDraftChange,
+  onSavePlanBoxComment,
+  editingPlanBookingId = null,
+  planBookingDraft = null,
+  onPlanBookingDraftChange,
+  onStartEditPlanBoxBooking,
+  onCancelEditPlanBoxBooking,
+  onSavePlanBoxBooking,
+  onOpenReservations,
+  hostPendingBookingByBoxId,
+  onHostDecideBooking,
   onPublishTrailTip,
   onPublishEntryTip,
   onUnpublishEntryTip,
@@ -417,6 +437,18 @@ export default function TrailProfileRail({
           onSetPlanVisibility={onSetPlanVisibility}
           onForkSharedPlan={onForkSharedPlan}
           onFocusPlanTrailNote={onFocusPlanTrailNote}
+          boxCommentDraftById={boxCommentDraftById}
+          onBoxCommentDraftChange={onBoxCommentDraftChange}
+          onSavePlanBoxComment={onSavePlanBoxComment}
+          editingPlanBookingId={editingPlanBookingId}
+          planBookingDraft={planBookingDraft}
+          onPlanBookingDraftChange={onPlanBookingDraftChange}
+          onStartEditPlanBoxBooking={onStartEditPlanBoxBooking}
+          onCancelEditPlanBoxBooking={onCancelEditPlanBoxBooking}
+          onSavePlanBoxBooking={onSavePlanBoxBooking}
+          onOpenReservations={onOpenReservations}
+          hostPendingBookingByBoxId={hostPendingBookingByBoxId}
+          onHostDecideBooking={onHostDecideBooking}
           savedProbeCount={savedProbes.length}
         />
         ) : null}
@@ -690,6 +722,18 @@ function TrailPlanHub({
   onSetPlanVisibility,
   onForkSharedPlan,
   onFocusPlanTrailNote,
+  boxCommentDraftById = {},
+  onBoxCommentDraftChange,
+  onSavePlanBoxComment,
+  editingPlanBookingId = null,
+  planBookingDraft = null,
+  onPlanBookingDraftChange,
+  onStartEditPlanBoxBooking,
+  onCancelEditPlanBoxBooking,
+  onSavePlanBoxBooking,
+  onOpenReservations,
+  hostPendingBookingByBoxId,
+  onHostDecideBooking,
 }) {
   const planBoxes = Array.isArray(activePlan?.boxes) ? activePlan.boxes : [];
   const planTrailNotes = Array.isArray(activePlan?.trail_notes)
@@ -898,40 +942,38 @@ function TrailPlanHub({
       {hasActivePlan && planBoxes.length > 0 ? (
         <View style={styles.planBoxesSection}>
           <Text style={styles.planSubLabel}>Box du plan (compte)</Text>
-          {planBoxes.map((b) => {
-            const status = String(b.validation_status || "pending");
-            const bookingStatus = String(
-              b.latest_booking_status || ""
-            ).toLowerCase();
-            const hasBooking =
-              bookingStatus &&
-              bookingStatus !== "cancelled" &&
-              bookingStatus !== "canceled";
-            return (
-              <View key={`plan-box-${b.id}`} style={styles.planBoxRow}>
-                <Pressable
-                  style={styles.planBoxRowMain}
-                  onPress={() => onFocusBox?.(Number(b.id))}
-                >
-                  <Text style={styles.planBoxTitle} numberOfLines={1}>
-                    {b.title || "Box"}
-                  </Text>
-                  <Text style={styles.planBoxMeta} numberOfLines={1}>
-                    {status}
-                    {hasBooking ? " · créneau lié" : " · pas encore réservée"}
-                  </Text>
-                </Pressable>
-                {onBookBox ? (
-                  <Pressable
-                    onPress={() => onBookBox(Number(b.id))}
-                    style={styles.planBoxBookBtn}
-                  >
-                    <Text style={styles.planBoxBookText}>Réserver</Text>
-                  </Pressable>
-                ) : null}
-              </View>
-            );
-          })}
+          <Text style={styles.planSaveHint}>
+            Créneau réservé, validation hôte et note de plan par box.
+          </Text>
+          {planBoxes.map((b) => (
+            <PlanBoxReservationCard
+              key={`plan-box-${b.id}`}
+              box={b}
+              planId={activePlan?.id}
+              commentDraft={String(boxCommentDraftById[Number(b.id)] ?? "")}
+              onCommentChange={(text) =>
+                onBoxCommentDraftChange?.(Number(b.id), text)
+              }
+              onSaveComment={() =>
+                onSavePlanBoxComment?.(Number(b.id))
+              }
+              onFocusBox={() => onFocusBox?.(Number(b.id))}
+              onBookBox={() => onBookBox?.(Number(b.id))}
+              editingBookingId={editingPlanBookingId}
+              bookingDraft={planBookingDraft}
+              onBookingDraftChange={onPlanBookingDraftChange}
+              onStartEditBooking={() => onStartEditPlanBoxBooking?.(b)}
+              onCancelEditBooking={onCancelEditPlanBoxBooking}
+              onSaveBooking={onSavePlanBoxBooking}
+              onOpenReservations={onOpenReservations}
+              hostPendingBooking={
+                typeof hostPendingBookingByBoxId === "function"
+                  ? hostPendingBookingByBoxId(Number(b.id))
+                  : null
+              }
+              onHostDecideBooking={onHostDecideBooking}
+            />
+          ))}
         </View>
       ) : null}
 
@@ -982,6 +1024,250 @@ function TrailPlanHub({
             : "Créer le plan (trace + box + points)"}
         </Text>
       </Pressable>
+    </View>
+  );
+}
+
+function PlanBoxReservationCard({
+  box,
+  commentDraft,
+  onCommentChange,
+  onSaveComment,
+  onFocusBox,
+  onBookBox,
+  editingBookingId,
+  bookingDraft,
+  onBookingDraftChange,
+  onStartEditBooking,
+  onCancelEditBooking,
+  onSaveBooking,
+  onOpenReservations,
+  hostPendingBooking = null,
+  onHostDecideBooking,
+}) {
+  const boxId = Number(box.id);
+  const status = String(box.validation_status || "pending");
+  const colors = planBoxStatusColors(status);
+  const hasBooking = planBoxHasActiveBooking(box);
+  const slotLabel = formatPlanBoxSlot(box);
+  const priceLabel = formatPlanBoxPrice(box);
+  const bookingId = Number(box.latest_booking_id);
+  const isEditing =
+    Number.isFinite(bookingId) &&
+    bookingId > 0 &&
+    Number(editingBookingId) === bookingId;
+  const approval = String(box.latest_approval_status || "");
+
+  return (
+    <View
+      style={[
+        styles.planBoxReservationCard,
+        {
+          borderColor: colors.border,
+          backgroundColor: colors.bg,
+        },
+      ]}
+    >
+      <Pressable onPress={onFocusBox} style={styles.planBoxRowMain}>
+        <Text style={styles.planBoxTitle} numberOfLines={1}>
+          {box.title || "Box"}
+        </Text>
+        <Text style={styles.planBoxMeta} numberOfLines={1}>
+          {box.city || "—"}
+        </Text>
+      </Pressable>
+
+      <View style={styles.planBoxStatusRow}>
+        <Text style={[styles.planBoxStatusBadge, { color: colors.text }]}>
+          {planBoxValidationLabel(status)}
+        </Text>
+        {hasBooking ? (
+          <Text style={styles.planBoxStatusSub}>
+            {planBoxApprovalLabel(approval)}
+          </Text>
+        ) : null}
+      </View>
+
+      {hostPendingBooking ? (
+        <View style={styles.planBoxHostBlock}>
+          <Text style={styles.planBoxEditTitle}>
+            Demande reçue sur ta box (hôte)
+          </Text>
+          <Text style={styles.planBoxBookingLine}>
+            {hostPendingBooking.athlete_full_name || "Athlète"} ·{" "}
+            {hostPendingBooking.booking_date}{" "}
+            {hostPendingBooking.start_time}–{hostPendingBooking.end_time}
+          </Text>
+          <Text style={styles.planBoxStatusSub}>
+            {planBoxApprovalLabel(hostPendingBooking.approval_status)}
+          </Text>
+          <View style={styles.planBoxActionsRow}>
+            {onHostDecideBooking ? (
+              <>
+                <Pressable
+                  onPress={() =>
+                    onHostDecideBooking(
+                      Number(hostPendingBooking.id),
+                      "accept"
+                    )
+                  }
+                  style={[
+                    styles.planBoxActionBtn,
+                    styles.planBoxActionBtnPrimary,
+                  ]}
+                >
+                  <Text style={styles.planBoxActionBtnTextPrimary}>
+                    Valider
+                  </Text>
+                </Pressable>
+                <Pressable
+                  onPress={() =>
+                    onHostDecideBooking(
+                      Number(hostPendingBooking.id),
+                      "reject"
+                    )
+                  }
+                  style={styles.planBoxActionBtn}
+                >
+                  <Text style={styles.planBoxActionBtnText}>Refuser</Text>
+                </Pressable>
+              </>
+            ) : null}
+          </View>
+        </View>
+      ) : null}
+
+      {hasBooking ? (
+        <View style={styles.planBoxBookingDetail}>
+          <Text style={styles.planBoxBookingLine}>
+            <Text style={styles.planBoxBookingLabel}>Créneau : </Text>
+            {slotLabel || "—"}
+          </Text>
+          {priceLabel ? (
+            <Text style={styles.planBoxBookingLine}>
+              <Text style={styles.planBoxBookingLabel}>Montant : </Text>
+              {priceLabel}
+            </Text>
+          ) : null}
+          {box.latest_booking_special_request ? (
+            <Text style={styles.planBoxBookingLine} numberOfLines={4}>
+              <Text style={styles.planBoxBookingLabel}>Demande : </Text>
+              {box.latest_booking_special_request}
+            </Text>
+          ) : null}
+          {box.plan_box_comment ? (
+            <Text style={styles.planBoxBookingLine} numberOfLines={3}>
+              <Text style={styles.planBoxBookingLabel}>Note plan : </Text>
+              {box.plan_box_comment}
+            </Text>
+          ) : null}
+        </View>
+      ) : (
+        <Text style={styles.planBoxNoBooking}>
+          Pas encore de réservation active pour cette box.
+        </Text>
+      )}
+
+      <TextInput
+        style={styles.planBoxCommentInput}
+        placeholder="Note box dans ton plan (stratégie, matos…)"
+        placeholderTextColor="#94A3B8"
+        value={commentDraft}
+        onChangeText={onCommentChange}
+        multiline
+      />
+      {onSaveComment ? (
+        <Pressable onPress={onSaveComment} style={styles.planBoxSmallBtn}>
+          <Text style={styles.planBoxSmallBtnText}>Sauver note box</Text>
+        </Pressable>
+      ) : null}
+
+      {isEditing && bookingDraft && onBookingDraftChange ? (
+        <View style={styles.planBoxEditBlock}>
+          <Text style={styles.planBoxEditTitle}>Modifier le créneau</Text>
+          <TextInput
+            style={styles.planSaveInput}
+            placeholder="Date (AAAA-MM-JJ)"
+            placeholderTextColor="#94A3B8"
+            value={bookingDraft.bookingDate || ""}
+            onChangeText={(v) =>
+              onBookingDraftChange({ ...bookingDraft, bookingDate: v })
+            }
+          />
+          <View style={styles.planBoxTimeRow}>
+            <TextInput
+              style={[styles.planSaveInput, styles.planBoxTimeInput]}
+              placeholder="Début (HH:MM)"
+              placeholderTextColor="#94A3B8"
+              value={bookingDraft.startTime || ""}
+              onChangeText={(v) =>
+                onBookingDraftChange({ ...bookingDraft, startTime: v })
+              }
+            />
+            <TextInput
+              style={[styles.planSaveInput, styles.planBoxTimeInput]}
+              placeholder="Fin (HH:MM)"
+              placeholderTextColor="#94A3B8"
+              value={bookingDraft.endTime || ""}
+              onChangeText={(v) =>
+                onBookingDraftChange({ ...bookingDraft, endTime: v })
+              }
+            />
+          </View>
+          <TextInput
+            style={[styles.planSaveInput, styles.planNotesInput]}
+            placeholder="Demande spéciale"
+            placeholderTextColor="#94A3B8"
+            value={bookingDraft.specialRequest || ""}
+            onChangeText={(v) =>
+              onBookingDraftChange({ ...bookingDraft, specialRequest: v })
+            }
+            multiline
+          />
+          <View style={styles.planBtnRow}>
+            <Pressable
+              onPress={onSaveBooking}
+              style={[styles.actionBtn, styles.actionBtnPrimary, styles.planBtnHalf]}
+            >
+              <Text style={styles.actionBtnTextPrimary}>Enregistrer</Text>
+            </Pressable>
+            <Pressable
+              onPress={onCancelEditBooking}
+              style={[styles.actionBtn, styles.planBtnHalf]}
+            >
+              <Text style={styles.actionBtnText}>Annuler</Text>
+            </Pressable>
+          </View>
+          <Text style={styles.planSaveHint}>
+            La modification doit être validée par l'hôte.
+          </Text>
+        </View>
+      ) : (
+        <View style={styles.planBoxActionsRow}>
+          {hasBooking && onStartEditBooking ? (
+            <Pressable
+              onPress={onStartEditBooking}
+              style={[styles.planBoxActionBtn, styles.planBoxActionBtnPrimary]}
+            >
+              <Text style={styles.planBoxActionBtnTextPrimary}>
+                Modifier créneau
+              </Text>
+            </Pressable>
+          ) : onBookBox ? (
+            <Pressable
+              onPress={onBookBox}
+              style={[styles.planBoxActionBtn, styles.planBoxActionBtnPrimary]}
+            >
+              <Text style={styles.planBoxActionBtnTextPrimary}>Réserver</Text>
+            </Pressable>
+          ) : null}
+          {onOpenReservations ? (
+            <Pressable onPress={onOpenReservations} style={styles.planBoxActionBtn}>
+              <Text style={styles.planBoxActionBtnText}>Onglet Resa</Text>
+            </Pressable>
+          ) : null}
+        </View>
+      )}
     </View>
   );
 }
@@ -1770,6 +2056,119 @@ const styles = StyleSheet.create({
     backgroundColor: "#062D26",
   },
   planBoxBookText: {
+    fontSize: 10,
+    fontWeight: "700",
+    color: "#FFFFFF",
+  },
+  planBoxReservationCard: {
+    borderWidth: 1,
+    borderRadius: 10,
+    padding: 10,
+    marginBottom: 4,
+    gap: 6,
+  },
+  planBoxStatusRow: {
+    gap: 2,
+  },
+  planBoxStatusBadge: {
+    fontSize: 11,
+    fontWeight: "800",
+  },
+  planBoxStatusSub: {
+    fontSize: 10,
+    color: "#64748B",
+  },
+  planBoxBookingDetail: {
+    gap: 4,
+    paddingVertical: 4,
+  },
+  planBoxBookingLine: {
+    fontSize: 10,
+    lineHeight: 14,
+    color: "#334155",
+  },
+  planBoxBookingLabel: {
+    fontWeight: "700",
+    color: "#0F172A",
+  },
+  planBoxNoBooking: {
+    fontSize: 10,
+    color: "#64748B",
+    fontStyle: "italic",
+  },
+  planBoxCommentInput: {
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
+    borderRadius: 8,
+    padding: 8,
+    fontSize: 11,
+    color: "#0F172A",
+    backgroundColor: "#FFFFFF",
+    minHeight: 44,
+    textAlignVertical: "top",
+  },
+  planBoxSmallBtn: {
+    alignSelf: "flex-start",
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+  },
+  planBoxSmallBtnText: {
+    fontSize: 10,
+    fontWeight: "700",
+    color: "#0D9488",
+  },
+  planBoxHostBlock: {
+    marginTop: 4,
+    padding: 8,
+    borderRadius: 8,
+    backgroundColor: "#EFF6FF",
+    borderWidth: 1,
+    borderColor: "#BFDBFE",
+    gap: 6,
+  },
+  planBoxEditBlock: {
+    marginTop: 4,
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: "#E2E8F0",
+    gap: 6,
+  },
+  planBoxEditTitle: {
+    fontSize: 11,
+    fontWeight: "800",
+    color: "#0F172A",
+  },
+  planBoxTimeRow: {
+    flexDirection: "row",
+    gap: 8,
+  },
+  planBoxTimeInput: {
+    flex: 1,
+  },
+  planBoxActionsRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 6,
+    marginTop: 4,
+  },
+  planBoxActionBtn: {
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "#CBD5E1",
+    backgroundColor: "#FFFFFF",
+  },
+  planBoxActionBtnPrimary: {
+    borderColor: "#0D9488",
+    backgroundColor: "#0D9488",
+  },
+  planBoxActionBtnText: {
+    fontSize: 10,
+    fontWeight: "700",
+    color: "#334155",
+  },
+  planBoxActionBtnTextPrimary: {
     fontSize: 10,
     fontWeight: "700",
     color: "#FFFFFF",

@@ -30,7 +30,17 @@ import TrailElevationProfile from "./TrailElevationProfile";
 import TrailProfileRail from "./TrailProfileRail";
 import TrailMapInspectOverlay from "./TrailMapInspectOverlay";
 import TrailAltitudeBadge from "./TrailAltitudeBadge";
-import { formatTrailElevationSummary } from "./trailProfile";
+import {
+  formatTrailElevationSummary,
+  probeTrailAt,
+} from "./trailProfile";
+import {
+  planBoxValidationLabel,
+  planBoxApprovalLabel,
+  planBoxHasActiveBooking,
+  formatPlanBoxSlot,
+  formatPlanBoxPrice,
+} from "./planBoxReservation";
 import {
   loadExplorerSavedProbes,
   persistExplorerSavedProbes,
@@ -2122,6 +2132,8 @@ function ExplorerScreen() {
     setSpecialRequest,
     webMapCenter,
     openUserReviews,
+    athleteBookings,
+    hostBookings,
     actionsRef,
   } = useAppMain();
 
@@ -3312,6 +3324,105 @@ function ExplorerScreen() {
       await actionsRef.current.loadRoutePlanDetail?.(pid);
     }
   }, [actionsRef, selectedRoutePlanId]);
+
+  const [editingPlanBookingId, setEditingPlanBookingId] = useState(null);
+  const [planBookingDraft, setPlanBookingDraft] = useState({
+    bookingDate: "",
+    startTime: "",
+    endTime: "",
+    specialRequest: "",
+  });
+
+  const openPlanBoxBookingEditor = useCallback(
+    (box) => {
+      const bookingId = Number(box?.latest_booking_id);
+      if (!Number.isFinite(bookingId) || bookingId <= 0) {
+        startBookingFromExplorer(Number(box?.id));
+        return;
+      }
+      const full = (athleteBookings || []).find(
+        (b) => Number(b.id) === bookingId
+      );
+      setEditingPlanBookingId(bookingId);
+      setPlanBookingDraft({
+        bookingDate:
+          full?.booking_date || box?.latest_booking_date || "",
+        startTime:
+          full?.start_time || box?.latest_booking_start_time || "",
+        endTime: full?.end_time || box?.latest_booking_end_time || "",
+        specialRequest:
+          full?.special_request ||
+          box?.latest_booking_special_request ||
+          "",
+      });
+    },
+    [athleteBookings, startBookingFromExplorer]
+  );
+
+  const savePlanBoxBooking = useCallback(async () => {
+    const bid = Number(editingPlanBookingId);
+    if (!Number.isFinite(bid) || bid <= 0) return;
+    await actionsRef.current.updateAthleteBooking?.(bid, planBookingDraft);
+    setEditingPlanBookingId(null);
+    await refreshRoutePlanBookingLinks();
+  }, [
+    editingPlanBookingId,
+    planBookingDraft,
+    actionsRef,
+    refreshRoutePlanBookingLinks,
+  ]);
+
+  const saveSinglePlanBoxComment = useCallback(
+    async (boxId) => {
+      const plan = activePlanForSelectedTrail;
+      const planId = Number(plan?.id);
+      const bid = Number(boxId);
+      if (!Number.isFinite(planId) || !Number.isFinite(bid)) return;
+      await updateRoutePlanBoxComment?.(
+        planId,
+        bid,
+        String(boxCommentDraftById[bid] || "")
+      );
+      await refreshRoutePlanBookingLinks();
+      userAlert("Plan", "Note box enregistrée.");
+    },
+    [
+      activePlanForSelectedTrail,
+      boxCommentDraftById,
+      updateRoutePlanBoxComment,
+      refreshRoutePlanBookingLinks,
+    ]
+  );
+
+  const openReservationsTab = useCallback(() => {
+    actionsRef.current.navigateToReservations?.();
+  }, [actionsRef]);
+
+  const hostPendingBookingForPlanBox = useCallback(
+    (boxId) => {
+      if (!canHost) return null;
+      const bid = Number(boxId);
+      return (
+        (hostBookings || []).find((b) => {
+          if (Number(b.box_id) !== bid) return false;
+          const approval = String(b.approval_status || "pending");
+          return (
+            approval === "pending" ||
+            approval === "pending_host_confirmation"
+          );
+        }) || null
+      );
+    },
+    [canHost, hostBookings]
+  );
+
+  const decideHostBookingFromPlan = useCallback(
+    async (bookingId, decision) => {
+      await actionsRef.current.decideHostBooking?.(bookingId, decision);
+      await refreshRoutePlanBookingLinks();
+    },
+    [actionsRef, refreshRoutePlanBookingLinks]
+  );
 
   useEffect(() => {
     actionsRef.current.loadTrails();
@@ -4724,24 +4835,14 @@ function ExplorerScreen() {
                         const status = String(b.validation_status || "pending");
                         const isValidated = status === "validated";
                         const isRejected = status === "rejected";
-                        const bookingStatus = String(
-                          b.latest_booking_status || ""
-                        ).toLowerCase();
-                        const bookingApproval = String(
-                          b.latest_approval_status || ""
-                        ).toLowerCase();
-                        const hasActiveBooking =
-                          bookingStatus !== "cancelled" &&
-                          bookingStatus !== "canceled" &&
-                          bookingStatus !== "rejected" &&
-                          bookingApproval !== "rejected";
-                        const bookingSlotLabel =
-                          hasActiveBooking &&
-                          b.latest_booking_date &&
-                          b.latest_booking_start_time &&
-                          b.latest_booking_end_time
-                            ? `${b.latest_booking_date} ${b.latest_booking_start_time}-${b.latest_booking_end_time}`
-                            : "";
+                        const hasActiveBooking = planBoxHasActiveBooking(b);
+                        const bookingSlotLabel = formatPlanBoxSlot(b);
+                        const priceLabel = formatPlanBoxPrice(b);
+                        const bookingId = Number(b.latest_booking_id);
+                        const isEditingBooking =
+                          Number.isFinite(bookingId) &&
+                          bookingId > 0 &&
+                          Number(editingPlanBookingId) === bookingId;
                         return (
                           <View
                             key={`plan-box-${b.id}`}
@@ -4782,7 +4883,15 @@ function ExplorerScreen() {
                                 {b.title || "Box"}
                               </Text>
                               <Text style={styles.cardMeta}>
-                                {b.city || "Ville inconnue"} · {status}
+                                {b.city || "Ville inconnue"}
+                              </Text>
+                              <Text style={styles.cardDetailLine}>
+                                {planBoxValidationLabel(status)}
+                                {hasActiveBooking
+                                  ? ` · ${planBoxApprovalLabel(
+                                      b.latest_approval_status
+                                    )}`
+                                  : ""}
                               </Text>
                               <View
                                 style={[
@@ -4802,10 +4911,17 @@ function ExplorerScreen() {
                                   ]}
                                 >
                                   {bookingSlotLabel
-                                    ? `Créneau réservé: ${bookingSlotLabel}`
+                                    ? `Créneau : ${bookingSlotLabel}${
+                                        priceLabel ? ` · ${priceLabel}` : ""
+                                      }`
                                     : "Aucun créneau actif réservé pour ce plan"}
                                 </Text>
                               </View>
+                              {b.latest_booking_special_request ? (
+                                <Text style={styles.cardAvailability}>
+                                  Demande : {b.latest_booking_special_request}
+                                </Text>
+                              ) : null}
                               <TextInput
                                 style={[styles.input, { marginTop: 6 }]}
                                 placeholder="Commentaire box (stratégie, matos, ravito...)"
@@ -4822,9 +4938,36 @@ function ExplorerScreen() {
                               />
                               <OutlineButton
                                 compact
-                                label="Commentaire prêt (sera enregistré avec le bouton unique)"
-                                icon="checkmark-done-outline"
-                                disabled
+                                label="Sauver note box"
+                                icon="save-outline"
+                                onPress={() => saveSinglePlanBoxComment(Number(b.id))}
+                              />
+                              {hasActiveBooking ? (
+                                <OutlineButton
+                                  compact
+                                  label={
+                                    isEditingBooking
+                                      ? "Modification en cours (rail / ci-dessous)"
+                                      : "Modifier le créneau"
+                                  }
+                                  icon="create-outline"
+                                  onPress={() => openPlanBoxBookingEditor(b)}
+                                />
+                              ) : (
+                                <OutlineButton
+                                  compact
+                                  label="Réserver cette box"
+                                  icon="calendar-outline"
+                                  onPress={() =>
+                                    startBookingFromExplorer(Number(b.id))
+                                  }
+                                />
+                              )}
+                              <OutlineButton
+                                compact
+                                label="Onglet Resa (détail complet)"
+                                icon="open-outline"
+                                onPress={openReservationsTab}
                               />
                             </View>
                           </View>
@@ -5755,6 +5898,25 @@ function ExplorerScreen() {
                   onSelectSharedPlan={openSharedPlanPreview}
                   onShowSharedPlanOnMap={showSharedPlanPreviewOnMap}
                   onFocusPlanTrailNote={focusExplorerPlanTrailNote}
+                  boxCommentDraftById={boxCommentDraftById}
+                  onBoxCommentDraftChange={(boxId, text) =>
+                    setBoxCommentDraftById((prev) => ({
+                      ...prev,
+                      [Number(boxId)]: text,
+                    }))
+                  }
+                  onSavePlanBoxComment={saveSinglePlanBoxComment}
+                  editingPlanBookingId={editingPlanBookingId}
+                  planBookingDraft={planBookingDraft}
+                  onPlanBookingDraftChange={setPlanBookingDraft}
+                  onStartEditPlanBoxBooking={openPlanBoxBookingEditor}
+                  onCancelEditPlanBoxBooking={() =>
+                    setEditingPlanBookingId(null)
+                  }
+                  onSavePlanBoxBooking={savePlanBoxBooking}
+                  onOpenReservations={openReservationsTab}
+                  hostPendingBookingByBoxId={hostPendingBookingForPlanBox}
+                  onHostDecideBooking={decideHostBookingFromPlan}
                   onPublishTrailTip={publishTrailTipFromProbe}
                   onDeleteTrailTip={deleteTrailTipById}
                   trailTipsForEntry={trailTips}
@@ -12795,6 +12957,8 @@ function RavitoApp() {
     deleteAllMyTrails,
     centerMapOnTrail,
     isolateTrailOnMap,
+    navigateToReservations: () =>
+      pickerNavRef.current?.navigate?.("Reservations"),
     refreshSession,
     logout,
     updateMyRole,
