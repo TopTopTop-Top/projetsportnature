@@ -2150,8 +2150,11 @@ function ExplorerScreen() {
     );
   }, []);
 
+  const trailsOnMap = Array.isArray(trailsForMap) ? trailsForMap : [];
+  const boxesOnMap = Array.isArray(boxesForMap) ? boxesForMap : [];
+
   const trailsOnMapDisplay = useMemo(() => {
-    const base = Array.isArray(trailsOnMap) ? trailsOnMap : [];
+    const base = trailsOnMap;
     const tid = Number(selectedTrailId);
     if (!Number.isFinite(tid)) return base;
     if (base.some((t) => Number(t.id) === tid)) return base;
@@ -2164,9 +2167,6 @@ function ExplorerScreen() {
     if (!Number.isFinite(tid)) return [];
     return explorerSavedProbes.filter((e) => Number(e.trailId) === tid);
   }, [explorerSavedProbes, selectedTrailId]);
-
-  const trailsOnMap = Array.isArray(trailsForMap) ? trailsForMap : [];
-  const boxesOnMap = Array.isArray(boxesForMap) ? boxesForMap : [];
   const safePickedBoxIds = useMemo(
     () =>
       Array.isArray(mapPickedBoxIds)
