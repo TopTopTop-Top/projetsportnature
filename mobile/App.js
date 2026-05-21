@@ -2110,6 +2110,61 @@ function ExplorerScreen() {
     });
   }, []);
 
+  const [explorerSavedProbes, setExplorerSavedProbes] = useState([]);
+  const saveExplorerProbe = useCallback(() => {
+    if (!explorerTrailProbe || selectedTrailId == null) return;
+    const tid = Number(selectedTrailId);
+    if (Number(explorerTrailProbe.trailId) !== tid) return;
+    const n =
+      explorerSavedProbes.filter((e) => Number(e.trailId) === tid).length + 1;
+    setExplorerSavedProbes((prev) => [
+      ...prev,
+      {
+        id: `sp-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        trailId: tid,
+        label: `Point ${n}`,
+        savedAt: Date.now(),
+        probe: { ...explorerTrailProbe },
+      },
+    ]);
+    setExplorerProbeLock(true);
+  }, [
+    explorerTrailProbe,
+    selectedTrailId,
+    explorerSavedProbes,
+    setExplorerProbeLock,
+  ]);
+  const removeExplorerSavedProbe = useCallback((id) => {
+    setExplorerSavedProbes((prev) => prev.filter((e) => e.id !== id));
+  }, []);
+  const focusExplorerSavedProbe = useCallback((entry) => {
+    if (!entry?.probe) return;
+    setExplorerTrailProbe({ ...entry.probe });
+    setExplorerProbeLock(true);
+  }, [setExplorerProbeLock]);
+  const clearExplorerSavedProbesForTrail = useCallback((trailId) => {
+    const tid = Number(trailId);
+    if (!Number.isFinite(tid)) return;
+    setExplorerSavedProbes((prev) =>
+      prev.filter((e) => Number(e.trailId) !== tid)
+    );
+  }, []);
+
+  const trailsOnMapDisplay = useMemo(() => {
+    const base = Array.isArray(trailsOnMap) ? trailsOnMap : [];
+    const tid = Number(selectedTrailId);
+    if (!Number.isFinite(tid)) return base;
+    if (base.some((t) => Number(t.id) === tid)) return base;
+    const st = trails.find((tr) => Number(tr.id) === tid);
+    return st ? [...base, st] : base;
+  }, [trailsOnMap, trails, selectedTrailId]);
+
+  const savedProbesForSelectedTrail = useMemo(() => {
+    const tid = Number(selectedTrailId);
+    if (!Number.isFinite(tid)) return [];
+    return explorerSavedProbes.filter((e) => Number(e.trailId) === tid);
+  }, [explorerSavedProbes, selectedTrailId]);
+
   const trailsOnMap = Array.isArray(trailsForMap) ? trailsForMap : [];
   const boxesOnMap = Array.isArray(boxesForMap) ? boxesForMap : [];
   const safePickedBoxIds = useMemo(
@@ -2405,11 +2460,14 @@ function ExplorerScreen() {
     return () => cancelAnimationFrame(id);
   }, [selectedTrailId, selectedBoxId]);
 
+  const prevSelectedTrailIdRef = useRef(selectedTrailId);
   useEffect(() => {
+    if (prevSelectedTrailIdRef.current === selectedTrailId) return;
+    prevSelectedTrailIdRef.current = selectedTrailId;
     setExplorerTrailProbe(null);
     setExplorerProbeLock(false);
     setChartProbeHover(false);
-  }, [selectedTrailId]);
+  }, [selectedTrailId, setExplorerProbeLock]);
 
   const [planSearchQuery, setPlanSearchQuery] = useState("");
   const [routePlanDraftNotes, setRoutePlanDraftNotes] = useState("");
@@ -4894,6 +4952,13 @@ function ExplorerScreen() {
                   onChartHoverActive={handleChartProbeHoverStart}
                   onChartHoverEnd={handleChartProbeHoverEnd}
                   onProbeLock={setExplorerProbeLock}
+                  savedProbes={savedProbesForSelectedTrail}
+                  onSaveProbe={saveExplorerProbe}
+                  onRemoveSavedProbe={removeExplorerSavedProbe}
+                  onFocusSavedProbe={focusExplorerSavedProbe}
+                  onClearSavedProbes={() =>
+                    clearExplorerSavedProbesForTrail(selectedTrailId)
+                  }
                 />
               </View>
             ) : null}
@@ -4918,7 +4983,7 @@ function ExplorerScreen() {
                   <ExplorerWebMap
                     center={webMapCenter}
                     boxes={boxesOnMap}
-                    trails={trailsOnMap}
+                    trails={trailsOnMapDisplay}
                     selectedTrailIds={mapTrailPickIds}
                     selectedTrailId={selectedTrailId}
                     hoveredTrailId={explorerHoveredTrailId}
@@ -4945,6 +5010,7 @@ function ExplorerScreen() {
                         ? explorerTrailProbe
                         : null
                     }
+                    savedTrailProbes={savedProbesForSelectedTrail}
                     lockTrailProbe={explorerProbeLocked || chartProbeHover}
                     onTrailProbeLock={setExplorerProbeLock}
                     onMapLongPress={handleExplorerMapLongPress}
@@ -5000,7 +5066,7 @@ function ExplorerScreen() {
               <ExplorerWebMap
                 center={webMapCenter}
                 boxes={boxesOnMap}
-                trails={trailsOnMap}
+                trails={trailsOnMapDisplay}
                 selectedTrailIds={mapTrailPickIds}
                 selectedTrailId={selectedTrailId}
                 hoveredTrailId={explorerHoveredTrailId}
@@ -5027,6 +5093,7 @@ function ExplorerScreen() {
                     ? explorerTrailProbe
                     : null
                 }
+                savedTrailProbes={savedProbesForSelectedTrail}
                 lockTrailProbe={explorerProbeLocked || chartProbeHover}
                 onTrailProbeLock={setExplorerProbeLock}
                 onMapLongPress={handleExplorerMapLongPress}
@@ -9568,15 +9635,8 @@ function RavitoApp() {
       (trail) => Number(trail.id) === Number(selectedTrailId)
     ) || null;
 
-  useEffect(() => {
-    if (selectedTrailId == null) return;
-    const exists = trailsMerged.some(
-      (trail) => Number(trail.id) === Number(selectedTrailId)
-    );
-    if (!exists) {
-      setSelectedTrailId(null);
-    }
-  }, [trailsMerged, selectedTrailId]);
+  // Ne pas désélectionner la trace au zoom / filtre viewport : la trace reste active
+  // tant que l'utilisateur ne change pas de sélection explicitement.
 
   /** En ville / GPS : centre = coordonnées de recherche (pas la box sélectionnée), pour éviter carte bloquée loin du point demandé. */
   const webMapCenter = useMemo(() => {

@@ -33,6 +33,11 @@ export default function TrailProfileRail({
   onChartHoverActive,
   onChartHoverEnd,
   onProbeLock,
+  savedProbes = [],
+  onSaveProbe,
+  onRemoveSavedProbe,
+  onFocusSavedProbe,
+  onClearSavedProbes,
 }) {
   const handleChartProbe = useCallback(
     (distKm) => {
@@ -154,23 +159,74 @@ export default function TrailProfileRail({
               {formatTrailProbeCoords(probe)}
             </Text>
             {probeLocked ? (
-              <>
-                <Text style={styles.probeLockedLabel}>Point figé</Text>
-                <Pressable onPress={handleClearProbe} style={styles.clearBtn}>
-                  <Text style={styles.clearBtnText}>Déverrouiller</Text>
-                </Pressable>
-              </>
+              <Text style={styles.probeLockedLabel}>Point figé — zoom libre</Text>
             ) : (
               <Text style={styles.probeHint}>
-                Clic (maintenu) sur la courbe ou le tracé pour figer le point
+                Clic sur la courbe ou le tracé pour figer le point
               </Text>
             )}
+            <View style={styles.probeActions}>
+              <Pressable
+                onPress={onSaveProbe}
+                style={[styles.actionBtn, styles.actionBtnPrimary]}
+              >
+                <Text style={styles.actionBtnTextPrimary}>Mémoriser</Text>
+              </Pressable>
+              {probeLocked ? (
+                <Pressable onPress={handleClearProbe} style={styles.actionBtn}>
+                  <Text style={styles.actionBtnText}>Déverrouiller</Text>
+                </Pressable>
+              ) : null}
+            </View>
           </View>
         ) : (
           <Text style={styles.hint}>
             Survole la carte ou la courbe · clic pour figer
           </Text>
         )}
+
+        {savedProbes.length > 0 ? (
+          <View style={styles.savedBlock}>
+            <View style={styles.savedHeader}>
+              <Text style={styles.savedTitle}>
+                Points mémorisés ({savedProbes.length})
+              </Text>
+              {onClearSavedProbes ? (
+                <Pressable onPress={onClearSavedProbes}>
+                  <Text style={styles.savedClearAll}>Tout effacer</Text>
+                </Pressable>
+              ) : null}
+            </View>
+            {savedProbes.map((entry) => (
+              <View key={entry.id} style={styles.savedRow}>
+                <Pressable
+                  style={styles.savedRowMain}
+                  onPress={() => onFocusSavedProbe?.(entry)}
+                >
+                  <Text style={styles.savedRowLabel}>{entry.label}</Text>
+                  <Text style={styles.savedRowMeta} numberOfLines={1}>
+                    {Number(entry.probe?.distKm || 0).toFixed(1)} km
+                    {entry.probe?.eleM != null
+                      ? ` · ${entry.probe.eleM} m`
+                      : ""}
+                    {entry.probe?.gainM != null
+                      ? ` · D+ ${Math.round(entry.probe.gainM)} m`
+                      : ""}
+                  </Text>
+                  <Text style={styles.savedRowCoords} numberOfLines={1}>
+                    {formatTrailProbeCoords(entry.probe)}
+                  </Text>
+                </Pressable>
+                <Pressable
+                  onPress={() => onRemoveSavedProbe?.(entry.id)}
+                  style={styles.savedRemoveBtn}
+                >
+                  <Text style={styles.savedRemoveText}>×</Text>
+                </Pressable>
+              </View>
+            ))}
+          </View>
+        ) : null}
       </ScrollView>
     </View>
   );
@@ -341,20 +397,108 @@ const styles = StyleSheet.create({
     textTransform: "uppercase",
     letterSpacing: 0.4,
   },
-  clearBtn: {
-    alignSelf: "flex-start",
-    marginTop: 6,
+  probeActions: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    marginTop: 8,
+  },
+  actionBtn: {
     paddingHorizontal: 10,
-    paddingVertical: 5,
-    backgroundColor: "#FFEDD5",
+    paddingVertical: 6,
     borderRadius: 8,
     borderWidth: 1,
     borderColor: "#FDBA74",
+    backgroundColor: "#FFFBEB",
   },
-  clearBtnText: {
+  actionBtnPrimary: {
+    backgroundColor: "#0F766E",
+    borderColor: "#0D9488",
+  },
+  actionBtnText: {
     fontSize: 11,
     fontWeight: "700",
     color: "#C2410C",
+  },
+  actionBtnTextPrimary: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: "#FFFFFF",
+  },
+  savedBlock: {
+    marginHorizontal: 12,
+    marginTop: 10,
+    padding: 10,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#99F6E4",
+    backgroundColor: "#F0FDFA",
+    gap: 8,
+  },
+  savedHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 8,
+  },
+  savedTitle: {
+    fontSize: 11,
+    fontWeight: "800",
+    color: "#0F766E",
+    textTransform: "uppercase",
+    letterSpacing: 0.35,
+  },
+  savedClearAll: {
+    fontSize: 10,
+    fontWeight: "700",
+    color: "#64748B",
+  },
+  savedRow: {
+    flexDirection: "row",
+    alignItems: "stretch",
+    gap: 6,
+  },
+  savedRowMain: {
+    flex: 1,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    borderRadius: 10,
+    backgroundColor: "#FFFFFF",
+    borderWidth: 1,
+    borderColor: "#CCFBF1",
+  },
+  savedRowLabel: {
+    fontSize: 12,
+    fontWeight: "800",
+    color: "#0F766E",
+  },
+  savedRowMeta: {
+    marginTop: 2,
+    fontSize: 11,
+    fontWeight: "600",
+    color: "#134E4A",
+  },
+  savedRowCoords: {
+    marginTop: 2,
+    fontSize: 9,
+    fontWeight: "600",
+    color: "#64748B",
+    fontFamily: Platform.OS === "web" ? "ui-monospace, monospace" : undefined,
+  },
+  savedRemoveBtn: {
+    width: 32,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 10,
+    backgroundColor: "#FEE2E2",
+    borderWidth: 1,
+    borderColor: "#FECACA",
+  },
+  savedRemoveText: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: "#B91C1C",
+    lineHeight: 20,
   },
   hint: {
     marginHorizontal: 12,

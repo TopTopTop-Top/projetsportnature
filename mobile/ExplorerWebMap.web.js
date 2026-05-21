@@ -90,6 +90,42 @@ function drawTrailProbeOnMap(L, probeLayer, probe, trail, lineColor, locked) {
   }
 }
 
+function drawSavedProbesOnMap(L, probeLayer, savedProbes) {
+  if (!Array.isArray(savedProbes) || !savedProbes.length) return;
+  savedProbes.forEach((entry, index) => {
+    const p = entry?.probe;
+    if (!p || !Number.isFinite(p.lat) || !Number.isFinite(p.lng)) return;
+    const n = index + 1;
+    const marker = L.circleMarker([p.lat, p.lng], {
+      pane: PROBE_MARKER_PANE,
+      radius: 9,
+      color: "#FFFFFF",
+      weight: 2.5,
+      fillColor: "#0F766E",
+      fillOpacity: 1,
+    });
+    const tip = [
+      entry?.label || `Point ${n}`,
+      formatTrailProbeLabel(p),
+      formatTrailProbeCoords(p),
+    ]
+      .filter(Boolean)
+      .join("<br/>");
+    marker.bindTooltip(tip, {
+      permanent: false,
+      direction: "top",
+      offset: [0, -12],
+      className: "ravitobox-trail-probe-tip",
+    });
+    marker.addTo(probeLayer);
+    try {
+      marker.bringToFront?.();
+    } catch (_e) {
+      /* noop */
+    }
+  });
+}
+
 const LEAFLET_TILE_FIX_ID = "ravitobox-leaflet-rnweb-tiles";
 const PROBE_LINE_PANE = "ravitoboxProbeLinePane";
 const PROBE_MARKER_PANE = "ravitoboxProbeMarkerPane";
@@ -496,6 +532,8 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
   lockTrailProbe = false,
   /** Clic sur le tracé : verrouille la sonde (coords + tooltip). */
   onTrailProbeLock,
+  /** Points mémorisés sur la trace active (affichés sur la carte). */
+  savedTrailProbes = [],
   onMapLongPress,
   onPickLocation,
   onVisibleBoundsChange,
@@ -593,6 +631,9 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
   activeTrailIdRef.current = selectedTrailId;
   const trailsRef = useRef(trails);
   trailsRef.current = trails;
+  const savedTrailProbesRef = useRef(savedTrailProbes);
+  savedTrailProbesRef.current = savedTrailProbes;
+  const mapZoomingRef = useRef(false);
   const onVisibleBoundsChangeRef = useRef(onVisibleBoundsChange);
   onVisibleBoundsChangeRef.current = onVisibleBoundsChange;
   const onUserMapGestureRef = useRef(onUserMapGesture);
@@ -665,7 +706,13 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
       }
     };
     map.on("moveend", emitBounds);
-    map.on("zoomend", emitBounds);
+    map.on("zoomstart", () => {
+      mapZoomingRef.current = true;
+    });
+    map.on("zoomend", () => {
+      mapZoomingRef.current = false;
+      emitBounds();
+    });
     map.on("dragend", () => {
       const fn = onUserMapGestureRef.current;
       if (typeof fn === "function") fn();
@@ -801,7 +848,7 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
     };
 
     const handleLeave = () => {
-      if (lockTrailProbeRef.current) return;
+      if (lockTrailProbeRef.current || mapZoomingRef.current) return;
       clearProbeVisual();
       emitProbe(null);
     };
@@ -812,10 +859,12 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
     return () => {
       map.off("mousemove", handleMove);
       map.off("mouseout", handleLeave);
-      clearProbeVisual();
-      emitProbe(null);
+      if (!lockTrailProbeRef.current) {
+        clearProbeVisual();
+        emitProbe(null);
+      }
     };
-  }, [activeTrailIdNum, trails]);
+  }, [activeTrailIdNum]);
 
   useEffect(() => {
     if (Platform.OS !== "web") return undefined;
@@ -824,29 +873,37 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
     const L = require("leaflet");
     const probe = trailProbeRef.current;
     const tid = activeTrailIdNum;
-    if (!probe || tid == null || Number(probe.trailId) !== tid) {
-      if (!lockTrailProbeRef.current) {
-        try {
-          probeLayer.clearLayers();
-        } catch (_e) {
-          /* noop */
-        }
-      }
-      return undefined;
+    const trail =
+      tid != null ? (trails || []).find((t) => Number(t.id) === tid) : null;
+    try {
+      probeLayer.clearLayers();
+    } catch (_e) {
+      /* noop */
     }
-    const trail = (trails || []).find((t) => Number(t.id) === tid);
-    if (!trail) return undefined;
-    const lineColor = trailDisplayColor(trail.id, trail.difficulty);
-    drawTrailProbeOnMap(
-      L,
-      probeLayer,
-      probe,
-      trail,
-      lineColor,
-      lockTrailProbeRef.current
-    );
+    if (
+      probe &&
+      trail &&
+      tid != null &&
+      Number(probe.trailId) === tid
+    ) {
+      const lineColor = trailDisplayColor(trail.id, trail.difficulty);
+      drawTrailProbeOnMap(
+        L,
+        probeLayer,
+        probe,
+        trail,
+        lineColor,
+        lockTrailProbeRef.current
+      );
+    }
+    if (tid != null) {
+      const saved = (savedTrailProbesRef.current || []).filter(
+        (e) => Number(e?.trailId) === tid
+      );
+      drawSavedProbesOnMap(L, probeLayer, saved);
+    }
     return undefined;
-  }, [trailProbe, activeTrailIdNum, trails, lockTrailProbe]);
+  }, [trailProbe, activeTrailIdNum, trails, lockTrailProbe, savedTrailProbes]);
 
   useEffect(() => {
     const map = mapRef.current;
