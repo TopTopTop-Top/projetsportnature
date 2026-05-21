@@ -66,6 +66,47 @@ function buildChartSeries(trail, chartW, chartH) {
   };
 }
 
+/** Point exact sur la courbe à la distance X (évite le décalage remplissage / repère). */
+function seriesPointAtX(series, probeX) {
+  if (!series.length || probeX == null) return null;
+  if (probeX <= series[0].x) return { x: probeX, y: series[0].y, distKm: series[0].distKm };
+  for (let i = 1; i < series.length; i += 1) {
+    const a = series[i - 1];
+    const b = series[i];
+    if (probeX <= b.x + 0.01) {
+      const span = b.x - a.x;
+      const t = span > 1e-6 ? (probeX - a.x) / span : 0;
+      return {
+        x: probeX,
+        y: a.y + t * (b.y - a.y),
+        distKm: a.distKm + t * (b.distKm - a.distKm),
+      };
+    }
+  }
+  const last = series[series.length - 1];
+  return { x: probeX, y: last.y, distKm: last.distKm };
+}
+
+function snapProfileDistFromPointer(series, clientX, rect, totalDistKm) {
+  const frac = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+  const chartW = rect.width;
+  const x = frac * chartW;
+  const rawDist = frac * totalDistKm;
+  if (!series.length) return rawDist;
+  let nearest = series[0];
+  let bestDx = Math.abs(nearest.x - x);
+  for (let i = 1; i < series.length; i += 1) {
+    const dx = Math.abs(series[i].x - x);
+    if (dx < bestDx) {
+      bestDx = dx;
+      nearest = series[i];
+    }
+  }
+  const snapPx = Math.max(10, chartW * 0.025);
+  if (bestDx <= snapPx && nearest.distKm != null) return nearest.distKm;
+  return rawDist;
+}
+
 function probeYOnChart(probe, stats, chartH) {
   if (probe?.eleM == null || stats.minEle == null || stats.maxEle == null) {
     return null;
@@ -89,17 +130,25 @@ function WebElevationChart({
   onChartHoverStart,
   onChartHoverEnd,
   onProbeClick,
+  onProbeLock,
   trail,
+  probeLocked = false,
 }) {
   const svgRef = useRef(null);
 
   const handlePointer = useCallback(
-    (clientX, rect) => {
+    (clientX, rect, lock) => {
       if (!interactive || !onProbeAtDist || !stats.totalDistKm) return;
-      const frac = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
-      onProbeAtDist(frac * stats.totalDistKm);
+      const distKm = snapProfileDistFromPointer(
+        series,
+        clientX,
+        rect,
+        stats.totalDistKm
+      );
+      onProbeAtDist(distKm);
+      if (lock) onProbeLock?.(true);
     },
-    [interactive, onProbeAtDist, stats.totalDistKm]
+    [interactive, onProbeAtDist, stats.totalDistKm, series, onProbeLock]
   );
 
   if (!series.length) return null;
@@ -117,8 +166,11 @@ function WebElevationChart({
 
   let progressAreaPath = null;
   let progressLinePath = null;
-  if (probeX != null && probeX > 0) {
-    const pts = series.filter((p) => p.x <= probeX + 0.5);
+  const probeOnCurve =
+    probeX != null ? seriesPointAtX(series, probeX) : null;
+  if (probeX != null && probeX > 0 && probeOnCurve) {
+    const pts = series.filter((p) => p.x < probeX - 0.5);
+    pts.push(probeOnCurve);
     if (pts.length >= 2) {
       progressLinePath = pts
         .map((p, i) => `${i === 0 ? "M" : "L"} ${p.x.toFixed(1)} ${p.y.toFixed(1)}`)
@@ -131,19 +183,22 @@ function WebElevationChart({
     Platform.OS === "web" && interactive
       ? {
           onMouseMove: (e) => {
+            if (probeLocked) return;
             const rect = e.currentTarget.getBoundingClientRect();
-            handlePointer(e.clientX, rect);
+            handlePointer(e.clientX, rect, false);
           },
-          onClick: (e) => {
+          onMouseDown: (e) => {
+            if (e.button !== 0) return;
+            e.preventDefault();
             const rect = e.currentTarget.getBoundingClientRect();
-            handlePointer(e.clientX, rect);
+            handlePointer(e.clientX, rect, true);
             onProbeClick?.();
           },
           onMouseEnter: () => onChartHoverStart?.(),
           onMouseLeave: () => {
             onChartHoverEnd?.();
           },
-          style: { display: "block", cursor: "crosshair" },
+          style: { display: "block", cursor: probeLocked ? "default" : "crosshair" },
         }
       : { style: { display: "block" } };
 
@@ -277,6 +332,8 @@ export default function TrailElevationProfile({
   onChartHoverStart,
   onChartHoverEnd,
   onProbeClick,
+  onProbeLock,
+  probeLocked = false,
 }) {
   const isOverlay = variant === "overlay";
   const isRail = variant === "rail";
@@ -398,6 +455,8 @@ export default function TrailElevationProfile({
                 onChartHoverStart={onChartHoverStart}
                 onChartHoverEnd={onChartHoverEnd}
                 onProbeClick={onProbeClick}
+                onProbeLock={onProbeLock}
+                probeLocked={probeLocked}
               />
             ) : (
               <NativeElevationChart

@@ -31,6 +31,7 @@ export default function TrailProfileRail({
   probeLocked = false,
   onProbeChange,
   onChartHoverActive,
+  onChartHoverEnd,
   onProbeLock,
 }) {
   const handleChartProbe = useCallback(
@@ -51,11 +52,10 @@ export default function TrailProfileRail({
   }, [onChartHoverActive]);
 
   const handleChartHoverEnd = useCallback(() => {
-    onChartHoverActive?.(false);
-    if (!probeLocked) onProbeChange?.(null);
-  }, [onChartHoverActive, onProbeChange, probeLocked]);
+    onChartHoverEnd?.();
+  }, [onChartHoverEnd]);
 
-  const handleChartClick = useCallback(() => {
+  const handleChartLock = useCallback(() => {
     onProbeLock?.(true);
   }, [onProbeLock]);
 
@@ -127,7 +127,9 @@ export default function TrailProfileRail({
               onProbeAtDist={handleChartProbe}
               onChartHoverStart={handleChartHoverStart}
               onChartHoverEnd={handleChartHoverEnd}
-              onProbeClick={handleChartClick}
+              onProbeClick={handleChartLock}
+              onProbeLock={onProbeLock}
+              probeLocked={probeLocked}
             />
           ) : (
             <TrailElevationProfile trail={trail} probe={null} variant="rail" />
@@ -152,12 +154,15 @@ export default function TrailProfileRail({
               {formatTrailProbeCoords(probe)}
             </Text>
             {probeLocked ? (
-              <Pressable onPress={handleClearProbe} style={styles.clearBtn}>
-                <Text style={styles.clearBtnText}>Déverrouiller</Text>
-              </Pressable>
+              <>
+                <Text style={styles.probeLockedLabel}>Point figé</Text>
+                <Pressable onPress={handleClearProbe} style={styles.clearBtn}>
+                  <Text style={styles.clearBtnText}>Déverrouiller</Text>
+                </Pressable>
+              </>
             ) : (
               <Text style={styles.probeHint}>
-                Clic sur la courbe ou le tracé pour figer le point
+                Clic (maintenu) sur la courbe ou le tracé pour figer le point
               </Text>
             )}
           </View>
@@ -328,6 +333,13 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: "600",
     color: "#B45309",
+  },
+  probeLockedLabel: {
+    fontSize: 10,
+    fontWeight: "800",
+    color: "#C2410C",
+    textTransform: "uppercase",
+    letterSpacing: 0.4,
   },
   clearBtn: {
     alignSelf: "flex-start",

@@ -2092,6 +2092,23 @@ function ExplorerScreen() {
   const [explorerTrailProbe, setExplorerTrailProbe] = useState(null);
   const [chartProbeHover, setChartProbeHover] = useState(false);
   const [explorerProbeLocked, setExplorerProbeLocked] = useState(false);
+  const explorerProbeLockedRef = useRef(false);
+  useEffect(() => {
+    explorerProbeLockedRef.current = explorerProbeLocked;
+  }, [explorerProbeLocked]);
+  const setExplorerProbeLock = useCallback((locked) => {
+    explorerProbeLockedRef.current = locked;
+    setExplorerProbeLocked(locked);
+  }, []);
+  const handleChartProbeHoverStart = useCallback(() => {
+    setChartProbeHover(true);
+  }, []);
+  const handleChartProbeHoverEnd = useCallback(() => {
+    setChartProbeHover(false);
+    queueMicrotask(() => {
+      if (!explorerProbeLockedRef.current) setExplorerTrailProbe(null);
+    });
+  }, []);
 
   const trailsOnMap = Array.isArray(trailsForMap) ? trailsForMap : [];
   const boxesOnMap = Array.isArray(boxesForMap) ? boxesForMap : [];
@@ -2262,7 +2279,7 @@ function ExplorerScreen() {
       // Short tap on map should focus/keep a trail, not toggle it off.
       setSelectedTrailId(tid);
       setExplorerTrailProbe(null);
-      setExplorerProbeLocked(false);
+      setExplorerProbeLock(false);
       setChartProbeHover(false);
       setMapTrailPickIds((prev) =>
         Array.isArray(prev) && prev.includes(tid)
@@ -2390,7 +2407,7 @@ function ExplorerScreen() {
 
   useEffect(() => {
     setExplorerTrailProbe(null);
-    setExplorerProbeLocked(false);
+    setExplorerProbeLock(false);
     setChartProbeHover(false);
   }, [selectedTrailId]);
 
@@ -4874,8 +4891,9 @@ function ExplorerScreen() {
                   }
                   probeLocked={explorerProbeLocked}
                   onProbeChange={setExplorerTrailProbe}
-                  onChartHoverActive={setChartProbeHover}
-                  onProbeLock={setExplorerProbeLocked}
+                  onChartHoverActive={handleChartProbeHoverStart}
+                  onChartHoverEnd={handleChartProbeHoverEnd}
+                  onProbeLock={setExplorerProbeLock}
                 />
               </View>
             ) : null}
@@ -4928,7 +4946,7 @@ function ExplorerScreen() {
                         : null
                     }
                     lockTrailProbe={explorerProbeLocked || chartProbeHover}
-                    onTrailProbeLock={setExplorerProbeLocked}
+                    onTrailProbeLock={setExplorerProbeLock}
                     onMapLongPress={handleExplorerMapLongPress}
                     onPickLocation={handleExplorerMapTap}
                     onVisibleBoundsChange={setMapViewportBounds}
@@ -5010,7 +5028,7 @@ function ExplorerScreen() {
                     : null
                 }
                 lockTrailProbe={explorerProbeLocked || chartProbeHover}
-                onTrailProbeLock={setExplorerProbeLocked}
+                onTrailProbeLock={setExplorerProbeLock}
                 onMapLongPress={handleExplorerMapLongPress}
                 onPickLocation={handleExplorerMapTap}
                 onVisibleBoundsChange={setMapViewportBounds}
@@ -5038,8 +5056,9 @@ function ExplorerScreen() {
                       : null
                   }
                   onProbeChange={setExplorerTrailProbe}
-                  onChartHoverActive={setChartProbeHover}
-                  onProbeLock={setExplorerProbeLocked}
+                  onChartHoverActive={handleChartProbeHoverStart}
+                  onChartHoverEnd={handleChartProbeHoverEnd}
+                  onProbeLock={setExplorerProbeLock}
                   probeLocked={explorerProbeLocked}
                 />
               ) : null}

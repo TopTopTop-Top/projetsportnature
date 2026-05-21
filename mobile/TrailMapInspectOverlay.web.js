@@ -19,6 +19,7 @@ export default function TrailMapInspectOverlay({
   probeLocked = false,
   onProbeChange,
   onChartHoverActive,
+  onChartHoverEnd,
   onProbeLock,
 }) {
   const handleChartProbe = useCallback(
@@ -39,18 +40,16 @@ export default function TrailMapInspectOverlay({
   }, [onChartHoverActive]);
 
   const handleChartHoverEnd = useCallback(() => {
-    onChartHoverActive?.(false);
-    if (!probeLocked) onProbeChange?.(null);
-  }, [onChartHoverActive, onProbeChange, probeLocked]);
+    onChartHoverEnd?.();
+  }, [onChartHoverEnd]);
 
-  const handleChartClick = useCallback(() => {
+  const handleChartLock = useCallback(() => {
     onProbeLock?.(true);
   }, [onProbeLock]);
 
   const handleCardLeave = useCallback(() => {
-    onChartHoverActive?.(false);
-    if (!probeLocked) onProbeChange?.(null);
-  }, [onChartHoverActive, onProbeChange, probeLocked]);
+    onChartHoverEnd?.();
+  }, [onChartHoverEnd]);
 
   if (!trail) return null;
 
@@ -99,7 +98,9 @@ export default function TrailMapInspectOverlay({
             onProbeAtDist={handleChartProbe}
             onChartHoverStart={handleChartHoverStart}
             onChartHoverEnd={handleChartHoverEnd}
-            onProbeClick={handleChartClick}
+            onProbeClick={handleChartLock}
+            onProbeLock={onProbeLock}
+            probeLocked={probeLocked}
           />
         ) : (
           <TrailElevationProfile trail={trail} probe={null} variant="overlay" />

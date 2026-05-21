@@ -24,8 +24,10 @@ function drawTrailProbeOnMap(L, probeLayer, probe, trail, lineColor, locked) {
   if (!probe || !trail) return;
   const color = lineColor || "#0F766E";
   const remainder = getTrailRemainderSlice(trail, probe.distKm);
+  const lineOpts = { pane: PROBE_LINE_PANE };
   if (remainder && remainder.length >= 2) {
     L.polyline(remainder, {
+      ...lineOpts,
       color: "#64748B",
       weight: 6,
       opacity: 0.28,
@@ -37,28 +39,32 @@ function drawTrailProbeOnMap(L, probeLayer, probe, trail, lineColor, locked) {
   const progress = getTrailProgressSlice(trail, probe.distKm);
   if (progress && progress.length >= 2) {
     L.polyline(progress, {
+      ...lineOpts,
       color: "#FFFFFF",
-      weight: 22,
+      weight: locked ? 18 : 22,
       opacity: 1,
       lineCap: "round",
       lineJoin: "round",
     }).addTo(probeLayer);
     L.polyline(progress, {
+      ...lineOpts,
       color,
-      weight: 14,
+      weight: locked ? 11 : 14,
       opacity: 1,
       lineCap: "round",
       lineJoin: "round",
     }).addTo(probeLayer);
     L.polyline(progress, {
+      ...lineOpts,
       color: "#FBBF24",
-      weight: 7,
+      weight: locked ? 6 : 7,
       opacity: 1,
       lineCap: "round",
       lineJoin: "round",
     }).addTo(probeLayer);
   }
   const marker = L.circleMarker([probe.lat, probe.lng], {
+    pane: PROBE_MARKER_PANE,
     radius: locked ? 14 : 12,
     color: "#FFFFFF",
     weight: locked ? 5 : 4,
@@ -76,9 +82,28 @@ function drawTrailProbeOnMap(L, probeLayer, probe, trail, lineColor, locked) {
   });
   if (locked) marker.openTooltip();
   marker.addTo(probeLayer);
+  try {
+    marker.bringToFront?.();
+    probeLayer.bringToFront?.();
+  } catch (_e) {
+    /* noop */
+  }
 }
 
 const LEAFLET_TILE_FIX_ID = "ravitobox-leaflet-rnweb-tiles";
+const PROBE_LINE_PANE = "ravitoboxProbeLinePane";
+const PROBE_MARKER_PANE = "ravitoboxProbeMarkerPane";
+
+function ensureProbePanes(map) {
+  if (!map.getPane(PROBE_LINE_PANE)) {
+    const linePane = map.createPane(PROBE_LINE_PANE);
+    linePane.style.zIndex = "620";
+  }
+  if (!map.getPane(PROBE_MARKER_PANE)) {
+    const markerPane = map.createPane(PROBE_MARKER_PANE);
+    markerPane.style.zIndex = "690";
+  }
+}
 
 function ensureLeafletTileFix() {
   if (typeof document === "undefined") return;
@@ -564,6 +589,10 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
   selectedBoxIdRef.current = selectedBoxId;
   const onPickLocationRef = useRef(onPickLocation);
   onPickLocationRef.current = onPickLocation;
+  const activeTrailIdRef = useRef(selectedTrailId);
+  activeTrailIdRef.current = selectedTrailId;
+  const trailsRef = useRef(trails);
+  trailsRef.current = trails;
   const onVisibleBoundsChangeRef = useRef(onVisibleBoundsChange);
   onVisibleBoundsChangeRef.current = onVisibleBoundsChange;
   const onUserMapGestureRef = useRef(onUserMapGesture);
@@ -601,6 +630,7 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
       scrollWheelZoom: true,
       zoomControl: true,
     }).setView([center[0], center[1]], pickerMode ? 17 : 12);
+    ensureProbePanes(map);
 
     const osm = L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
       attribution:
@@ -648,15 +678,34 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
     });
     setTimeout(emitBounds, 0);
 
-    if (typeof onPickLocationRef.current === "function") {
-      map.on("click", (ev) => {
-        const lat = Number(ev?.latlng?.lat);
-        const lng = Number(ev?.latlng?.lng);
-        if (Number.isFinite(lat) && Number.isFinite(lng)) {
-          onPickLocationRef.current?.(lat, lng);
+    map.on("click", (ev) => {
+      const lat = Number(ev?.latlng?.lat);
+      const lng = Number(ev?.latlng?.lng);
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+      const tid = Number(activeTrailIdRef.current);
+      if (Number.isFinite(tid)) {
+        const activeTrail = (trailsRef.current || []).find(
+          (t) => Number(t.id) === tid
+        );
+        if (activeTrail) {
+          const probe = probeTrailAt(activeTrail, lat, lng);
+          if (probe && probe.distToPointKm <= 2.5) {
+            try {
+              L.DomEvent.stopPropagation(ev);
+            } catch (_e) {
+              /* noop */
+            }
+            const fullProbe = { ...probe, trailId: tid, source: "map" };
+            onTrailProbeRef.current?.(fullProbe);
+            onTrailProbeLockRef.current?.(true);
+            return;
+          }
         }
-      });
-    }
+      }
+      if (typeof onPickLocationRef.current === "function") {
+        onPickLocationRef.current?.(lat, lng);
+      }
+    });
 
     let raf = 0;
     const scheduleInvalidate = () => {
@@ -1043,7 +1092,6 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
             lineCap: "round",
             lineJoin: "round",
           });
-          hitLine.on("click", focusTrail);
           const emitTrailProbe = (ev, lock) => {
             const lat = Number(ev?.latlng?.lat);
             const lng = Number(ev?.latlng?.lng);
@@ -1066,7 +1114,15 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
             emitTrailProbe(ev, false);
           });
           hitLine.on("click", (ev) => {
-            L.DomEvent.stopPropagation(ev);
+            try {
+              L.DomEvent.stopPropagation(ev);
+              const dom = ev?.originalEvent;
+              if (dom) {
+                L.DomEvent.stop(dom);
+              }
+            } catch (_e) {
+              /* noop */
+            }
             emitTrailProbe(ev, true);
           });
           hitLine.addTo(group);
