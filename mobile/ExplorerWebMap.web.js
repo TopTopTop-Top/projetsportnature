@@ -825,13 +825,8 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
               /* noop */
             }
             const fullProbe = { ...probe, trailId: tid, source: "map" };
-            const wasLocked = lockTrailProbeRef.current;
             onTrailProbeRef.current?.(fullProbe);
-            if (wasLocked) {
-              onTrailProbeLockRef.current?.(false);
-            } else {
-              onTrailProbeLockRef.current?.(true);
-            }
+            onTrailProbeLockRef.current?.(true);
             return;
           }
         }
@@ -1280,19 +1275,16 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
             const probe = probeTrailAt(trail, lat, lng);
             if (!probe) return;
             const fullProbe = { ...probe, trailId: tid, source: "map" };
-            const wasLocked = lockTrailProbeRef.current;
             onTrailProbeRef.current?.(fullProbe);
             if (isClick) {
-              if (wasLocked) {
-                onTrailProbeLockRef.current?.(false);
-              } else {
-                onTrailProbeLockRef.current?.(true);
-              }
+              onTrailProbeLockRef.current?.(true);
             }
             try {
               const pl = probeLayerRef.current;
               if (!pl) return;
-              const lockedNow = isClick ? !wasLocked : lockTrailProbeRef.current;
+              const lockedNow = isClick
+                ? true
+                : lockTrailProbeRef.current;
               drawTrailProbeOnMap(
                 L,
                 pl,

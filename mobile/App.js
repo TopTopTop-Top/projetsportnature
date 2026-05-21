@@ -1145,6 +1145,21 @@ function confirmDestructive(title, message) {
   });
 }
 
+function confirmComposerClearAfterSave() {
+  const title = "Nouvelle composition ?";
+  const message =
+    "Les brouillons inclus dans ce plan sont encore dans l’onglet Composer. Les effacer pour repartir sur une trace vierge ?";
+  if (Platform.OS === "web") {
+    return Promise.resolve(window.confirm(`${title}\n\n${message}`));
+  }
+  return new Promise((resolve) => {
+    Alert.alert(title, message, [
+      { text: "Garder les brouillons", onPress: () => resolve(false) },
+      { text: "Effacer les brouillons", onPress: () => resolve(true) },
+    ]);
+  });
+}
+
 function confirmExitTrailSelection() {
   const title = "Quitter la trace";
   const message =
@@ -2231,7 +2246,28 @@ function ExplorerScreen() {
     setExplorerSavedProbes((prev) =>
       prev.filter((e) => Number(e.trailId) !== tid)
     );
-  }, []);
+    setExplorerTrailProbe(null);
+    setExplorerProbeLock(false);
+  }, [setExplorerProbeLock]);
+
+  const focusExplorerPlanTrailNote = useCallback(
+    (note) => {
+      const lat = Number(note?.point_lat);
+      const lon = Number(note?.point_lon);
+      const tid = Number(selectedTrailId);
+      if (!Number.isFinite(lat) || !Number.isFinite(lon) || !Number.isFinite(tid)) {
+        return;
+      }
+      const trail = trails.find((t) => Number(t.id) === tid);
+      if (!trail) return;
+      const p = probeTrailAt(trail, lat, lon);
+      if (p) {
+        setExplorerTrailProbe({ ...p, trailId: tid, source: "map" });
+        setExplorerProbeLock(true);
+      }
+    },
+    [selectedTrailId, trails, setExplorerProbeLock]
+  );
   const updateExplorerSavedProbeNotes = useCallback((id, notes) => {
     const text = String(notes ?? "");
     setExplorerSavedProbes((prev) =>
@@ -2651,6 +2687,8 @@ function ExplorerScreen() {
   const [sharedPlansForTrail, setSharedPlansForTrail] = useState([]);
   const [sharedPlansBusy, setSharedPlansBusy] = useState(false);
   const [trailTips, setTrailTips] = useState([]);
+  const [sharedPlanPreview, setSharedPlanPreview] = useState(null);
+  const [sharedPlanPreviewBusy, setSharedPlanPreviewBusy] = useState(false);
   const isTrailCreator = useMemo(() => {
     if (!user || !selectedTrail) return false;
     return (
@@ -2687,7 +2725,98 @@ function ExplorerScreen() {
 
   useEffect(() => {
     refreshTrailCommunityData();
+    setSharedPlanPreview(null);
   }, [selectedTrailId, refreshTrailCommunityData]);
+
+  const openSharedPlanPreview = useCallback(
+    async (planId) => {
+      const pid = Number(planId);
+      if (!Number.isFinite(pid)) return;
+      setSharedPlanPreviewBusy(true);
+      const detail = await actionsRef.current.loadSharedRoutePlan?.(pid);
+      setSharedPlanPreview(detail || null);
+      setSharedPlanPreviewBusy(false);
+    },
+    [actionsRef]
+  );
+
+  const showSharedPlanPreviewOnMap = useCallback(
+    (detail) => {
+      const d = detail || sharedPlanPreview;
+      if (!d) return;
+      const trailId = Number(d.trail_id);
+      if (Number.isFinite(trailId)) {
+        setSelectedTrailId(trailId);
+        setMapTrailPickIds((prev) =>
+          Array.isArray(prev) && prev.includes(trailId)
+            ? prev
+            : [...(prev || []), trailId]
+        );
+      }
+      const boxIds = (Array.isArray(d.boxes) ? d.boxes : [])
+        .map((b) => Number(b.id))
+        .filter((id) => Number.isFinite(id));
+      if (boxIds.length > 0) {
+        setMapShowBoxes(true);
+        setMapPickedBoxIds(boxIds);
+        setSelectedBoxId(boxIds[0]);
+        setMapBoxSelectionMode("picked");
+      }
+      const notes = Array.isArray(d.trail_notes) ? d.trail_notes : [];
+      const first = notes.find(
+        (n) =>
+          Number.isFinite(Number(n.point_lat)) &&
+          Number.isFinite(Number(n.point_lon))
+      );
+      if (first && Number.isFinite(trailId)) {
+        const trail = trails.find((t) => Number(t.id) === trailId);
+        if (trail) {
+          const p = probeTrailAt(trail, Number(first.point_lat), Number(first.point_lon));
+          if (p) {
+            setExplorerTrailProbe({ ...p, trailId, source: "map" });
+            setExplorerProbeLock(true);
+          }
+        }
+      }
+      userAlert(
+        "Plan sur la carte",
+        "Trace, box et premier point GPS du plan affichés (aperçu — pas encore ton plan)."
+      );
+    },
+    [
+      sharedPlanPreview,
+      trails,
+      setSelectedTrailId,
+      setMapTrailPickIds,
+      setMapPickedBoxIds,
+      setExplorerProbeLock,
+    ]
+  );
+
+  const clearComposerDraftsForTrail = useCallback(
+    (trailId, { onlyIncludedInLastSave = false, savedEntryIds = [] } = {}) => {
+      const tid = Number(trailId);
+      if (!Number.isFinite(tid)) return;
+      const idSet = new Set(
+        (savedEntryIds || []).map((x) => String(x)).filter(Boolean)
+      );
+      setExplorerSavedProbes((prev) =>
+        prev.filter((e) => {
+          if (Number(e.trailId) !== tid) return true;
+          if (onlyIncludedInLastSave && idSet.size > 0) {
+            return !idSet.has(String(e.id));
+          }
+          if (onlyIncludedInLastSave) {
+            return e.includeInPlan === false;
+          }
+          return false;
+        })
+      );
+      setExplorerTrailProbe(null);
+      setExplorerProbeLock(false);
+    },
+    [setExplorerProbeLock]
+  );
 
   const setActivePlanVisibility = useCallback(
     async (visibility) => {
@@ -2946,8 +3075,18 @@ function ExplorerScreen() {
     if (addedNotes) parts.push(`${addedNotes} point(s) mémorisé(s)`);
     userAlert(
       "Plan enregistré",
-      `${parts.join(" · ")}. Consulte l’onglet Resa ou la section Plans de cette trace.`
+      `${parts.join(" · ")}. Consulte l’onglet Mon plan pour les notes GPS enregistrées.`
     );
+    if (probes.length > 0) {
+      const clear = await confirmComposerClearAfterSave();
+      if (clear) {
+        const savedEntryIds = probes.map((e) => e.id).filter(Boolean);
+        clearComposerDraftsForTrail(tid, {
+          onlyIncludedInLastSave: true,
+          savedEntryIds,
+        });
+      }
+    }
   }, [
     user,
     selectedTrailId,
@@ -2960,6 +3099,7 @@ function ExplorerScreen() {
     setSelectedRoutePlanId,
     boxes,
     boxesOnMap,
+    clearComposerDraftsForTrail,
   ]);
 
   const selectExplorerRoutePlan = useCallback(
@@ -5610,6 +5750,11 @@ function ExplorerScreen() {
                   sharedPlansBusy={sharedPlansBusy}
                   onRefreshCommunity={refreshTrailCommunityData}
                   onForkSharedPlan={forkExplorerRoutePlan}
+                  sharedPlanPreview={sharedPlanPreview}
+                  sharedPlanPreviewBusy={sharedPlanPreviewBusy}
+                  onSelectSharedPlan={openSharedPlanPreview}
+                  onShowSharedPlanOnMap={showSharedPlanPreviewOnMap}
+                  onFocusPlanTrailNote={focusExplorerPlanTrailNote}
                   onPublishTrailTip={publishTrailTipFromProbe}
                   onDeleteTrailTip={deleteTrailTipById}
                   trailTipsForEntry={trailTips}
@@ -11123,6 +11268,17 @@ function RavitoApp() {
     }
   };
 
+  const loadSharedRoutePlan = async (routePlanId) => {
+    const pid = Number(routePlanId);
+    if (!Number.isFinite(pid) || pid <= 0) return null;
+    try {
+      return await apiFetch(`/route-plans/shared/${pid}`);
+    } catch (error) {
+      userAlert("Erreur", error.message);
+      return null;
+    }
+  };
+
   const forkRoutePlan = async (routePlanId, { name } = {}) => {
     if (!token) return null;
     const pid = Number(routePlanId);
@@ -12598,6 +12754,7 @@ function RavitoApp() {
     loadRoutePlanDetail,
     loadTrailTips,
     loadSharedPlansForTrail,
+    loadSharedRoutePlan,
     forkRoutePlan,
     createTrailTip,
     deleteTrailTip,

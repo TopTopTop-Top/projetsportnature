@@ -74,6 +74,11 @@ export default function TrailProfileRail({
   sharedPlansBusy = false,
   onRefreshCommunity,
   onForkSharedPlan,
+  sharedPlanPreview = null,
+  sharedPlanPreviewBusy = false,
+  onSelectSharedPlan,
+  onShowSharedPlanOnMap,
+  onFocusPlanTrailNote,
   onPublishTrailTip,
   onPublishEntryTip,
   onUnpublishEntryTip,
@@ -289,7 +294,8 @@ export default function TrailProfileRail({
             </Text>
             {probeLocked ? (
               <Text style={styles.probeLockedLabel}>
-                Point figé — clic ailleurs sur la courbe ou le tracé pour suivre à nouveau
+                Point figé — survol libre · autre clic sur la courbe ou le tracé déplace le
+                point · Déverrouiller pour quitter le mode figé
               </Text>
             ) : (
               <Text style={styles.probeHint}>
@@ -410,6 +416,7 @@ export default function TrailProfileRail({
           activePlanVisibility={activePlanVisibility}
           onSetPlanVisibility={onSetPlanVisibility}
           onForkSharedPlan={onForkSharedPlan}
+          onFocusPlanTrailNote={onFocusPlanTrailNote}
           savedProbeCount={savedProbes.length}
         />
         ) : null}
@@ -421,8 +428,12 @@ export default function TrailProfileRail({
             trailTips={trailTips}
             sharedPlans={sharedPlans}
             sharedPlansBusy={sharedPlansBusy}
+            sharedPlanPreview={sharedPlanPreview}
+            sharedPlanPreviewBusy={sharedPlanPreviewBusy}
             isAuthed={isAuthed}
             onRefresh={onRefreshCommunity}
+            onSelectSharedPlan={onSelectSharedPlan}
+            onShowSharedPlanOnMap={onShowSharedPlanOnMap}
             onForkPlan={onForkSharedPlan}
             onDeleteTrailTip={onDeleteTrailTip}
           />
@@ -438,11 +449,16 @@ function CommunityPanel({
   trailTips,
   sharedPlans,
   sharedPlansBusy,
+  sharedPlanPreview,
+  sharedPlanPreviewBusy,
   isAuthed,
   onRefresh,
+  onSelectSharedPlan,
+  onShowSharedPlanOnMap,
   onForkPlan,
   onDeleteTrailTip,
 }) {
+  const previewId = sharedPlanPreview ? Number(sharedPlanPreview.id) : null;
   return (
     <View style={styles.communityBlock}>
       <Text style={styles.communityTitle}>Communauté sur cette trace</Text>
@@ -504,6 +520,10 @@ function CommunityPanel({
       <Text style={styles.communitySectionLabel}>
         Plans partagés ({sharedPlans.length})
       </Text>
+      <Text style={styles.communityHint}>
+        Touche un plan pour voir le détail (notes GPS, box). Puis affiche-le sur la
+        carte ou copie-le sur ton compte.
+      </Text>
       {!isAuthed ? (
         <Text style={styles.communityHint}>
           Connecte-toi pour copier un plan partagé sur ton compte.
@@ -515,31 +535,127 @@ function CommunityPanel({
           quand un plan est actif).
         </Text>
       ) : (
-        sharedPlans.map((plan) => (
-          <View key={`shared-${plan.id}`} style={styles.communityCard}>
-            <Text style={styles.communityCardLabel}>
-              {plan.name} · {plan.author_label || "Athlète"}
-            </Text>
-            <Text style={styles.communityCardMeta}>
-              {plan.box_count || 0} box · {plan.tip_count || 0} conseil(s) GPS
-            </Text>
-            {plan.notes ? (
-              <Text style={styles.communityCardBody} numberOfLines={3}>
-                {plan.notes}
+        sharedPlans.map((plan) => {
+          const pid = Number(plan.id);
+          const selected =
+            Number.isFinite(previewId) && previewId === pid;
+          const detail = selected ? sharedPlanPreview : null;
+          const previewBoxes = Array.isArray(detail?.boxes) ? detail.boxes : [];
+          const previewNotes = Array.isArray(detail?.trail_notes)
+            ? detail.trail_notes
+            : [];
+          return (
+            <Pressable
+              key={`shared-${plan.id}`}
+              onPress={() => onSelectSharedPlan?.(pid)}
+              style={[
+                styles.communityCard,
+                selected && styles.communityCardSelected,
+              ]}
+            >
+              <Text style={styles.communityCardLabel}>
+                {plan.name} · {plan.author_label || "Athlète"}
               </Text>
-            ) : null}
-            {isAuthed && onForkPlan ? (
-              <Pressable
-                onPress={() => onForkPlan(Number(plan.id))}
-                style={[styles.actionBtn, styles.actionBtnPrimary, { marginTop: 8 }]}
-              >
-                <Text style={styles.actionBtnTextPrimary}>
-                  Créer mon plan à partir de celui-ci
+              <Text style={styles.communityCardMeta}>
+                {plan.box_count || 0} box · {plan.tip_count || 0} note(s) GPS
+                {selected ? " · sélectionné" : ""}
+              </Text>
+              {plan.notes ? (
+                <Text
+                  style={styles.communityCardBody}
+                  numberOfLines={selected ? undefined : 3}
+                >
+                  {plan.notes}
                 </Text>
-              </Pressable>
-            ) : null}
-          </View>
-        ))
+              ) : null}
+              {selected && sharedPlanPreviewBusy ? (
+                <Text style={styles.communityCardMeta}>Chargement du détail…</Text>
+              ) : null}
+              {selected && detail && !sharedPlanPreviewBusy ? (
+                <View style={styles.communityPreviewDetail}>
+                  {previewBoxes.length > 0 ? (
+                    <>
+                      <Text style={styles.communityPreviewLabel}>Box du plan</Text>
+                      {previewBoxes.map((b) => (
+                        <Text
+                          key={`prev-box-${b.id}`}
+                          style={styles.communityPreviewItem}
+                          numberOfLines={2}
+                        >
+                          · {b.title || "Box"}
+                          {b.city ? ` (${b.city})` : ""}
+                        </Text>
+                      ))}
+                    </>
+                  ) : null}
+                  {previewNotes.length > 0 ? (
+                    <>
+                      <Text style={styles.communityPreviewLabel}>
+                        Notes GPS ({previewNotes.length})
+                      </Text>
+                      {previewNotes.map((n, idx) => (
+                        <Text
+                          key={`prev-note-${n.id || idx}`}
+                          style={styles.communityPreviewItem}
+                          numberOfLines={4}
+                        >
+                          · {n.note || "(sans texte)"}
+                        </Text>
+                      ))}
+                    </>
+                  ) : (
+                    <Text style={styles.communityEmpty}>
+                      Aucune note GPS sur ce plan partagé.
+                    </Text>
+                  )}
+                  <View style={styles.planBtnRow}>
+                    {onShowSharedPlanOnMap ? (
+                      <Pressable
+                        onPress={(e) => {
+                          e?.stopPropagation?.();
+                          onShowSharedPlanOnMap(detail);
+                        }}
+                        style={[styles.actionBtn, styles.planBtnHalf]}
+                      >
+                        <Text style={styles.actionBtnText}>Voir sur la carte</Text>
+                      </Pressable>
+                    ) : null}
+                    {isAuthed && onForkPlan ? (
+                      <Pressable
+                        onPress={(e) => {
+                          e?.stopPropagation?.();
+                          onForkPlan(pid);
+                        }}
+                        style={[
+                          styles.actionBtn,
+                          styles.actionBtnPrimary,
+                          styles.planBtnHalf,
+                        ]}
+                      >
+                        <Text style={styles.actionBtnTextPrimary}>
+                          Créer mon plan
+                        </Text>
+                      </Pressable>
+                    ) : null}
+                  </View>
+                </View>
+              ) : null}
+              {!selected && isAuthed && onForkPlan ? (
+                <Pressable
+                  onPress={(e) => {
+                    e?.stopPropagation?.();
+                    onForkPlan(pid);
+                  }}
+                  style={[styles.actionBtn, { marginTop: 8 }]}
+                >
+                  <Text style={styles.actionBtnText}>
+                    Copier sans ouvrir le détail
+                  </Text>
+                </Pressable>
+              ) : null}
+            </Pressable>
+          );
+        })
       )}
     </View>
   );
@@ -573,8 +689,12 @@ function TrailPlanHub({
   activePlanVisibility = "private",
   onSetPlanVisibility,
   onForkSharedPlan,
+  onFocusPlanTrailNote,
 }) {
   const planBoxes = Array.isArray(activePlan?.boxes) ? activePlan.boxes : [];
+  const planTrailNotes = Array.isArray(activePlan?.trail_notes)
+    ? activePlan.trail_notes
+    : [];
 
   return (
     <View style={styles.planSaveBlock}>
@@ -693,6 +813,30 @@ function TrailPlanHub({
             >
               <Text style={styles.actionBtnText}>Dupliquer ce plan</Text>
             </Pressable>
+          ) : null}
+          {planTrailNotes.length > 0 ? (
+            <View style={styles.planTrailNotesSection}>
+              <Text style={styles.planSubLabel}>
+                Points mémorisés enregistrés ({planTrailNotes.length})
+              </Text>
+              {planTrailNotes.map((n, idx) => (
+                <Pressable
+                  key={`plan-trail-note-${n.id || idx}`}
+                  onPress={() => onFocusPlanTrailNote?.(n)}
+                  style={styles.planTrailNoteRow}
+                >
+                  <Text style={styles.planTrailNoteText} numberOfLines={3}>
+                    {n.note || "(sans texte)"}
+                  </Text>
+                  {n.point_lat != null && n.point_lon != null ? (
+                    <Text style={styles.planTrailNoteMeta}>
+                      {Number(n.point_lat).toFixed(4)}°,{" "}
+                      {Number(n.point_lon).toFixed(4)}° · toucher = carte
+                    </Text>
+                  ) : null}
+                </Pressable>
+              ))}
+            </View>
           ) : null}
         </View>
       ) : (
@@ -1214,6 +1358,31 @@ const styles = StyleSheet.create({
     backgroundColor: "#FFFFFF",
     borderWidth: 1,
     borderColor: "#E2E8F0",
+    marginBottom: 8,
+  },
+  communityCardSelected: {
+    borderColor: "#EA580C",
+    borderWidth: 2,
+    backgroundColor: "#FFF7ED",
+  },
+  communityPreviewDetail: {
+    marginTop: 8,
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: "#FED7AA",
+  },
+  communityPreviewLabel: {
+    fontSize: 10,
+    fontWeight: "800",
+    color: "#9A3412",
+    marginTop: 6,
+    marginBottom: 4,
+  },
+  communityPreviewItem: {
+    fontSize: 10,
+    lineHeight: 14,
+    color: "#334155",
+    marginBottom: 4,
   },
   communityCardLabel: {
     fontSize: 11,
@@ -1530,6 +1699,30 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "800",
     color: "#062D26",
+  },
+  planTrailNotesSection: {
+    marginTop: 8,
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: "#E2E8F0",
+    gap: 6,
+  },
+  planTrailNoteRow: {
+    padding: 8,
+    borderRadius: 8,
+    backgroundColor: "#F8FAFC",
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
+  },
+  planTrailNoteText: {
+    fontSize: 11,
+    color: "#0F172A",
+    lineHeight: 15,
+  },
+  planTrailNoteMeta: {
+    marginTop: 4,
+    fontSize: 10,
+    color: "#64748B",
   },
   planActiveMeta: {
     fontSize: 11,
