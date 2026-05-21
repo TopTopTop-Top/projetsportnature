@@ -9,7 +9,8 @@ import React, {
 import { View, Text, Platform, StyleSheet } from "react-native";
 import {
   formatTrailProbeLabel,
-  getTrailHighlightSlice,
+  getTrailProgressSlice,
+  getTrailRemainderSlice,
   probeTrailAt,
 } from "./trailProfile";
 
@@ -20,45 +21,56 @@ function drawTrailProbeOnMap(L, probeLayer, probe, trail, lineColor) {
     return;
   }
   if (!probe || !trail) return;
-  const highlight = getTrailHighlightSlice(trail, probe.distKm, 0.55);
-  if (highlight && highlight.length >= 2) {
-    L.polyline(highlight, {
-      color: "#FFFFFF",
-      weight: 18,
-      opacity: 0.98,
+  const color = lineColor || "#0F766E";
+  const remainder = getTrailRemainderSlice(trail, probe.distKm);
+  if (remainder && remainder.length >= 2) {
+    L.polyline(remainder, {
+      color: "#64748B",
+      weight: 6,
+      opacity: 0.28,
       lineCap: "round",
       lineJoin: "round",
+      dashArray: "10 14",
     }).addTo(probeLayer);
-    L.polyline(highlight, {
-      color: lineColor || "#0F766E",
-      weight: 11,
+  }
+  const progress = getTrailProgressSlice(trail, probe.distKm);
+  if (progress && progress.length >= 2) {
+    L.polyline(progress, {
+      color: "#FFFFFF",
+      weight: 22,
       opacity: 1,
       lineCap: "round",
       lineJoin: "round",
     }).addTo(probeLayer);
-    L.polyline(highlight, {
+    L.polyline(progress, {
+      color,
+      weight: 14,
+      opacity: 1,
+      lineCap: "round",
+      lineJoin: "round",
+    }).addTo(probeLayer);
+    L.polyline(progress, {
       color: "#FBBF24",
-      weight: 5,
-      opacity: 0.9,
+      weight: 7,
+      opacity: 1,
       lineCap: "round",
       lineJoin: "round",
     }).addTo(probeLayer);
   }
   const marker = L.circleMarker([probe.lat, probe.lng], {
-    radius: 10,
-    color: "#EA580C",
-    weight: 3,
-    fillColor: "#FDE68A",
+    radius: 12,
+    color: "#FFFFFF",
+    weight: 4,
+    fillColor: "#EA580C",
     fillOpacity: 1,
   });
   marker.bindTooltip(formatTrailProbeLabel(probe), {
-    permanent: true,
+    permanent: false,
     direction: "top",
-    offset: [0, -12],
+    offset: [0, -14],
     className: "ravitobox-trail-probe-tip",
   });
   marker.addTo(probeLayer);
-  marker.openTooltip?.();
 }
 
 const LEAFLET_TILE_FIX_ID = "ravitobox-leaflet-rnweb-tiles";

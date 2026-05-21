@@ -27,6 +27,7 @@ import {
 import NativeExplorerMap from "./NativeExplorerMap";
 import ExplorerWebMap from "./ExplorerWebMap";
 import TrailElevationProfile from "./TrailElevationProfile";
+import TrailProfileRail from "./TrailProfileRail";
 import TrailMapInspectOverlay from "./TrailMapInspectOverlay";
 import TrailAltitudeBadge from "./TrailAltitudeBadge";
 import { formatTrailElevationSummary } from "./trailProfile";
@@ -3589,33 +3590,57 @@ function ExplorerScreen() {
           </View>
         ) : null}
         {selectedTrail ? (
-          <View style={styles.selectedHostCard}>
-            <Text style={styles.selectedLabel}>Trace sélectionnée</Text>
-            <Text style={styles.cardTitle}>{selectedTrail.name}</Text>
-            <Text style={styles.cardMeta}>
-              {selectedTrail.territory} · {selectedTrail.distance_km} km ·{" "}
-              {formatTrailElevationSummary(selectedTrail)} ·{" "}
-              {DIFFICULTY_LABELS[selectedTrail.difficulty] ||
-                selectedTrail.difficulty}
-            </Text>
-            <TrailAltitudeBadge trail={selectedTrail} />
-            {selectedTrail.notes ? (
-              <Text style={styles.cardAvailability} numberOfLines={3}>
-                {selectedTrail.notes}
-              </Text>
-            ) : null}
-            {!webDesktopSplit ? (
-              <TrailElevationProfile
-                trail={selectedTrail}
-                probe={
-                  explorerTrailProbe &&
-                  Number(explorerTrailProbe.trailId) ===
-                    Number(selectedTrail.id)
-                    ? explorerTrailProbe
-                    : null
-                }
-              />
-            ) : null}
+          <View
+            style={
+              webDesktopSplit
+                ? styles.selectedTrailCompact
+                : styles.selectedHostCard
+            }
+          >
+            {webDesktopSplit ? (
+              <>
+                <Text style={styles.selectedLabel}>Trace active</Text>
+                <Text style={styles.cardTitle} numberOfLines={1}>
+                  {selectedTrail.name}
+                </Text>
+                <Text style={styles.cardMeta} numberOfLines={1}>
+                  {selectedTrail.distance_km} km ·{" "}
+                  {DIFFICULTY_LABELS[selectedTrail.difficulty] ||
+                    selectedTrail.difficulty}
+                </Text>
+                <TrailAltitudeBadge trail={selectedTrail} compact />
+                <Text style={styles.helperText}>
+                  Profil et courbe à droite de cette colonne.
+                </Text>
+              </>
+            ) : (
+              <>
+                <Text style={styles.selectedLabel}>Trace sélectionnée</Text>
+                <Text style={styles.cardTitle}>{selectedTrail.name}</Text>
+                <Text style={styles.cardMeta}>
+                  {selectedTrail.territory} · {selectedTrail.distance_km} km ·{" "}
+                  {formatTrailElevationSummary(selectedTrail)} ·{" "}
+                  {DIFFICULTY_LABELS[selectedTrail.difficulty] ||
+                    selectedTrail.difficulty}
+                </Text>
+                <TrailAltitudeBadge trail={selectedTrail} />
+                {selectedTrail.notes ? (
+                  <Text style={styles.cardAvailability} numberOfLines={3}>
+                    {selectedTrail.notes}
+                  </Text>
+                ) : null}
+                <TrailElevationProfile
+                  trail={selectedTrail}
+                  probe={
+                    explorerTrailProbe &&
+                    Number(explorerTrailProbe.trailId) ===
+                      Number(selectedTrail.id)
+                      ? explorerTrailProbe
+                      : null
+                  }
+                />
+              </>
+            )}
             <OutlineButton
               compact
               stretch
@@ -4827,6 +4852,22 @@ function ExplorerScreen() {
                 {explorerScrollContent}
               </ScrollView>
             </View>
+            {selectedTrail ? (
+              <View style={styles.explorerWebProfileRail}>
+                <TrailProfileRail
+                  trail={selectedTrail}
+                  probe={
+                    explorerTrailProbe &&
+                    Number(explorerTrailProbe.trailId) ===
+                      Number(selectedTrail.id)
+                      ? explorerTrailProbe
+                      : null
+                  }
+                  onProbeChange={setExplorerTrailProbe}
+                  onChartHoverActive={setChartProbeLock}
+                />
+              </View>
+            ) : null}
             <View style={styles.explorerWebMapPane}>
               <View
                 style={[
@@ -4843,7 +4884,6 @@ function ExplorerScreen() {
                   style={[
                     styles.explorerWebMapInner,
                     styles.explorerWebMapInnerDesktop,
-                    styles.explorerWebMapInnerRelative,
                   ]}
                 >
                   <ExplorerWebMap
@@ -4893,20 +4933,6 @@ function ExplorerScreen() {
                     staticOrigin={API_STATIC_ORIGIN}
                     inFixedPane
                   />
-                  {selectedTrail ? (
-                    <TrailMapInspectOverlay
-                      trail={selectedTrail}
-                      probe={
-                        explorerTrailProbe &&
-                        Number(explorerTrailProbe.trailId) ===
-                          Number(selectedTrail.id)
-                          ? explorerTrailProbe
-                          : null
-                      }
-                      onProbeChange={setExplorerTrailProbe}
-                      onChartHoverActive={setChartProbeLock}
-                    />
-                  ) : null}
                 </View>
               </View>
             </View>
@@ -4935,7 +4961,12 @@ function ExplorerScreen() {
             <Text style={styles.webMapPaneCaption}>
               Carte — molette : zoom · glisser : déplacer
             </Text>
-            <View style={styles.explorerWebMapInner}>
+            <View
+              style={[
+                styles.explorerWebMapInner,
+                selectedTrail && styles.explorerWebMapInnerRelative,
+              ]}
+            >
               <ExplorerWebMap
                 center={webMapCenter}
                 boxes={boxesOnMap}
@@ -4958,6 +4989,15 @@ function ExplorerScreen() {
                 onSelectBox={focusExplorerBox}
                 onSelectTrail={focusExplorerTrail}
                 onTrailProbe={setExplorerTrailProbe}
+                trailProbe={
+                  selectedTrail &&
+                  explorerTrailProbe &&
+                  Number(explorerTrailProbe.trailId) ===
+                    Number(selectedTrail.id)
+                    ? explorerTrailProbe
+                    : null
+                }
+                lockTrailProbe={chartProbeLock}
                 onMapLongPress={handleExplorerMapLongPress}
                 onPickLocation={handleExplorerMapTap}
                 onVisibleBoundsChange={setMapViewportBounds}
@@ -4974,6 +5014,20 @@ function ExplorerScreen() {
                 staticOrigin={API_STATIC_ORIGIN}
                 inFixedPane
               />
+              {selectedTrail ? (
+                <TrailMapInspectOverlay
+                  trail={selectedTrail}
+                  probe={
+                    explorerTrailProbe &&
+                    Number(explorerTrailProbe.trailId) ===
+                      Number(selectedTrail.id)
+                      ? explorerTrailProbe
+                      : null
+                  }
+                  onProbeChange={setExplorerTrailProbe}
+                  onChartHoverActive={setChartProbeLock}
+                />
+              ) : null}
             </View>
           </View>
         </View>
@@ -12064,9 +12118,9 @@ const styles = StyleSheet.create({
     paddingBottom: 10,
   },
   explorerWebPanel: {
-    width: "38%",
-    minWidth: 360,
-    maxWidth: 560,
+    width: "34%",
+    minWidth: 300,
+    maxWidth: 480,
     minHeight: 0,
     borderRadius: 20,
     overflow: "hidden",
@@ -12082,9 +12136,24 @@ const styles = StyleSheet.create({
     padding: 14,
     paddingBottom: 28,
   },
+  explorerWebProfileRail: {
+    width: 300,
+    minWidth: 260,
+    maxWidth: 320,
+    minHeight: 0,
+    alignSelf: "stretch",
+  },
   explorerWebMapPane: {
     flex: 1,
     minWidth: 0,
+  },
+  selectedTrailCompact: {
+    marginTop: 8,
+    padding: 12,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: theme.borderSoft,
+    backgroundColor: theme.surfaceMuted,
   },
   explorerWebScroll: {
     flexGrow: 0,

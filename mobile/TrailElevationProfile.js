@@ -9,8 +9,10 @@ import {
 
 const CHART_H_INLINE = 128;
 const CHART_H_OVERLAY = 200;
+const CHART_H_RAIL = 168;
 const CHART_W_INLINE = 320;
 const CHART_W_OVERLAY = 680;
+const CHART_W_RAIL = 276;
 
 function slopeColor(gradePct) {
   if (gradePct == null) return "#94A3B8";
@@ -246,8 +248,17 @@ export default function TrailElevationProfile({
   onChartHoverEnd,
 }) {
   const isOverlay = variant === "overlay";
-  const chartW = isOverlay ? CHART_W_OVERLAY : CHART_W_INLINE;
-  const chartH = isOverlay ? CHART_H_OVERLAY : CHART_H_INLINE;
+  const isRail = variant === "rail";
+  const chartW = isRail
+    ? CHART_W_RAIL
+    : isOverlay
+    ? CHART_W_OVERLAY
+    : CHART_W_INLINE;
+  const chartH = isRail
+    ? CHART_H_RAIL
+    : isOverlay
+    ? CHART_H_OVERLAY
+    : CHART_H_INLINE;
 
   const chart = useMemo(
     () => (trail ? buildChartSeries(trail, chartW, chartH) : null),
@@ -273,8 +284,14 @@ export default function TrailElevationProfile({
 
   if (!stats.points.length) {
     return (
-      <View style={[styles.wrap, isOverlay && styles.wrapOverlay]}>
-        {!isOverlay ? (
+      <View
+        style={[
+          styles.wrap,
+          isOverlay && styles.wrapOverlay,
+          isRail && styles.wrapRail,
+        ]}
+      >
+        {!isOverlay && !isRail ? (
           <Text style={styles.title}>Profil altimétrique</Text>
         ) : null}
         <Text style={styles.empty}>Pas de géométrie pour cette trace.</Text>
@@ -283,11 +300,17 @@ export default function TrailElevationProfile({
   }
 
   return (
-    <View style={[styles.wrap, isOverlay && styles.wrapOverlay]}>
-      {!isOverlay ? (
+    <View
+      style={[
+        styles.wrap,
+        isOverlay && styles.wrapOverlay,
+        isRail && styles.wrapRail,
+      ]}
+    >
+      {!isOverlay && !isRail ? (
         <Text style={styles.title}>Profil altimétrique</Text>
       ) : null}
-      {!isOverlay ? (
+      {!isOverlay && !isRail ? (
         <View style={styles.statsRow}>
           <Text style={styles.statChip}>
             {stats.totalDistKm.toFixed(1)} km
@@ -327,7 +350,8 @@ export default function TrailElevationProfile({
             style={[
               styles.chartBox,
               isOverlay && styles.chartBoxOverlay,
-              { height: chartH },
+              isRail && styles.chartBoxRail,
+              { height: isRail ? chartH : chartH },
             ]}
           >
             {Platform.OS === "web" ? (
@@ -351,14 +375,14 @@ export default function TrailElevationProfile({
               />
             )}
           </View>
-          <View style={styles.legendRow}>
+          <View style={[styles.legendRow, isRail && styles.legendRowRail]}>
             <LegendDot color="#EA580C" label="Montée" />
             <LegendDot color="#16A34A" label="Plat" />
             <LegendDot color="#2563EB" label="Descente" />
           </View>
         </>
       )}
-      {!isOverlay && probe ? (
+      {!isOverlay && !isRail && probe ? (
         <View style={styles.probeBox}>
           <Text style={styles.probeTitle}>Point sur le tracé</Text>
           <Text style={styles.probeValue}>
@@ -374,7 +398,7 @@ export default function TrailElevationProfile({
           </Text>
         </View>
       ) : null}
-      {!isOverlay && !probe && showChart ? (
+      {!isOverlay && !isRail && !probe && showChart ? (
         <Text style={styles.hint}>
           {Platform.OS === "web"
             ? "Survole le tracé ou la courbe ci-dessus."
@@ -422,6 +446,27 @@ const styles = StyleSheet.create({
     backgroundColor: "transparent",
     borderRadius: 0,
     padding: 0,
+  },
+  wrapRail: {
+    flex: 1,
+    marginTop: 0,
+    borderWidth: 0,
+    backgroundColor: "transparent",
+    borderRadius: 0,
+    padding: 0,
+    minHeight: 0,
+  },
+  chartBoxRail: {
+    flex: 1,
+    minHeight: 100,
+    borderColor: "#E8EFE9",
+    backgroundColor: "#FAFAF9",
+    borderRadius: 12,
+  },
+  legendRowRail: {
+    marginTop: 4,
+    gap: 8,
+    paddingHorizontal: 2,
   },
   title: {
     fontSize: 12,

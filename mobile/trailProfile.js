@@ -330,10 +330,7 @@ function projectOnSegment(pLat, pLon, a, b) {
   };
 }
 
-/** Tronçon du tracé à surligner autour d'une distance (km). */
-export function getTrailHighlightSlice(trail, distKm, windowKm = 0.5) {
-  const { positions } = getTrailGeometry(trail);
-  if (positions.length < 2 || !Number.isFinite(distKm)) return null;
+function trailCumulativeDistances(positions) {
   const dists = [0];
   for (let i = 1; i < positions.length; i += 1) {
     dists.push(
@@ -346,6 +343,65 @@ export function getTrailHighlightSlice(trail, distKm, windowKm = 0.5) {
         )
     );
   }
+  return dists;
+}
+
+/** Parcours parcouru depuis le départ jusqu'à distKm (pour surbrillance progressive). */
+export function getTrailProgressSlice(trail, distKm) {
+  const { positions } = getTrailGeometry(trail);
+  if (positions.length < 2 || !Number.isFinite(distKm)) return null;
+  const target = Math.max(0, Number(distKm) || 0);
+  const dists = trailCumulativeDistances(positions);
+  const total = dists[dists.length - 1] || 0;
+  if (target <= 0) return [positions[0], positions[1]];
+  if (target >= total) return positions;
+
+  const out = [positions[0]];
+  for (let i = 1; i < positions.length; i += 1) {
+    if (dists[i] <= target + 1e-6) {
+      out.push(positions[i]);
+      continue;
+    }
+    const segLen = dists[i] - dists[i - 1];
+    const t = segLen > 1e-9 ? (target - dists[i - 1]) / segLen : 0;
+    const lat =
+      positions[i - 1][0] + t * (positions[i][0] - positions[i - 1][0]);
+    const lng =
+      positions[i - 1][1] + t * (positions[i][1] - positions[i - 1][1]);
+    out.push([lat, lng]);
+    break;
+  }
+  return out.length >= 2 ? out : null;
+}
+
+/** Reste du tracé après distKm (affiché atténué). */
+export function getTrailRemainderSlice(trail, distKm) {
+  const progress = getTrailProgressSlice(trail, distKm);
+  const { positions } = getTrailGeometry(trail);
+  if (!progress || progress.length < 1 || positions.length < 2) return null;
+  const target = Math.max(0, Number(distKm) || 0);
+  const dists = trailCumulativeDistances(positions);
+  if (target >= (dists[dists.length - 1] || 0) - 1e-6) return null;
+
+  const out = [progress[progress.length - 1]];
+  let startIdx = positions.length - 1;
+  for (let i = 1; i < positions.length; i += 1) {
+    if (dists[i] >= target) {
+      startIdx = i;
+      break;
+    }
+  }
+  for (let i = startIdx; i < positions.length; i += 1) {
+    out.push(positions[i]);
+  }
+  return out.length >= 2 ? out : null;
+}
+
+/** Tronçon du tracé à surligner autour d'une distance (km). */
+export function getTrailHighlightSlice(trail, distKm, windowKm = 0.5) {
+  const { positions } = getTrailGeometry(trail);
+  if (positions.length < 2 || !Number.isFinite(distKm)) return null;
+  const dists = trailCumulativeDistances(positions);
   const lo = distKm - windowKm;
   const hi = distKm + windowKm;
   const slice = [];
