@@ -75,7 +75,13 @@ export default function TrailProfileRail({
   onRefreshCommunity,
   onForkSharedPlan,
   onPublishTrailTip,
+  onPublishEntryTip,
+  onUnpublishEntryTip,
   onDeleteTrailTip,
+  onToggleIncludeInPlan,
+  trailTipsForEntry = [],
+  trailIsPublic = true,
+  onToggleTrailPublic,
   activePlanVisibility = "private",
   onSetPlanVisibility,
 }) {
