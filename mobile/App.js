@@ -2640,12 +2640,18 @@ function ExplorerScreen() {
       setSelectedBoxId(bid);
       setMapExplorerCameraFollowSearch(true);
       setMapExplorerRecenterNonce((n) => n + 1);
-      requestAnimationFrame(() => {
-        requestAnimationFrame(() => {
+      const scrollToBookingSection = () => {
+        if (bookingSectionYRef.current > 0) {
           explorerScrollRef.current?.scrollTo?.({
             y: Math.max(0, bookingSectionYRef.current - 16),
             animated: true,
           });
+        }
+      };
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          scrollToBookingSection();
+          actionsRef.current.bookBox?.(bid);
         });
       });
     },
@@ -2656,6 +2662,7 @@ function ExplorerScreen() {
       setMapLon,
       setMapExplorerCameraFollowSearch,
       setMapExplorerRecenterNonce,
+      actionsRef,
     ]
   );
   const { width: viewportWidth } = useWindowDimensions();
@@ -4502,14 +4509,30 @@ function ExplorerScreen() {
             {canBook ? (
               <>
                 <Text style={styles.helperText}>
-                  Créneau dans « Créneau & demande ». Un récapitulatif et des
-                  points de vigilance s’affichent avant l’envoi.
+                  Créneau dans « Créneau & demande » (panneau gauche). Un
+                  récapitulatif s’affiche avant l’envoi.
                 </Text>
                 <PrimaryButton
                   compact
-                  label="Aller au formulaire de réservation"
+                  label="Réserver cette box"
                   icon="calendar-outline"
                   onPress={() => startBookingFromExplorer(selectedBox.id)}
+                />
+                <OutlineButton
+                  compact
+                  stretch
+                  label="Ajuster le créneau (date & heures)"
+                  icon="time-outline"
+                  onPress={() => {
+                    const bid = Number(selectedBox.id);
+                    setSelectedBoxId(bid);
+                    requestAnimationFrame(() => {
+                      explorerScrollRef.current?.scrollTo?.({
+                        y: Math.max(0, bookingSectionYRef.current - 16),
+                        animated: true,
+                      });
+                    });
+                  }}
                 />
               </>
             ) : (
@@ -5476,18 +5499,12 @@ function ExplorerScreen() {
                 }}
               />
               {canBook ? (
-                <>
-                  <Text style={styles.helperText}>
-                    Créneau dans « Créneau & demande ». Un récapitulatif et des
-                    points de vigilance s’affichent avant l’envoi.
-                  </Text>
-                  <PrimaryButton
-                    compact
-                    label="Préparer réservation"
-                    icon="checkmark-circle-outline"
-                    onPress={() => startBookingFromExplorer(item.id)}
-                  />
-                </>
+                <PrimaryButton
+                  compact
+                  label="Réserver"
+                  icon="calendar-outline"
+                  onPress={() => startBookingFromExplorer(item.id)}
+                />
               ) : null}
             </View>
           )}
@@ -11833,7 +11850,8 @@ function RavitoApp() {
       userAlert("Connexion", "Connecte-toi pour réserver.");
       return;
     }
-    const box = boxes.find((b) => b.id === boxId);
+    const bid = Number(boxId);
+    const box = boxes.find((b) => Number(b.id) === bid);
     if (!box) {
       userAlert(
         "Box introuvable",
@@ -11849,16 +11867,19 @@ function RavitoApp() {
       specialRequest
     );
     if (blocking.length > 0) {
-      userAlert("Réservation impossible", blocking.join("\n"));
+      userAlert(
+        "Créneau à corriger",
+        `${blocking.join("\n")}\n\nAjuste la date et les heures dans « Créneau & demande » (panneau gauche), puis réappuie sur Réserver.`
+      );
       return;
     }
-    setBookingConfirm({ visible: true, boxId });
+    setBookingConfirm({ visible: true, boxId: bid });
   };
 
   const confirmBookBox = async () => {
-    const boxId = bookingConfirm.boxId;
-    if (!token || !boxId) return;
-    const box = boxes.find((b) => b.id === boxId);
+    const boxId = Number(bookingConfirm.boxId);
+    if (!token || !Number.isFinite(boxId)) return;
+    const box = boxes.find((b) => Number(b.id) === boxId);
     if (!box) {
       userAlert("Erreur", "Ce box n'est plus dans la liste chargée.");
       setBookingConfirm({ visible: false, boxId: null });
