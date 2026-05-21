@@ -31,4 +31,16 @@ function requireAuth(req, res, next) {
   }
 }
 
-module.exports = { signToken, requireAuth };
+function optionalAuth(req, _res, next) {
+  const header = req.headers.authorization;
+  if (header && header.startsWith("Bearer ")) {
+    try {
+      req.auth = jwt.verify(header.slice("Bearer ".length), JWT_SECRET);
+    } catch (_error) {
+      /* ignore invalid token — catalogue public only */
+    }
+  }
+  return next();
+}
+
+module.exports = { signToken, requireAuth, optionalAuth };

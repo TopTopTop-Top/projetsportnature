@@ -35,6 +35,8 @@ import {
   loadExplorerSavedProbes,
   persistExplorerSavedProbes,
   formatExplorerProbePlanNote,
+  syncPublishedTipIdsForTrail,
+  isEntryPublishedOnTrail,
 } from "./explorerSavedProbesStorage";
 import { StatusBar } from "expo-status-bar";
 import * as DocumentPicker from "expo-document-picker";
@@ -2162,8 +2164,61 @@ function ExplorerScreen() {
     explorerSavedProbes,
     setExplorerProbeLock,
   ]);
-  const removeExplorerSavedProbe = useCallback((id) => {
-    setExplorerSavedProbes((prev) => prev.filter((e) => e.id !== id));
+  const removeExplorerSavedProbe = useCallback(
+    async (id, trailTipsList = []) => {
+      const entry = explorerSavedProbes.find((e) => e.id === id);
+      if (
+        entry &&
+        isEntryPublishedOnTrail(entry, trailTipsList)
+      ) {
+        const ok = await new Promise((resolve) => {
+          if (Platform.OS === "web") {
+            return resolve(
+              window.confirm(
+                "Retirer ce brouillon local ?\n\nLe conseil public sur la trace (point violet) reste visible pour les autres. Pour le retirer du public, utilise « Retirer du public » sur le point."
+              )
+            );
+          }
+          Alert.alert(
+            "Retirer le brouillon",
+            "Le conseil public sur la trace reste visible. Pour le retirer du public, utilise « Retirer du public ».",
+            [
+              { text: "Annuler", style: "cancel", onPress: () => resolve(false) },
+              { text: "Retirer brouillon", onPress: () => resolve(true) },
+            ]
+          );
+        });
+        if (!ok) return;
+      }
+      setExplorerSavedProbes((prev) => prev.filter((e) => e.id !== id));
+    },
+    [explorerSavedProbes]
+  );
+  const setExplorerSavedProbeIncludeInPlan = useCallback((id, include) => {
+    setExplorerSavedProbes((prev) =>
+      prev.map((e) =>
+        e.id === id
+          ? { ...e, includeInPlan: !!include, updatedAt: Date.now() }
+          : e
+      )
+    );
+  }, []);
+  const setExplorerSavedProbePublishedTipId = useCallback((id, tipId) => {
+    const tid =
+      tipId == null || tipId === ""
+        ? undefined
+        : Number(tipId);
+    setExplorerSavedProbes((prev) =>
+      prev.map((e) =>
+        e.id === id
+          ? {
+              ...e,
+              publishedTipId: Number.isFinite(tid) ? tid : undefined,
+              updatedAt: Date.now(),
+            }
+          : e
+      )
+    );
   }, []);
   const focusExplorerSavedProbe = useCallback((entry) => {
     if (!entry?.probe) return;
@@ -2616,8 +2671,12 @@ function ExplorerScreen() {
         actionsRef.current.loadSharedPlansForTrail?.(tid),
         actionsRef.current.loadTrailTips?.(tid),
       ]);
+      const tipsList = Array.isArray(tips) ? tips : [];
       setSharedPlansForTrail(Array.isArray(shared) ? shared : []);
-      setTrailTips(Array.isArray(tips) ? tips : []);
+      setTrailTips(tipsList);
+      setExplorerSavedProbes((prev) =>
+        syncPublishedTipIdsForTrail(prev, tipsList, tid)
+      );
     } catch (_e) {
       setSharedPlansForTrail([]);
       setTrailTips([]);
@@ -2653,43 +2712,150 @@ function ExplorerScreen() {
     ]
   );
 
-  const publishTrailTipFromProbe = useCallback(async () => {
-    if (!isTrailCreator || !selectedTrail || !explorerTrailProbe) {
+  const buildTrailTipNote = useCallback((entry, probe) => {
+    const p = probe || entry?.probe;
+    if (!p) return "";
+    const parts = [
+      entry?.label || "Conseil",
+      `${Number(p.distKm || 0).toFixed(1)} km`,
+    ];
+    if (p.eleM != null) parts.push(`${p.eleM} m`);
+    const notes = String(entry?.notes || "").trim();
+    if (notes) parts.push(notes);
+    return parts.join(" · ").slice(0, 2000);
+  }, []);
+
+  const publishTrailTipFromEntry = useCallback(
+    async (entry) => {
+      if (!isTrailCreator || !selectedTrail) {
+        userAlert(
+          "Conseil public",
+          "Seul le créateur de la trace peut publier des conseils visibles par tous."
+        );
+        return;
+      }
+      const probe = entry?.probe || explorerTrailProbe;
+      if (!probe) return;
+      const tid = Number(selectedTrail.id);
+      const noteText = buildTrailTipNote(entry, probe);
+      if (!noteText) return;
+      const created = await actionsRef.current.createTrailTip?.(tid, {
+        label: entry?.label || "Conseil",
+        note: noteText,
+        pointLat: probe.lat,
+        pointLon: probe.lng,
+        distKm: probe.distKm,
+      });
+      if (created?.id && entry?.id) {
+        setExplorerSavedProbePublishedTipId(entry.id, created.id);
+      }
+      await refreshTrailCommunityData();
       userAlert(
-        "Conseil trace",
-        "Positionne un point sur le tracé, puis publie-le comme conseil officiel."
+        "Conseil public publié",
+        "Point violet sur la carte — visible par tous. Ton brouillon local reste séparé."
       );
+    },
+    [
+      isTrailCreator,
+      selectedTrail,
+      explorerTrailProbe,
+      buildTrailTipNote,
+      refreshTrailCommunityData,
+      setExplorerSavedProbePublishedTipId,
+    ]
+  );
+
+  const publishTrailTipFromProbe = useCallback(async () => {
+    if (!explorerTrailProbe) {
+      userAlert("Conseil public", "Figez un point sur le tracé avant de publier.");
       return;
     }
-    const tid = Number(selectedTrail.id);
-    const p = explorerTrailProbe;
-    const ok = await actionsRef.current.createTrailTip?.(tid, {
+    await publishTrailTipFromEntry({
+      probe: explorerTrailProbe,
       label: "Conseil créateur",
-      note: `Conseil · ${Number(p.distKm || 0).toFixed(1)} km`,
-      pointLat: p.lat,
-      pointLon: p.lng,
-      distKm: p.distKm,
+      notes: "",
     });
-    if (ok) {
+  }, [explorerTrailProbe, publishTrailTipFromEntry]);
+
+  const unpublishTrailTipForEntry = useCallback(
+    async (entry) => {
+      if (!isTrailCreator || !selectedTrail) return;
+      const tid = Number(selectedTrail.id);
+      let tipId = Number(entry?.publishedTipId);
+      if (!Number.isFinite(tipId) || tipId <= 0) {
+        const lat = Number(entry?.probe?.lat);
+        const lon = Number(entry?.probe?.lng);
+        const match = trailTips.find(
+          (t) =>
+            Number(t.point_lat).toFixed(5) === lat.toFixed(5) &&
+            Number(t.point_lon).toFixed(5) === lon.toFixed(5)
+        );
+        tipId = Number(match?.id);
+      }
+      if (!Number.isFinite(tipId) || tipId <= 0) return;
+      const ok = await actionsRef.current.deleteTrailTip?.(tid, tipId);
+      if (!ok) return;
+      if (entry?.id) setExplorerSavedProbePublishedTipId(entry.id, null);
       await refreshTrailCommunityData();
-      userAlert("Conseil publié", "Visible pour tous sur cette trace.");
-    }
-  }, [
-    isTrailCreator,
-    selectedTrail,
-    explorerTrailProbe,
-    refreshTrailCommunityData,
-  ]);
+      userAlert(
+        "Conseil retiré du public",
+        "Le point violet disparaît pour tout le monde. Ton brouillon local n’est pas supprimé."
+      );
+    },
+    [
+      isTrailCreator,
+      selectedTrail,
+      trailTips,
+      refreshTrailCommunityData,
+      setExplorerSavedProbePublishedTipId,
+    ]
+  );
 
   const deleteTrailTipById = useCallback(
     async (tipId) => {
       const tid = Number(selectedTrailId);
       if (!Number.isFinite(tid)) return;
       const ok = await actionsRef.current.deleteTrailTip?.(tid, tipId);
-      if (ok) await refreshTrailCommunityData();
+      if (ok) {
+        setExplorerSavedProbes((prev) =>
+          prev.map((e) =>
+            Number(e.publishedTipId) === Number(tipId)
+              ? { ...e, publishedTipId: undefined, updatedAt: Date.now() }
+              : e
+          )
+        );
+        await refreshTrailCommunityData();
+      }
     },
     [selectedTrailId, refreshTrailCommunityData]
   );
+
+  const setSelectedTrailPublic = useCallback(
+    async (isPublic) => {
+      if (!selectedTrail || !isTrailCreator) return;
+      const tid = Number(selectedTrail.id);
+      const ok = await actionsRef.current.updateTrail?.(tid, {
+        isPublic: !!isPublic,
+      });
+      if (ok) {
+        await actionsRef.current.loadTrails?.();
+        userAlert(
+          isPublic ? "Trace publique" : "Trace masquée",
+          isPublic
+            ? "Ta trace apparaît dans le catalogue pour tous."
+            : "Ta trace reste utilisable par toi mais n’apparaît plus dans le catalogue public."
+        );
+      }
+    },
+    [selectedTrail, isTrailCreator, actionsRef]
+  );
+
+  const selectedTrailIsPublic = useMemo(() => {
+    if (!selectedTrail) return true;
+    const v = selectedTrail.is_public;
+    if (v === 0 || v === false || v === "0") return false;
+    return true;
+  }, [selectedTrail]);
 
   const saveExplorerRoutePlan = useCallback(async () => {
     if (!user) {
@@ -2705,11 +2871,13 @@ function ExplorerScreen() {
       return;
     }
     const boxIds = safePickedBoxIds;
-    const probes = savedProbesForSelectedTrail;
+    const probes = savedProbesForSelectedTrail.filter(
+      (e) => e.includeInPlan !== false
+    );
     if (boxIds.length === 0 && probes.length === 0) {
       userAlert(
         "Plan",
-        "Coche au moins une box (panneau gauche) et/ou mémorise un point sur la trace."
+        "Coche au moins une box et/ou ajoute un point inclus dans ton plan (onglet Composer). Tu peux enregistrer un plan box seul sans trace."
       );
       return;
     }
@@ -5394,7 +5562,14 @@ function ExplorerScreen() {
                   onProbeLock={setExplorerProbeLock}
                   savedProbes={savedProbesForSelectedTrail}
                   onSaveProbe={saveExplorerProbe}
-                  onRemoveSavedProbe={removeExplorerSavedProbe}
+                  onRemoveSavedProbe={(id) =>
+                    removeExplorerSavedProbe(id, trailTips)
+                  }
+                  onPublishEntryTip={publishTrailTipFromEntry}
+                  onUnpublishEntryTip={unpublishTrailTipForEntry}
+                  onToggleIncludeInPlan={setExplorerSavedProbeIncludeInPlan}
+                  trailIsPublic={selectedTrailIsPublic}
+                  onToggleTrailPublic={setSelectedTrailPublic}
                   onFocusSavedProbe={focusExplorerSavedProbe}
                   onUpdateSavedProbeNotes={updateExplorerSavedProbeNotes}
                   onClearSavedProbes={() =>
@@ -5437,6 +5612,7 @@ function ExplorerScreen() {
                   onForkSharedPlan={forkExplorerRoutePlan}
                   onPublishTrailTip={publishTrailTipFromProbe}
                   onDeleteTrailTip={deleteTrailTipById}
+                  trailTipsForEntry={trailTips}
                   activePlanVisibility={
                     activePlanForSelectedTrail?.visibility || "private"
                   }
@@ -10776,7 +10952,7 @@ function RavitoApp() {
 
   const loadTrails = async () => {
     try {
-      const rows = await apiFetch("/trails");
+      const rows = await apiFetch("/trails", { token: token || undefined });
       setTrails(Array.isArray(rows) ? rows : []);
     } catch (error) {
       userAlert("Erreur", error.message);

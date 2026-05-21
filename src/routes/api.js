@@ -12,7 +12,7 @@ const {
   evaluateBookingAgainstSchedule,
 } = require("../lib/boxAvailability");
 const { computeCommission, generateAccessCode } = require("../utils");
-const { signToken, requireAuth } = require("../auth");
+const { signToken, requireAuth, optionalAuth } = require("../auth");
 
 const router = express.Router();
 const parser = new XMLParser({ ignoreAttributes: false });
@@ -184,6 +184,7 @@ const updateTrailSchema = z
     activity: trailActivityEnum.optional(),
     criteriaTags: z.array(z.string().min(1).max(60)).max(20).optional(),
     notes: z.union([z.string().max(4000), z.literal("")]).optional(),
+    isPublic: z.boolean().optional(),
   })
   .superRefine((val, ctx) => {
     const keys = Object.keys(val).filter((k) => val[k] !== undefined);
@@ -1666,7 +1667,7 @@ router.post("/trails", requireAuth, async (req, res) => {
   return res.status(201).json(rows[0]);
 });
 
-router.get("/trails", async (req, res) => {
+router.get("/trails", optionalAuth, async (req, res) => {
   const difficulty = req.query.difficulty;
   const activity = req.query.activity;
   const hasDiff =
@@ -1675,6 +1676,13 @@ router.get("/trails", async (req, res) => {
     activity && trailActivityEnum.safeParse(String(activity)).success;
   const conds = [];
   const params = [];
+  const userId = Number(req.auth?.sub);
+  if (Number.isFinite(userId) && userId > 0) {
+    params.push(userId);
+    conds.push(`(is_public = 1 OR creator_user_id = $${params.length})`);
+  } else {
+    conds.push(`is_public = 1`);
+  }
   if (hasDiff) {
     params.push(String(difficulty));
     conds.push(`difficulty = $${params.length}`);
@@ -1746,6 +1754,10 @@ async function applyTrailUpdate(res, trailId, authUserId, body) {
   if (u.notes !== undefined) {
     parts.push(`notes = $${n++}`);
     vals.push(u.notes.trim() === "" ? null : u.notes);
+  }
+  if (u.isPublic !== undefined) {
+    parts.push(`is_public = $${n++}`);
+    vals.push(u.isPublic ? 1 : 0);
   }
   vals.push(trailId, authUserId);
   const { rows } = await pool.query(

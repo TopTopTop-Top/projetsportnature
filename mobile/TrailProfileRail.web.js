@@ -15,6 +15,7 @@ import {
   probeTrailAtDist,
   formatTrailProbeCoords,
 } from "./trailProfile";
+import { isEntryPublishedOnTrail } from "./explorerSavedProbesStorage";
 import TrailAltitudeBadge from "./TrailAltitudeBadge";
 
 const DIFFICULTY_LABELS = {
@@ -159,14 +160,36 @@ export default function TrailProfileRail({
           <Text style={styles.heroMeta} numberOfLines={1}>
             {trail.territory || "—"} · {diff}
           </Text>
+          {isTrailCreator && onToggleTrailPublic ? (
+            <Pressable
+              onPress={() => onToggleTrailPublic(!trailIsPublic)}
+              style={[
+                styles.trailPublicToggle,
+                trailIsPublic && styles.trailPublicToggleOn,
+              ]}
+            >
+              <Text
+                style={[
+                  styles.trailPublicToggleText,
+                  trailIsPublic && styles.trailPublicToggleTextOn,
+                ]}
+              >
+                {trailIsPublic
+                  ? "Trace visible dans le catalogue public"
+                  : "Trace masquée du catalogue (toi seul)"}
+              </Text>
+            </Pressable>
+          ) : null}
         </View>
 
         <View style={styles.workspaceLegend}>
           <Text style={styles.workspaceLegendText}>
-            <Text style={styles.workspaceLegendBold}>Composer</Text> — préparer
-            · <Text style={styles.workspaceLegendBold}>Mon plan</Text> — ton
-            compte · <Text style={styles.workspaceLegendBold}>Communauté</Text>{" "}
-            — conseils & modèles partagés
+            <Text style={styles.workspaceLegendBold}>Brouillon</Text> (orange) =
+            toi, sur cet appareil ·{" "}
+            <Text style={styles.workspaceLegendBold}>Conseil public</Text> (violet)
+            = tous, indépendant du brouillon ·{" "}
+            <Text style={styles.workspaceLegendBold}>Mon plan</Text> = compte
+            (box seules possibles, trace optionnelle)
           </Text>
         </View>
 
@@ -267,13 +290,17 @@ export default function TrailProfileRail({
                 Clic sur la courbe ou le tracé pour figer · survol = suivi libre
               </Text>
             )}
+            <Text style={styles.probeExplain}>
+              Deux actions distinctes : le brouillon ne retire jamais un conseil
+              déjà public pour les autres.
+            </Text>
             <View style={styles.probeActions}>
               <Pressable
                 onPress={onSaveProbe}
                 style={[styles.actionBtn, styles.actionBtnPrimary]}
               >
                 <Text style={styles.actionBtnTextPrimary}>
-                  Mémoriser (brouillon)
+                  Brouillon local
                 </Text>
               </Pressable>
               {isTrailCreator && probe ? (
@@ -281,7 +308,7 @@ export default function TrailProfileRail({
                   onPress={onPublishTrailTip}
                   style={[styles.actionBtn, styles.actionBtnCreator]}
                 >
-                  <Text style={styles.actionBtnText}>Publier conseil trace</Text>
+                  <Text style={styles.actionBtnText}>Publier en public</Text>
                 </Pressable>
               ) : null}
               {probeLocked ? (
@@ -298,10 +325,11 @@ export default function TrailProfileRail({
         )}
 
         <View style={styles.composerHintBox}>
-          <Text style={styles.composerHintTitle}>Étape suivante</Text>
+          <Text style={styles.composerHintTitle}>Rappel</Text>
           <Text style={styles.composerHintText}>
-            Coche des box sur la carte (panneau gauche), puis passe à l’onglet
-            Mon plan pour enregistrer sur ton compte.
+            Tu peux réserver des box sans trace : quitte la trace ou enregistre un
+            plan avec box seules (Mon plan). Coche les points à inclure dans ton
+            plan avec la case sur chaque brouillon.
           </Text>
         </View>
 
@@ -318,14 +346,16 @@ export default function TrailProfileRail({
               ) : null}
             </View>
             <Text style={styles.savedHint}>
-              Enregistrés sur cet appareil jusqu’à « Enregistrer le plan complet »
-              (onglet Mon plan).
+              Brouillon ≠ conseil public. Supprimer le brouillon ne retire pas le
+              violet pour les autres.
             </Text>
             {savedProbes.map((entry) => (
               <SavedProbeCard
                 key={entry.id}
                 entry={entry}
                 linkableBoxes={linkableBoxes}
+                trailTips={trailTipsForEntry}
+                isTrailCreator={isTrailCreator}
                 onFocus={() => onFocusSavedProbe?.(entry)}
                 onRemove={() => onRemoveSavedProbe?.(entry.id)}
                 onSaveNotes={(notes) =>
@@ -334,6 +364,9 @@ export default function TrailProfileRail({
                 onLinkBoxChange={(boxId) =>
                   onUpdateSavedProbeLinkedBox?.(entry.id, boxId)
                 }
+                onPublishEntry={onPublishEntryTip}
+                onUnpublishEntry={onUnpublishEntryTip}
+                onToggleIncludeInPlan={onToggleIncludeInPlan}
                 onExpandEditor={scrollToBottom}
               />
             ))}
@@ -430,8 +463,8 @@ function CommunityPanel({
       </Text>
       {isTrailCreator ? (
         <Text style={styles.communityHint}>
-          Tu es le créateur : publie un conseil depuis l’onglet Composer (bouton
-          « Publier conseil trace » sur un point figé).
+          Publie ou retire des conseils point par point (Composer ou ci-dessous).
+          Retirer du public n’efface pas ton brouillon local.
         </Text>
       ) : null}
       {trailTips.length === 0 ? (
@@ -453,7 +486,9 @@ function CommunityPanel({
                 onPress={() => onDeleteTrailTip(tip.id)}
                 style={styles.communityDeleteBtn}
               >
-                <Text style={styles.communityDeleteText}>Supprimer</Text>
+                <Text style={styles.communityDeleteText}>
+                  Retirer du public
+                </Text>
               </Pressable>
             ) : null}
           </View>
@@ -539,9 +574,9 @@ function TrailPlanHub({
     <View style={styles.planSaveBlock}>
       <Text style={styles.planSaveTitle}>Mon plan (compte RavitoBox)</Text>
       <Text style={styles.planWorkflow}>
-        Enregistre ici trace + box cochées + brouillons de l’onglet Composer.
-        Réservations : bouton Réserver par box. Partage : rends ton plan visible
-        dans Communauté pour inspirer les autres.
+        Enregistre box cochées et/ou brouillons cochés « dans le plan ». La trace
+        est optionnelle. Réservations : Réserver par box. Partage du plan :
+        Communauté.
       </Text>
 
       {isAuthed && plansForTrail.length > 0 ? (
@@ -804,10 +839,15 @@ function TrailPlanHub({
 function SavedProbeCard({
   entry,
   linkableBoxes = [],
+  trailTips = [],
+  isTrailCreator = false,
   onFocus,
   onRemove,
   onSaveNotes,
   onLinkBoxChange,
+  onPublishEntry,
+  onUnpublishEntry,
+  onToggleIncludeInPlan,
   onExpandEditor,
 }) {
   const [draft, setDraft] = useState(entry.notes || "");
@@ -829,9 +869,40 @@ function SavedProbeCard({
   const hasNotes = String(entry.notes || "").trim().length > 0;
   const linkedId = Number(entry.linkedBoxId);
   const linkedBox = linkableBoxes.find((b) => Number(b.id) === linkedId);
+  const isPublic = isEntryPublishedOnTrail(entry, trailTips);
+  const includeInPlan = entry.includeInPlan !== false;
 
   return (
-    <View style={styles.savedCard}>
+    <View
+      style={[
+        styles.savedCard,
+        isPublic && styles.savedCardPublicLinked,
+        !includeInPlan && styles.savedCardExcluded,
+      ]}
+    >
+      <View style={styles.savedStatusRow}>
+        {isPublic ? (
+          <Text style={styles.savedBadgePublic}>Public (violet)</Text>
+        ) : (
+          <Text style={styles.savedBadgeDraft}>Brouillon seul</Text>
+        )}
+        <Pressable
+          onPress={() => onToggleIncludeInPlan?.(entry.id, !includeInPlan)}
+          style={[
+            styles.savedIncludeChip,
+            includeInPlan && styles.savedIncludeChipOn,
+          ]}
+        >
+          <Text
+            style={[
+              styles.savedIncludeChipText,
+              includeInPlan && styles.savedIncludeChipTextOn,
+            ]}
+          >
+            {includeInPlan ? "Dans mon plan" : "Hors plan"}
+          </Text>
+        </Pressable>
+      </View>
       <View style={styles.savedRow}>
         <Pressable
           style={styles.savedRowMain}
@@ -871,6 +942,25 @@ function SavedProbeCard({
           <Text style={styles.savedRemoveText}>×</Text>
         </Pressable>
       </View>
+      {isTrailCreator ? (
+        <View style={styles.savedPubRow}>
+          {isPublic && onUnpublishEntry ? (
+            <Pressable
+              onPress={() => onUnpublishEntry(entry)}
+              style={[styles.actionBtn, styles.savedUnpublishBtn]}
+            >
+              <Text style={styles.actionBtnText}>Retirer du public</Text>
+            </Pressable>
+          ) : onPublishEntry ? (
+            <Pressable
+              onPress={() => onPublishEntry(entry)}
+              style={[styles.actionBtn, styles.actionBtnCreator]}
+            >
+              <Text style={styles.actionBtnText}>Publier en public</Text>
+            </Pressable>
+          ) : null}
+        </View>
+      ) : null}
       {expanded ? (
         <View style={styles.savedNoteEditor}>
           {linkableBoxes.length > 0 && onLinkBoxChange ? (
@@ -1212,6 +1302,35 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: "600",
     color: "rgba(255,255,255,0.7)",
+  },
+  trailPublicToggle: {
+    marginTop: 10,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.35)",
+    backgroundColor: "rgba(0,0,0,0.15)",
+  },
+  trailPublicToggleOn: {
+    borderColor: "#FBBF24",
+    backgroundColor: "rgba(251,191,36,0.2)",
+  },
+  trailPublicToggleText: {
+    fontSize: 10,
+    fontWeight: "700",
+    color: "rgba(255,255,255,0.75)",
+    textAlign: "center",
+  },
+  trailPublicToggleTextOn: {
+    color: "#FBBF24",
+  },
+  probeExplain: {
+    marginTop: 6,
+    fontSize: 10,
+    lineHeight: 14,
+    color: "#78350F",
+    fontWeight: "600",
   },
   stats: {
     flexDirection: "row",
@@ -1576,6 +1695,70 @@ const styles = StyleSheet.create({
   },
   savedCard: {
     gap: 6,
+    marginBottom: 8,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
+    backgroundColor: "#FAFAFA",
+    paddingBottom: 4,
+  },
+  savedCardPublicLinked: {
+    borderColor: "#A5B4FC",
+    backgroundColor: "#F5F3FF",
+  },
+  savedCardExcluded: {
+    opacity: 0.72,
+  },
+  savedStatusRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 10,
+    paddingTop: 8,
+    gap: 8,
+  },
+  savedBadgePublic: {
+    fontSize: 9,
+    fontWeight: "800",
+    color: "#4338CA",
+    textTransform: "uppercase",
+  },
+  savedBadgeDraft: {
+    fontSize: 9,
+    fontWeight: "800",
+    color: "#64748B",
+    textTransform: "uppercase",
+  },
+  savedIncludeChip: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: "#CBD5E1",
+    backgroundColor: "#FFFFFF",
+  },
+  savedIncludeChipOn: {
+    borderColor: "#0F766E",
+    backgroundColor: "#ECFDF5",
+  },
+  savedIncludeChipText: {
+    fontSize: 9,
+    fontWeight: "700",
+    color: "#64748B",
+  },
+  savedIncludeChipTextOn: {
+    color: "#047857",
+  },
+  savedPubRow: {
+    flexDirection: "row",
+    paddingHorizontal: 10,
+    paddingBottom: 4,
+    gap: 6,
+  },
+  savedUnpublishBtn: {
+    flex: 1,
+    backgroundColor: "#FEE2E2",
+    borderColor: "#FECACA",
   },
   savedRow: {
     flexDirection: "row",

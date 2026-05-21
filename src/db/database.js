@@ -420,6 +420,12 @@ async function migrate() {
     await client.query(
       `CREATE INDEX IF NOT EXISTS idx_trail_tips_trail_sort ON trail_tips(trail_id, sort_index, created_at)`
     );
+    await client.query(
+      `ALTER TABLE trails ADD COLUMN IF NOT EXISTS is_public SMALLINT NOT NULL DEFAULT 1`
+    );
+    await client.query(
+      `CREATE INDEX IF NOT EXISTS idx_trails_public_created ON trails(is_public, created_at DESC)`
+    );
 
     await client.query("COMMIT");
     console.log("Migration PostgreSQL OK");
