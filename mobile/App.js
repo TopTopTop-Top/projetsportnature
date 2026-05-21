@@ -27,6 +27,9 @@ import {
 import NativeExplorerMap from "./NativeExplorerMap";
 import ExplorerWebMap from "./ExplorerWebMap";
 import TrailElevationProfile from "./TrailElevationProfile";
+import TrailMapInspectOverlay from "./TrailMapInspectOverlay";
+import TrailAltitudeBadge from "./TrailAltitudeBadge";
+import { formatTrailElevationSummary } from "./trailProfile";
 import { StatusBar } from "expo-status-bar";
 import * as DocumentPicker from "expo-document-picker";
 import {
@@ -2086,6 +2089,7 @@ function ExplorerScreen() {
 
   const [explorerHoveredTrailId, setExplorerHoveredTrailId] = useState(null);
   const [explorerTrailProbe, setExplorerTrailProbe] = useState(null);
+  const [chartProbeLock, setChartProbeLock] = useState(false);
 
   const trailsOnMap = Array.isArray(trailsForMap) ? trailsForMap : [];
   const boxesOnMap = Array.isArray(boxesForMap) ? boxesForMap : [];
@@ -2256,6 +2260,7 @@ function ExplorerScreen() {
       // Short tap on map should focus/keep a trail, not toggle it off.
       setSelectedTrailId(tid);
       setExplorerTrailProbe(null);
+      setChartProbeLock(false);
       setMapTrailPickIds((prev) =>
         Array.isArray(prev) && prev.includes(tid)
           ? prev
@@ -3588,25 +3593,29 @@ function ExplorerScreen() {
             <Text style={styles.selectedLabel}>Trace sélectionnée</Text>
             <Text style={styles.cardTitle}>{selectedTrail.name}</Text>
             <Text style={styles.cardMeta}>
-              {selectedTrail.territory} · {selectedTrail.distance_km} km · D+
-              {selectedTrail.elevation_m ?? 0} m ·{" "}
+              {selectedTrail.territory} · {selectedTrail.distance_km} km ·{" "}
+              {formatTrailElevationSummary(selectedTrail)} ·{" "}
               {DIFFICULTY_LABELS[selectedTrail.difficulty] ||
                 selectedTrail.difficulty}
             </Text>
+            <TrailAltitudeBadge trail={selectedTrail} />
             {selectedTrail.notes ? (
               <Text style={styles.cardAvailability} numberOfLines={3}>
                 {selectedTrail.notes}
               </Text>
             ) : null}
-            <TrailElevationProfile
-              trail={selectedTrail}
-              probe={
-                explorerTrailProbe &&
-                Number(explorerTrailProbe.trailId) === Number(selectedTrail.id)
-                  ? explorerTrailProbe
-                  : null
-              }
-            />
+            {!webDesktopSplit ? (
+              <TrailElevationProfile
+                trail={selectedTrail}
+                probe={
+                  explorerTrailProbe &&
+                  Number(explorerTrailProbe.trailId) ===
+                    Number(selectedTrail.id)
+                    ? explorerTrailProbe
+                    : null
+                }
+              />
+            ) : null}
             <OutlineButton
               compact
               stretch
@@ -4690,13 +4699,14 @@ function ExplorerScreen() {
                     </Text>
                   </View>
                   <Text style={styles.cardMeta}>
-                    {trail.territory} · {trail.distance_km} km · D+
-                    {trail.elevation_m ?? 0} m ·{" "}
+                    {trail.territory} · {trail.distance_km} km ·{" "}
+                    {formatTrailElevationSummary(trail)} ·{" "}
                     {DIFFICULTY_LABELS[trail.difficulty] || trail.difficulty}
                     {" · "}
                     {TRAIL_ACTIVITY_LABELS[trail.activity || "hike"]}
                     {mine ? " · Mienne" : ""}
                   </Text>
+                  <TrailAltitudeBadge trail={trail} compact />
                   {trail.notes ? (
                     <Text style={styles.cardAvailability} numberOfLines={2}>
                       {trail.notes}
@@ -4824,13 +4834,16 @@ function ExplorerScreen() {
                   styles.explorerWebMapHostDesktop,
                 ]}
               >
-                <Text style={styles.webMapPaneCaption}>
-                  Carte — molette : zoom · glisser : déplacer
-                </Text>
+                {!selectedTrail ? (
+                  <Text style={styles.webMapPaneCaption}>
+                    Carte — molette : zoom · glisser : déplacer
+                  </Text>
+                ) : null}
                 <View
                   style={[
                     styles.explorerWebMapInner,
                     styles.explorerWebMapInnerDesktop,
+                    styles.explorerWebMapInnerRelative,
                   ]}
                 >
                   <ExplorerWebMap
@@ -4855,6 +4868,15 @@ function ExplorerScreen() {
                     onSelectBox={focusExplorerBox}
                     onSelectTrail={focusExplorerTrail}
                     onTrailProbe={setExplorerTrailProbe}
+                    trailProbe={
+                      selectedTrail &&
+                      explorerTrailProbe &&
+                      Number(explorerTrailProbe.trailId) ===
+                        Number(selectedTrail.id)
+                        ? explorerTrailProbe
+                        : null
+                    }
+                    lockTrailProbe={chartProbeLock}
                     onMapLongPress={handleExplorerMapLongPress}
                     onPickLocation={handleExplorerMapTap}
                     onVisibleBoundsChange={setMapViewportBounds}
@@ -4871,6 +4893,20 @@ function ExplorerScreen() {
                     staticOrigin={API_STATIC_ORIGIN}
                     inFixedPane
                   />
+                  {selectedTrail ? (
+                    <TrailMapInspectOverlay
+                      trail={selectedTrail}
+                      probe={
+                        explorerTrailProbe &&
+                        Number(explorerTrailProbe.trailId) ===
+                          Number(selectedTrail.id)
+                          ? explorerTrailProbe
+                          : null
+                      }
+                      onProbeChange={setExplorerTrailProbe}
+                      onChartHoverActive={setChartProbeLock}
+                    />
+                  ) : null}
                 </View>
               </View>
             </View>
@@ -5387,11 +5423,12 @@ function TrailsScreen() {
                 <Text style={styles.cardTitle}>{tr.name || "Trace"}</Text>
                 <Text style={styles.cardMeta}>
                   {tr.territory || "—"} ·{" "}
-                  {Number(tr.distance_km || 0).toFixed(1)} km · D+{" "}
-                  {Number(tr.elevation_m || 0)} m ·{" "}
+                  {Number(tr.distance_km || 0).toFixed(1)} km ·{" "}
+                  {formatTrailElevationSummary(tr)} ·{" "}
                   {DIFFICULTY_LABELS[tr.difficulty] || tr.difficulty} ·{" "}
                   {TRAIL_ACTIVITY_LABELS[tr.activity || "hike"] || ""}
                 </Text>
+                <TrailAltitudeBadge trail={tr} compact />
                 <Text style={styles.cardDetailLine}>
                   Box « {bx.title || "?"} » · {bx.city || "—"} ·{" "}
                   {(Number(bx.price_cents || 0) / 100).toFixed(2)} € ·{" "}
@@ -5719,8 +5756,10 @@ function TrailsScreen() {
                     <View style={styles.cardAccent} />
                     <Text style={styles.cardTitle}>{trail.name}</Text>
                     <Text style={styles.cardMeta}>
-                      {trail.territory} · {trail.distance_km} km
+                      {trail.territory} · {trail.distance_km} km ·{" "}
+                      {formatTrailElevationSummary(trail)}
                     </Text>
+                    <TrailAltitudeBadge trail={trail} compact />
                     <Text style={styles.cardAvailability}>
                       {isPicked ? "Sélectionnée" : "Non sélectionnée"}
                       {isActive ? " · Active" : ""}
@@ -6067,9 +6106,11 @@ function TrailsScreen() {
                     </Text>
                   </View>
                   <Text style={styles.cardMeta}>
-                    {trail.territory} · {trail.distance_km} km · D+{" "}
-                    {trail.elevation_m} m{isMine ? " · Mienne" : ""}
+                    {trail.territory} · {trail.distance_km} km ·{" "}
+                    {formatTrailElevationSummary(trail)}
+                    {isMine ? " · Mienne" : ""}
                   </Text>
+                  <TrailAltitudeBadge trail={trail} compact />
                   <View
                     style={[
                       styles.badge,
@@ -7382,13 +7423,14 @@ function HostScreen() {
                   </View>
                   <Text style={styles.cardMeta}>
                     {tr.territory || "—"} ·{" "}
-                    {Number(tr.distance_km || 0).toFixed(1)} km · D+{" "}
-                    {Number(tr.elevation_m || 0)} m ·{" "}
+                    {Number(tr.distance_km || 0).toFixed(1)} km ·{" "}
+                    {formatTrailElevationSummary(tr)} ·{" "}
                     {DIFFICULTY_LABELS[tr.difficulty] || tr.difficulty} ·{" "}
                     {TRAIL_ACTIVITY_LABELS[tr.activity || "hike"] ||
                       tr.activity ||
                       ""}
                   </Text>
+                  <TrailAltitudeBadge trail={tr} compact />
                   {pin.host_note ? (
                     <Text style={styles.cardAvailability}>{pin.host_note}</Text>
                   ) : null}
@@ -10754,7 +10796,11 @@ function RavitoApp() {
       const data = await uploadGpxWithFormData(formData);
       userAlert(
         "Trace importée",
-        `${data.distanceKm} km / D+ ${data.elevationM} m`
+        `${data.distanceKm} km · ${
+          data.trail
+            ? formatTrailElevationSummary(data.trail)
+            : `D+ ${data.elevationM} m`
+        }`
       );
       await loadTrails();
       setTrailImportNotes("");
@@ -10814,7 +10860,11 @@ function RavitoApp() {
       const data = await uploadGpxWithFormData(formData);
       userAlert(
         "Trace importée",
-        `${data.distanceKm} km / D+ ${data.elevationM} m`
+        `${data.distanceKm} km · ${
+          data.trail
+            ? formatTrailElevationSummary(data.trail)
+            : `D+ ${data.elevationM} m`
+        }`
       );
       await loadTrails();
       setTrailImportNotes("");
@@ -10853,7 +10903,11 @@ function RavitoApp() {
       );
       userAlert(
         "Trace remplacée",
-        `${data.distanceKm} km / D+ ${data.elevationM} m`
+        `${data.distanceKm} km · ${
+          data.trail
+            ? formatTrailElevationSummary(data.trail)
+            : `D+ ${data.elevationM} m`
+        }`
       );
       await loadTrails();
       if (selectedTrailId != null && Number(selectedTrailId) === tid) {
@@ -10899,7 +10953,11 @@ function RavitoApp() {
       );
       userAlert(
         "Trace remplacée",
-        `${data.distanceKm} km / D+ ${data.elevationM} m`
+        `${data.distanceKm} km · ${
+          data.trail
+            ? formatTrailElevationSummary(data.trail)
+            : `D+ ${data.elevationM} m`
+        }`
       );
       await loadTrails();
       if (selectedTrailId != null && Number(selectedTrailId) === tid) {
@@ -12068,6 +12126,9 @@ const styles = StyleSheet.create({
     minHeight: 0,
     height: "100%",
     maxHeight: undefined,
+  },
+  explorerWebMapInnerRelative: {
+    position: "relative",
   },
   webMapPaneCaption: {
     fontSize: 12,

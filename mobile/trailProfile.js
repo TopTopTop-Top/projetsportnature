@@ -125,6 +125,78 @@ export function getTrailGeometry(trail) {
   };
 }
 
+/**
+ * Métadonnées altitude / D+ pour affichage liste et fiches.
+ * status: "profile" | "gain_only" | "none"
+ */
+export function getTrailAltitudeMeta(trail) {
+  const geo = getTrailGeometry(trail);
+  const elevationM = Math.round(Number(trail?.elevation_m) || 0);
+  const hasPolyline = geo.positions.length >= 2;
+
+  if (geo.hasElevationData) {
+    return {
+      status: "profile",
+      hasElevationData: true,
+      hasGainData: true,
+      gainEstimated: false,
+      elevationM,
+      hasPolyline,
+      badgeLabel: `D+ ${elevationM} m`,
+      badgeShort: "Profil GPX",
+      listElevationText: `D+ ${elevationM} m · profil altimétrique`,
+      canShowElevationChart: true,
+      canShowAltitudeProbe: true,
+      canShowMapHighlight: true,
+      missingMessage: null,
+    };
+  }
+
+  if (geo.hasGainData || elevationM > 0) {
+    return {
+      status: "gain_only",
+      hasElevationData: false,
+      hasGainData: true,
+      gainEstimated: true,
+      elevationM,
+      hasPolyline,
+      badgeLabel: elevationM > 0 ? `D+ ${elevationM} m` : "D+ ?",
+      badgeShort: "Sans courbe",
+      listElevationText:
+        elevationM > 0
+          ? `D+ ${elevationM} m · sans altitudes GPX`
+          : "Dénivelé sans profil alti",
+      canShowElevationChart: false,
+      canShowAltitudeProbe: false,
+      canShowMapHighlight: hasPolyline,
+      missingMessage:
+        "Ce tracé n’a pas d’altitudes dans le fichier GPX. Le D+ affiché est une estimation ou une saisie manuelle : pas de courbe altimétrique ni suivi altitude / pente sur la carte. Re-importe un GPX avec balises <ele> pour activer le profil.",
+    };
+  }
+
+  return {
+    status: "none",
+    hasElevationData: false,
+    hasGainData: false,
+    gainEstimated: false,
+    elevationM: 0,
+    hasPolyline,
+    badgeLabel: "Sans altitude",
+    badgeShort: "Pas de D+",
+    listElevationText: "Sans altitude ni D+ GPX",
+    canShowElevationChart: false,
+    canShowAltitudeProbe: false,
+    canShowMapHighlight: hasPolyline,
+    missingMessage:
+      "Ce tracé n’a pas de données d’altitude ni de dénivelé calculé. Importe ou remplace le GPX (avec altitudes) pour afficher le profil et le suivi sur la carte.",
+  };
+}
+
+/** Ligne courte pour listes (km · dénivelé · …). */
+export function formatTrailElevationSummary(trail) {
+  return getTrailAltitudeMeta(trail).listElevationText;
+}
+
 export function getTrailProfileStats(trail) {
   const { profile, hasElevationData, hasGainData, gainEstimated } =
     getTrailGeometry(trail);
@@ -258,6 +330,90 @@ function projectOnSegment(pLat, pLon, a, b) {
   };
 }
 
+/** Tronçon du tracé à surligner autour d'une distance (km). */
+export function getTrailHighlightSlice(trail, distKm, windowKm = 0.5) {
+  const { positions } = getTrailGeometry(trail);
+  if (positions.length < 2 || !Number.isFinite(distKm)) return null;
+  const dists = [0];
+  for (let i = 1; i < positions.length; i += 1) {
+    dists.push(
+      dists[i - 1] +
+        haversineKm(
+          positions[i - 1][0],
+          positions[i - 1][1],
+          positions[i][0],
+          positions[i][1]
+        )
+    );
+  }
+  const lo = distKm - windowKm;
+  const hi = distKm + windowKm;
+  const slice = [];
+  for (let i = 0; i < positions.length; i += 1) {
+    if (dists[i] >= lo && dists[i] <= hi) slice.push(positions[i]);
+  }
+  if (slice.length < 2) {
+    let bestI = 0;
+    let bestD = Infinity;
+    for (let i = 0; i < dists.length; i += 1) {
+      const d = Math.abs(dists[i] - distKm);
+      if (d < bestD) {
+        bestD = d;
+        bestI = i;
+      }
+    }
+    const a = Math.max(0, bestI - 1);
+    const b = Math.min(positions.length - 1, bestI + 1);
+    return positions.slice(a, b + 1);
+  }
+  return slice;
+}
+
+/** Position sur le tracé à une distance cumulée depuis le départ (km). */
+export function probeTrailAtDist(trail, distKm) {
+  const { positions, profile, hasGainData, gainEstimated, hasElevationData } =
+    getTrailGeometry(trail);
+  if (positions.length < 2) return null;
+  const target = Math.max(0, Number(distKm) || 0);
+  let cumDist = 0;
+  for (let i = 1; i < positions.length; i += 1) {
+    const segLen = haversineKm(
+      positions[i - 1][0],
+      positions[i - 1][1],
+      positions[i][0],
+      positions[i][1]
+    );
+    const prevCum = cumDist;
+    cumDist += segLen;
+    if (cumDist >= target || i === positions.length - 1) {
+      const t =
+        target <= prevCum
+          ? 0
+          : Math.min(1, (target - prevCum) / Math.max(segLen, 1e-9));
+      const lat = positions[i - 1][0] + t * (positions[i][0] - positions[i - 1][0]);
+      const lng = positions[i - 1][1] + t * (positions[i][1] - positions[i - 1][1]);
+      const at = profileAtFraction(profile, positions, i - 1, t);
+      const gradePct = gradePercentAtDist(profile, at.distKm);
+      return {
+        lat,
+        lng,
+        distToPointKm: 0,
+        distKm: at.distKm,
+        gainM: at.gainM,
+        eleM: at.eleM,
+        gradePct,
+        terrainLabel: terrainLabelFromGrade(gradePct),
+        hasGainData,
+        gainEstimated,
+        hasElevationData,
+        segmentIndex: i - 1,
+        source: "chart",
+      };
+    }
+  }
+  return null;
+}
+
 export function probeTrailAt(trail, lat, lng) {
   const { positions, profile, hasGainData, gainEstimated, hasElevationData } =
     getTrailGeometry(trail);
@@ -282,6 +438,7 @@ export function probeTrailAt(trail, lat, lng) {
         gainEstimated,
         hasElevationData,
         segmentIndex: i - 1,
+        source: "map",
       };
     }
   }
