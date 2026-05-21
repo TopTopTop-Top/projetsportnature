@@ -31,6 +31,10 @@ import TrailProfileRail from "./TrailProfileRail";
 import TrailMapInspectOverlay from "./TrailMapInspectOverlay";
 import TrailAltitudeBadge from "./TrailAltitudeBadge";
 import { formatTrailElevationSummary } from "./trailProfile";
+import {
+  loadExplorerSavedProbes,
+  persistExplorerSavedProbes,
+} from "./explorerSavedProbesStorage";
 import { StatusBar } from "expo-status-bar";
 import * as DocumentPicker from "expo-document-picker";
 import {
@@ -2110,7 +2114,13 @@ function ExplorerScreen() {
     });
   }, []);
 
-  const [explorerSavedProbes, setExplorerSavedProbes] = useState([]);
+  const [explorerSavedProbes, setExplorerSavedProbes] = useState(() =>
+    loadExplorerSavedProbes()
+  );
+  useEffect(() => {
+    persistExplorerSavedProbes(explorerSavedProbes);
+  }, [explorerSavedProbes]);
+
   const saveExplorerProbe = useCallback(() => {
     if (!explorerTrailProbe || selectedTrailId == null) return;
     const tid = Number(selectedTrailId);
@@ -2123,7 +2133,9 @@ function ExplorerScreen() {
         id: `sp-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
         trailId: tid,
         label: `Point ${n}`,
+        notes: "",
         savedAt: Date.now(),
+        updatedAt: Date.now(),
         probe: { ...explorerTrailProbe },
       },
     ]);
@@ -2147,6 +2159,16 @@ function ExplorerScreen() {
     if (!Number.isFinite(tid)) return;
     setExplorerSavedProbes((prev) =>
       prev.filter((e) => Number(e.trailId) !== tid)
+    );
+  }, []);
+  const updateExplorerSavedProbeNotes = useCallback((id, notes) => {
+    const text = String(notes ?? "");
+    setExplorerSavedProbes((prev) =>
+      prev.map((e) =>
+        e.id === id
+          ? { ...e, notes: text, updatedAt: Date.now() }
+          : e
+      )
     );
   }, []);
 
@@ -4956,6 +4978,7 @@ function ExplorerScreen() {
                   onSaveProbe={saveExplorerProbe}
                   onRemoveSavedProbe={removeExplorerSavedProbe}
                   onFocusSavedProbe={focusExplorerSavedProbe}
+                  onUpdateSavedProbeNotes={updateExplorerSavedProbeNotes}
                   onClearSavedProbes={() =>
                     clearExplorerSavedProbesForTrail(selectedTrailId)
                   }

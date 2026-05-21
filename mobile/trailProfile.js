@@ -344,6 +344,62 @@ export function profileDistFromRouteKm(trail, routeDistKm) {
   return frac * profileTotal;
 }
 
+function bearingDegrees(lat1, lon1, lat2, lon2) {
+  const φ1 = (lat1 * Math.PI) / 180;
+  const φ2 = (lat2 * Math.PI) / 180;
+  const Δλ = ((lon2 - lon1) * Math.PI) / 180;
+  const y = Math.sin(Δλ) * Math.cos(φ2);
+  const x =
+    Math.cos(φ1) * Math.sin(φ2) -
+    Math.sin(φ1) * Math.cos(φ2) * Math.cos(Δλ);
+  return ((Math.atan2(y, x) * 180) / Math.PI + 360) % 360;
+}
+
+/**
+ * Repères pour flèches de sens le long d'une polyline [[lat,lng], ...].
+ * fractions : ex. [0.22, 0.5, 0.78] = position le long du tracé (0 = départ).
+ */
+export function getTrailDirectionMarkers(
+  positions,
+  fractions = [0.22, 0.5, 0.78]
+) {
+  if (!Array.isArray(positions) || positions.length < 2) return [];
+  const dists = trailCumulativeDistances(positions);
+  const total = dists[dists.length - 1] || 0;
+  if (total <= 0) return [];
+
+  const out = [];
+  for (const frac of fractions) {
+    const target = total * Math.min(1, Math.max(0, Number(frac) || 0));
+    let segIdx = 1;
+    for (let i = 1; i < positions.length; i += 1) {
+      if (dists[i] >= target) {
+        segIdx = i;
+        break;
+      }
+    }
+    const prevCum = dists[segIdx - 1];
+    const segLen = dists[segIdx] - prevCum;
+    const t =
+      segLen > 1e-9 ? Math.min(1, Math.max(0, (target - prevCum) / segLen)) : 0;
+    const lat =
+      positions[segIdx - 1][0] +
+      t * (positions[segIdx][0] - positions[segIdx - 1][0]);
+    const lng =
+      positions[segIdx - 1][1] +
+      t * (positions[segIdx][1] - positions[segIdx - 1][1]);
+    const a = positions[segIdx - 1];
+    const b = positions[segIdx];
+    out.push({
+      lat,
+      lng,
+      bearing: bearingDegrees(a[0], a[1], b[0], b[1]),
+      fraction: frac,
+    });
+  }
+  return out;
+}
+
 /** Distance route (carte / surbrillance) à partir d'une distance profil (courbe). */
 export function routeDistFromProfileKm(trail, profileDistKm) {
   const { profile } = getTrailGeometry(trail);

@@ -12,6 +12,7 @@ import {
   formatTrailProbeCoords,
   getTrailProgressSlice,
   getTrailRemainderSlice,
+  getTrailDirectionMarkers,
   probeTrailAt,
 } from "./trailProfile";
 
@@ -90,6 +91,44 @@ function drawTrailProbeOnMap(L, probeLayer, probe, trail, lineColor, locked) {
   }
 }
 
+function buildDirectionArrowIcon(L, bearingDeg, prominent) {
+  const size = prominent ? 26 : 18;
+  const fill = prominent ? "#FFFFFF" : "rgba(255,255,255,0.92)";
+  const stroke = prominent ? "#0F766E" : "#334155";
+  const sw = prominent ? 2.2 : 1.6;
+  const html = `<div style="width:${size}px;height:${size}px;display:flex;align-items:center;justify-content:center;transform:rotate(${Number(bearingDeg).toFixed(1)}deg);filter:drop-shadow(0 1px 2px rgba(15,23,42,0.35));">
+    <svg width="${size}" height="${size}" viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M4 12 L20 12 M14 6 L20 12 L14 18" fill="none" stroke="${stroke}" stroke-width="${sw}" stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="M4 12 L20 12 M14 6 L20 12 L14 18" fill="${fill}" fill-opacity="0.85" stroke="${stroke}" stroke-width="${sw * 0.6}" stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>
+  </div>`;
+  return L.divIcon({
+    className: "ravitobox-trail-dir",
+    html,
+    iconSize: [size, size],
+    iconAnchor: [size / 2, size / 2],
+  });
+}
+
+function addTrailDirectionArrows(L, group, positions, prominent) {
+  const fracs = prominent ? [0.18, 0.42, 0.68, 0.88] : [0.55];
+  const markers = getTrailDirectionMarkers(positions, fracs);
+  markers.forEach((m) => {
+    const icon = buildDirectionArrowIcon(L, m.bearing, prominent);
+    L.marker([m.lat, m.lng], { icon, interactive: false }).addTo(group);
+  });
+  if (positions.length >= 2) {
+    const start = positions[0];
+    const startIcon = L.divIcon({
+      className: "ravitobox-trail-dir",
+      html: `<div style="font-size:9px;font-weight:800;color:#fff;background:#0F766E;border:1.5px solid #fff;border-radius:6px;padding:1px 5px;box-shadow:0 1px 3px rgba(0,0,0,0.25);">Départ</div>`,
+      iconSize: [44, 18],
+      iconAnchor: [22, 9],
+    });
+    L.marker(start, { icon: startIcon, interactive: false }).addTo(group);
+  }
+}
+
 function drawSavedProbesOnMap(L, probeLayer, savedProbes) {
   if (!Array.isArray(savedProbes) || !savedProbes.length) return;
   savedProbes.forEach((entry, index) => {
@@ -104,10 +143,15 @@ function drawSavedProbesOnMap(L, probeLayer, savedProbes) {
       fillColor: "#0F766E",
       fillOpacity: 1,
     });
+    const noteLine =
+      entry?.notes && String(entry.notes).trim()
+        ? `Note : ${escapeHtml(String(entry.notes).trim())}`
+        : "";
     const tip = [
       entry?.label || `Point ${n}`,
       formatTrailProbeLabel(p),
       formatTrailProbeCoords(p),
+      noteLine,
     ]
       .filter(Boolean)
       .join("<br/>");
@@ -170,6 +214,10 @@ function ensureLeafletTileFix() {
       border: 1px solid #99F6E4;
       background: rgba(255,255,255,0.96);
       box-shadow: 0 2px 8px rgba(15,23,42,0.12);
+    }
+    .leaflet-div-icon.ravitobox-trail-dir {
+      background: transparent !important;
+      border: none !important;
     }
   `;
   document.head.appendChild(s);
@@ -1141,6 +1189,9 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
           }
         };
         line.on("click", focusTrail);
+        if (isActive || isPicked) {
+          addTrailDirectionArrows(L, group, positions, isActive);
+        }
         if (isActive) {
           const hitLine = L.polyline(positions, {
             color: "#000000",

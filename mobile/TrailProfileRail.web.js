@@ -1,4 +1,4 @@
-import React, { useCallback } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import {
   View,
   Text,
@@ -6,6 +6,7 @@ import {
   StyleSheet,
   Pressable,
   Platform,
+  TextInput,
 } from "react-native";
 import TrailElevationProfile from "./TrailElevationProfile";
 import {
@@ -37,6 +38,7 @@ export default function TrailProfileRail({
   onSaveProbe,
   onRemoveSavedProbe,
   onFocusSavedProbe,
+  onUpdateSavedProbeNotes,
   onClearSavedProbes,
 }) {
   const handleChartProbe = useCallback(
@@ -197,37 +199,108 @@ export default function TrailProfileRail({
                 </Pressable>
               ) : null}
             </View>
+            <Text style={styles.savedHint}>
+              Tips, ravitaillement, box à réserver… (enregistré sur cet appareil)
+            </Text>
             {savedProbes.map((entry) => (
-              <View key={entry.id} style={styles.savedRow}>
-                <Pressable
-                  style={styles.savedRowMain}
-                  onPress={() => onFocusSavedProbe?.(entry)}
-                >
-                  <Text style={styles.savedRowLabel}>{entry.label}</Text>
-                  <Text style={styles.savedRowMeta} numberOfLines={1}>
-                    {Number(entry.probe?.distKm || 0).toFixed(1)} km
-                    {entry.probe?.eleM != null
-                      ? ` · ${entry.probe.eleM} m`
-                      : ""}
-                    {entry.probe?.gainM != null
-                      ? ` · D+ ${Math.round(entry.probe.gainM)} m`
-                      : ""}
-                  </Text>
-                  <Text style={styles.savedRowCoords} numberOfLines={1}>
-                    {formatTrailProbeCoords(entry.probe)}
-                  </Text>
-                </Pressable>
-                <Pressable
-                  onPress={() => onRemoveSavedProbe?.(entry.id)}
-                  style={styles.savedRemoveBtn}
-                >
-                  <Text style={styles.savedRemoveText}>×</Text>
-                </Pressable>
-              </View>
+              <SavedProbeCard
+                key={entry.id}
+                entry={entry}
+                onFocus={() => onFocusSavedProbe?.(entry)}
+                onRemove={() => onRemoveSavedProbe?.(entry.id)}
+                onSaveNotes={(notes) =>
+                  onUpdateSavedProbeNotes?.(entry.id, notes)
+                }
+              />
             ))}
           </View>
         ) : null}
       </ScrollView>
+    </View>
+  );
+}
+
+function SavedProbeCard({ entry, onFocus, onRemove, onSaveNotes }) {
+  const [draft, setDraft] = useState(entry.notes || "");
+  const [expanded, setExpanded] = useState(false);
+
+  useEffect(() => {
+    setDraft(entry.notes || "");
+  }, [entry.id, entry.notes]);
+
+  const saveNotes = useCallback(() => {
+    onSaveNotes?.(draft);
+    setExpanded(false);
+  }, [draft, onSaveNotes]);
+
+  const hasNotes = String(entry.notes || "").trim().length > 0;
+
+  return (
+    <View style={styles.savedCard}>
+      <View style={styles.savedRow}>
+        <Pressable
+          style={styles.savedRowMain}
+          onPress={onFocus}
+          onLongPress={() => setExpanded(true)}
+        >
+          <Text style={styles.savedRowLabel}>{entry.label}</Text>
+          <Text style={styles.savedRowMeta} numberOfLines={1}>
+            {Number(entry.probe?.distKm || 0).toFixed(1)} km
+            {entry.probe?.eleM != null ? ` · ${entry.probe.eleM} m` : ""}
+            {entry.probe?.gainM != null
+              ? ` · D+ ${Math.round(entry.probe.gainM)} m`
+              : ""}
+          </Text>
+          <Text style={styles.savedRowCoords} numberOfLines={1}>
+            {formatTrailProbeCoords(entry.probe)}
+          </Text>
+          {hasNotes && !expanded ? (
+            <Text style={styles.savedNotePreview} numberOfLines={2}>
+              {entry.notes}
+            </Text>
+          ) : null}
+        </Pressable>
+        <Pressable
+          onPress={() => setExpanded((v) => !v)}
+          style={styles.savedNoteBtn}
+        >
+          <Text style={styles.savedNoteBtnText}>{expanded ? "▲" : "✎"}</Text>
+        </Pressable>
+        <Pressable onPress={onRemove} style={styles.savedRemoveBtn}>
+          <Text style={styles.savedRemoveText}>×</Text>
+        </Pressable>
+      </View>
+      {expanded ? (
+        <View style={styles.savedNoteEditor}>
+          <TextInput
+            style={styles.savedNoteInput}
+            value={draft}
+            onChangeText={setDraft}
+            placeholder="Conseil, pause, box, accès, danger…"
+            placeholderTextColor="#94A3B8"
+            multiline
+            numberOfLines={4}
+            textAlignVertical="top"
+          />
+          <View style={styles.savedNoteActions}>
+            <Pressable onPress={saveNotes} style={styles.savedNoteSave}>
+              <Text style={styles.savedNoteSaveText}>Enregistrer la note</Text>
+            </Pressable>
+            {hasNotes ? (
+              <Pressable
+                onPress={() => {
+                  setDraft("");
+                  onSaveNotes?.("");
+                  setExpanded(false);
+                }}
+                style={styles.savedNoteDelete}
+              >
+                <Text style={styles.savedNoteDeleteText}>Effacer</Text>
+              </Pressable>
+            ) : null}
+          </View>
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -453,6 +526,15 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     color: "#64748B",
   },
+  savedHint: {
+    fontSize: 10,
+    fontWeight: "600",
+    color: "#64748B",
+    lineHeight: 14,
+  },
+  savedCard: {
+    gap: 6,
+  },
   savedRow: {
     flexDirection: "row",
     alignItems: "stretch",
@@ -484,6 +566,72 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     color: "#64748B",
     fontFamily: Platform.OS === "web" ? "ui-monospace, monospace" : undefined,
+  },
+  savedNotePreview: {
+    marginTop: 6,
+    fontSize: 11,
+    fontWeight: "600",
+    color: "#134E4A",
+    lineHeight: 15,
+  },
+  savedNoteBtn: {
+    width: 32,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 10,
+    backgroundColor: "#E0F2FE",
+    borderWidth: 1,
+    borderColor: "#BAE6FD",
+  },
+  savedNoteBtnText: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: "#0369A1",
+  },
+  savedNoteEditor: {
+    gap: 8,
+  },
+  savedNoteInput: {
+    minHeight: 72,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: "#99F6E4",
+    backgroundColor: "#FFFFFF",
+    fontSize: 12,
+    fontWeight: "500",
+    color: "#0C1B16",
+    ...(Platform.OS === "web" ? { outlineStyle: "none" } : {}),
+  },
+  savedNoteActions: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+  },
+  savedNoteSave: {
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 8,
+    backgroundColor: "#0F766E",
+  },
+  savedNoteSaveText: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: "#FFFFFF",
+  },
+  savedNoteDelete: {
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    borderRadius: 8,
+    backgroundColor: "#F1F5F9",
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
+  },
+  savedNoteDeleteText: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: "#64748B",
   },
   savedRemoveBtn: {
     width: 32,
