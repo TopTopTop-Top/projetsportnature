@@ -11724,11 +11724,11 @@ function RavitoApp() {
       const stats = await apiFetch("/relevance", {
         method: "POST",
         token,
-        body: JSON.stringify({
+        body: {
           resourceType,
           resourceId: rid,
           score: Number(score),
-        }),
+        },
       });
       if (resourceType === "trail") {
         await loadTrails();

@@ -1700,7 +1700,7 @@ router.get("/trails", optionalAuth, async (req, res) => {
   res.json(enriched);
 });
 
-router.post("/relevance", requireAuth, async (req, res) => {
+async function handleSetResourceRelevance(req, res) {
   const parsed = setRelevanceSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: parsed.error.flatten() });
@@ -1725,24 +1725,37 @@ router.post("/relevance", requireAuth, async (req, res) => {
       return res.status(404).json({ error: "Plan not found" });
     }
   }
-  const { rows } = await pool.query(
-    `INSERT INTO resource_relevance (user_id, resource_type, resource_id, score, updated_at)
-     VALUES ($1, $2, $3, $4, NOW())
-     ON CONFLICT (user_id, resource_type, resource_id)
-     DO UPDATE SET score = EXCLUDED.score, updated_at = NOW()
-     RETURNING resource_type, resource_id, score AS my_relevance_score`,
-    [userId, resourceType, resourceId, score]
-  );
-  const agg = await getRelevanceAggregates(resourceType, [resourceId], userId);
-  const stats = agg[resourceId] || {
-    relevance_count: 0,
-    relevance_avg_score: 0,
-  };
-  return res.json({
-    ...stats,
-    my_relevance_score: Number(rows[0]?.my_relevance_score) || score,
-  });
-});
+  try {
+    const { rows } = await pool.query(
+      `INSERT INTO resource_relevance (user_id, resource_type, resource_id, score, updated_at)
+       VALUES ($1, $2, $3, $4, NOW())
+       ON CONFLICT (user_id, resource_type, resource_id)
+       DO UPDATE SET score = EXCLUDED.score, updated_at = NOW()
+       RETURNING resource_type, resource_id, score AS my_relevance_score`,
+      [userId, resourceType, resourceId, score]
+    );
+    const agg = await getRelevanceAggregates(resourceType, [resourceId], userId);
+    const stats = agg[resourceId] || {
+      relevance_count: 0,
+      relevance_avg_score: 0,
+    };
+    return res.json({
+      ...stats,
+      my_relevance_score: Number(rows[0]?.my_relevance_score) || score,
+    });
+  } catch (error) {
+    if (String(error?.message || "").includes("resource_relevance")) {
+      return res.status(503).json({
+        error:
+          "Table resource_relevance absente — redéploie le backend Render depuis main.",
+      });
+    }
+    throw error;
+  }
+}
+
+router.post("/relevance", requireAuth, handleSetResourceRelevance);
+router.post("/relevance/update", requireAuth, handleSetResourceRelevance);
 
 function unlinkTrailGpxFile(gpxUrl) {
   if (!gpxUrl || typeof gpxUrl !== "string") return;

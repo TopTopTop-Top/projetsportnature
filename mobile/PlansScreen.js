@@ -160,6 +160,7 @@ function PlanPreviewMap({
         <ExplorerWebMap
           {...common}
           trailMapPoints={trailMapPoints}
+          planPointLabelsPermanent
           staticOrigin={staticOrigin || ""}
         />
       ) : (
@@ -287,9 +288,8 @@ function PlanDetailPanel({
   }
   if (!detail) return null;
   const boxes = Array.isArray(detail.boxes) ? detail.boxes : [];
-  const gpsCount = Array.isArray(detail.trail_notes)
-    ? detail.trail_notes.length
-    : 0;
+  const trailNotes = Array.isArray(detail.trail_notes) ? detail.trail_notes : [];
+  const isSharedPreview = selectedKind === "discover";
 
   return (
     <View style={styles.detailPanel}>
@@ -331,23 +331,54 @@ function PlanDetailPanel({
           Composer / réserver sur la Carte
         </Text>
       </TouchableOpacity>
-      <Text style={styles.detailSection}>
-        Box ({boxes.length}) · points GPS ({gpsCount})
-      </Text>
+      <Text style={styles.detailSection}>Box ({boxes.length})</Text>
       {boxes.length === 0 ? (
         <Text style={styles.emptyHint}>Aucune box dans ce plan.</Text>
       ) : (
         boxes.map((b) => (
           <View key={`db-${b.id}`} style={styles.noteRow}>
-            <Text style={styles.noteTitle}>{b.name || `Box #${b.id}`}</Text>
+            <Text style={styles.noteKind}>Box</Text>
+            <Text style={styles.noteTitle}>{b.title || b.name || `Box #${b.id}`}</Text>
             {b.city ? (
               <Text style={styles.noteMeta}>{b.city}</Text>
             ) : null}
             {b.plan_box_comment ? (
               <Text style={styles.noteBody}>{b.plan_box_comment}</Text>
-            ) : null}
+            ) : (
+              <Text style={styles.noteEmpty}>Pas de commentaire</Text>
+            )}
           </View>
         ))
+      )}
+      <Text style={styles.detailSection}>
+        Points GPS ({trailNotes.length})
+      </Text>
+      <Text style={styles.gpsLegend}>
+        {isSharedPreview
+          ? "Orange sur la carte = plan partagé"
+          : "Cyan sur la carte = ton plan"}{" "}
+        · numéro = ordre du point
+      </Text>
+      {trailNotes.length === 0 ? (
+        <Text style={styles.emptyHint}>Aucun point GPS enregistré.</Text>
+      ) : (
+        trailNotes.map((n, idx) => {
+          const body = String(n.note || "").trim();
+          return (
+            <View key={`gps-${n.id ?? idx}`} style={styles.noteRow}>
+              <Text style={styles.noteKind}>GPS {idx + 1}</Text>
+              <Text style={styles.noteTitle}>
+                {body || "Point sans texte"}
+              </Text>
+              {n.point_lat != null && n.point_lon != null ? (
+                <Text style={styles.noteMeta}>
+                  {Number(n.point_lat).toFixed(5)},{" "}
+                  {Number(n.point_lon).toFixed(5)}
+                </Text>
+              ) : null}
+            </View>
+          );
+        })
       )}
     </View>
   );
@@ -908,5 +939,18 @@ const styles = StyleSheet.create({
   noteTitle: { fontSize: 13, fontWeight: "700", color: theme.ink },
   noteBody: { fontSize: 12, color: theme.ink, marginTop: 4, lineHeight: 17 },
   noteMeta: { fontSize: 11, color: theme.inkMuted, marginTop: 2 },
+  noteKind: {
+    fontSize: 10,
+    fontWeight: "800",
+    color: theme.primary,
+    textTransform: "uppercase",
+  },
+  noteEmpty: { fontSize: 11, color: theme.inkMuted, fontStyle: "italic" },
+  gpsLegend: {
+    fontSize: 11,
+    color: theme.inkMuted,
+    marginBottom: 8,
+    lineHeight: 15,
+  },
   emptyHint: { fontSize: 13, color: theme.inkMuted, lineHeight: 18 },
 });

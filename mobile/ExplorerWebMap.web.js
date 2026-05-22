@@ -258,33 +258,41 @@ function drawTrailMapPointsOnMap(
   L,
   layer,
   points,
-  { onHover, onClick, markerRegistry } = {}
+  { onHover, onClick, markerRegistry, permanentTooltips = false } = {}
 ) {
   if (!Array.isArray(points) || !points.length) return;
   if (markerRegistry) markerRegistry.clear();
-  points.forEach((pt) => {
+  points.forEach((pt, index) => {
     if (!Number.isFinite(pt.lat) || !Number.isFinite(pt.lon)) return;
     const isShared = pt.source === "shared_preview";
+    const noteText = pt.note ? String(pt.note).trim() : "";
+    const shortNote =
+      noteText.length > 48 ? `${noteText.slice(0, 45)}…` : noteText;
     const marker = L.circleMarker([pt.lat, pt.lon], {
       pane: PROBE_MARKER_PANE,
-      radius: 9,
+      radius: permanentTooltips ? 10 : 9,
       color: "#FFFFFF",
       weight: 2.5,
       fillColor: isShared ? "#F59E0B" : "#0891B2",
       fillOpacity: 1,
     });
     const tip = [
-      pt.label || "Point",
-      pt.note ? String(pt.note).trim() : null,
+      `<strong>${index + 1}. ${escapeHtml(pt.label || "Point GPS")}</strong>`,
+      noteText ? escapeHtml(noteText) : "<em>Sans texte</em>",
       `${Number(pt.lat).toFixed(5)}°, ${Number(pt.lon).toFixed(5)}°`,
     ]
       .filter(Boolean)
       .join("<br/>");
-    marker.bindTooltip(tip, {
-      permanent: false,
+    const permanentLabel = shortNote
+      ? `${index + 1}. ${escapeHtml(shortNote)}`
+      : `${index + 1}. ${escapeHtml(pt.label || "GPS")}`;
+    marker.bindTooltip(permanentTooltips ? permanentLabel : tip, {
+      permanent: permanentTooltips,
       direction: "top",
-      offset: [0, -12],
-      className: "ravitobox-trail-probe-tip",
+      offset: [0, permanentTooltips ? -14 : -12],
+      className: permanentTooltips
+        ? "ravitobox-plan-point-label"
+        : "ravitobox-trail-probe-tip",
     });
     attachMapPointHandlers(marker, pt.id, { onHover, onClick, point: pt });
     marker.addTo(layer);
@@ -350,6 +358,17 @@ function ensureLeafletTileFix() {
       border: 1px solid #99F6E4;
       background: rgba(255,255,255,0.96);
       box-shadow: 0 2px 8px rgba(15,23,42,0.12);
+    }
+    .leaflet-tooltip.ravitobox-plan-point-label {
+      font-size: 11px;
+      font-weight: 700;
+      color: #0F172A;
+      border: 1px solid #F59E0B;
+      background: rgba(255,251,235,0.97);
+      box-shadow: 0 2px 6px rgba(15,23,42,0.1);
+      max-width: 200px;
+      white-space: normal;
+      line-height: 1.25;
     }
   `;
   document.head.appendChild(s);
@@ -726,6 +745,8 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
   communityTrailTips = [],
   /** Points GPS du plan actif / aperçu communauté. */
   trailMapPoints = [],
+  /** Étiquettes visibles en permanence sur les points plan (onglet Plans). */
+  planPointLabelsPermanent = false,
   /** Id du point survolé (panneau ↔ carte). */
   highlightedMapPointId = null,
   onMapPointHover,
@@ -842,6 +863,8 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
   savedTrailProbesRef.current = savedTrailProbes;
   const trailMapPointsRef = useRef(trailMapPoints);
   trailMapPointsRef.current = trailMapPoints;
+  const planPointLabelsPermanentRef = useRef(planPointLabelsPermanent);
+  planPointLabelsPermanentRef.current = planPointLabelsPermanent;
   const highlightedMapPointIdRef = useRef(highlightedMapPointId);
   highlightedMapPointIdRef.current = highlightedMapPointId;
   const onMapPointHoverRef = useRef(onMapPointHover);
@@ -1196,10 +1219,11 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
         markerRegistry: planPointMarkersRef.current,
         onHover: (id) => onMapPointHoverRef.current?.(id),
         onClick: (pt) => onMapPointClickRef.current?.(pt),
+        permanentTooltips: Boolean(planPointLabelsPermanentRef.current),
       });
     }
     return undefined;
-  }, [trailMapPoints, activeTrailIdNum]);
+  }, [trailMapPoints, activeTrailIdNum, planPointLabelsPermanent]);
 
   useEffect(() => {
     if (Platform.OS !== "web") return undefined;
