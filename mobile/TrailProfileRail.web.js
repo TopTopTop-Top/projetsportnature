@@ -25,6 +25,15 @@ import {
   formatPlanBoxPrice,
   planBoxStatusColors,
 } from "./planBoxReservation";
+import { trailMapPointId, tipMapPointId } from "./trailMapPoints";
+
+function webHoverHandlers(onEnter, onLeave) {
+  if (Platform.OS !== "web") return {};
+  return {
+    onMouseEnter: onEnter,
+    onMouseLeave: onLeave,
+  };
+}
 
 const DIFFICULTY_LABELS = {
   easy: "Facile",
@@ -87,6 +96,8 @@ export default function TrailProfileRail({
   onSelectSharedPlan,
   onShowSharedPlanOnMap,
   onFocusPlanTrailNote,
+  highlightedMapPointId = null,
+  onHighlightMapPoint,
   boxCommentDraftById = {},
   onBoxCommentDraftChange,
   onSavePlanBoxComment,
@@ -436,7 +447,9 @@ export default function TrailProfileRail({
           activePlanVisibility={activePlanVisibility}
           onSetPlanVisibility={onSetPlanVisibility}
           onForkSharedPlan={onForkSharedPlan}
-          onFocusPlanTrailNote={onFocusPlanTrailNote}
+            onFocusPlanTrailNote={onFocusPlanTrailNote}
+          highlightedMapPointId={highlightedMapPointId}
+          onHighlightMapPoint={onHighlightMapPoint}
           boxCommentDraftById={boxCommentDraftById}
           onBoxCommentDraftChange={onBoxCommentDraftChange}
           onSavePlanBoxComment={onSavePlanBoxComment}
@@ -468,6 +481,8 @@ export default function TrailProfileRail({
             onShowSharedPlanOnMap={onShowSharedPlanOnMap}
             onForkPlan={onForkSharedPlan}
             onDeleteTrailTip={onDeleteTrailTip}
+            highlightedMapPointId={highlightedMapPointId}
+            onHighlightMapPoint={onHighlightMapPoint}
           />
         ) : null}
       </ScrollView>
@@ -489,6 +504,8 @@ function CommunityPanel({
   onShowSharedPlanOnMap,
   onForkPlan,
   onDeleteTrailTip,
+  highlightedMapPointId = null,
+  onHighlightMapPoint,
 }) {
   const previewId = sharedPlanPreview ? Number(sharedPlanPreview.id) : null;
   return (
@@ -524,8 +541,18 @@ function CommunityPanel({
       {trailTips.length === 0 ? (
         <Text style={styles.communityEmpty}>Aucun conseil publié pour l’instant.</Text>
       ) : (
-        trailTips.map((tip) => (
-          <View key={`tip-${tip.id}`} style={styles.communityCard}>
+        trailTips.map((tip, tipIdx) => {
+          const tipPointId = tipMapPointId(tip.id ?? tipIdx);
+          const tipHi = highlightedMapPointId === tipPointId;
+          return (
+          <View
+            key={`tip-${tip.id}`}
+            style={[styles.communityCard, tipHi && styles.mapPointRowHighlight]}
+            {...webHoverHandlers(
+              () => onHighlightMapPoint?.(tipPointId),
+              () => onHighlightMapPoint?.(null)
+            )}
+          >
             <Text style={styles.communityCardLabel}>
               {tip.label || "Conseil"} · {tip.author_label || "—"}
             </Text>
@@ -546,15 +573,17 @@ function CommunityPanel({
               </Pressable>
             ) : null}
           </View>
-        ))
+        );
+        })
       )}
 
       <Text style={styles.communitySectionLabel}>
         Plans partagés ({sharedPlans.length})
       </Text>
       <Text style={styles.communityHint}>
-        Touche un plan pour voir le détail (notes GPS, box). Puis affiche-le sur la
-        carte ou copie-le sur ton compte.
+        Touche un plan pour voir le détail (notes GPS, box). Les points s’affichent
+        sur la carte : violet = conseils · orange = plan partagé · survol = lien
+        panneau ↔ carte.
       </Text>
       {!isAuthed ? (
         <Text style={styles.communityHint}>
@@ -625,15 +654,30 @@ function CommunityPanel({
                       <Text style={styles.communityPreviewLabel}>
                         Notes GPS ({previewNotes.length})
                       </Text>
-                      {previewNotes.map((n, idx) => (
-                        <Text
-                          key={`prev-note-${n.id || idx}`}
-                          style={styles.communityPreviewItem}
-                          numberOfLines={4}
-                        >
-                          · {n.note || "(sans texte)"}
-                        </Text>
-                      ))}
+                      {previewNotes.map((n, idx) => {
+                        const ptId = trailMapPointId(
+                          "shared_preview",
+                          n.id,
+                          idx
+                        );
+                        const hi = highlightedMapPointId === ptId;
+                        return (
+                          <Text
+                            key={`prev-note-${n.id || idx}`}
+                            style={[
+                              styles.communityPreviewItem,
+                              hi && styles.mapPointTextHighlight,
+                            ]}
+                            numberOfLines={4}
+                            {...webHoverHandlers(
+                              () => onHighlightMapPoint?.(ptId),
+                              () => onHighlightMapPoint?.(null)
+                            )}
+                          >
+                            · {n.note || "(sans texte)"}
+                          </Text>
+                        );
+                      })}
                     </>
                   ) : (
                     <Text style={styles.communityEmpty}>
@@ -722,6 +766,8 @@ function TrailPlanHub({
   onSetPlanVisibility,
   onForkSharedPlan,
   onFocusPlanTrailNote,
+  highlightedMapPointId = null,
+  onHighlightMapPoint,
   boxCommentDraftById = {},
   onBoxCommentDraftChange,
   onSavePlanBoxComment,
@@ -861,13 +907,24 @@ function TrailPlanHub({
           {planTrailNotes.length > 0 ? (
             <View style={styles.planTrailNotesSection}>
               <Text style={styles.planSubLabel}>
-                Points mémorisés enregistrés ({planTrailNotes.length})
+                Points mémorisés enregistrés ({planTrailNotes.length}) — cyan sur la
+                carte
               </Text>
-              {planTrailNotes.map((n, idx) => (
+              {planTrailNotes.map((n, idx) => {
+                const ptId = trailMapPointId("plan", n.id, idx);
+                const hi = highlightedMapPointId === ptId;
+                return (
                 <Pressable
                   key={`plan-trail-note-${n.id || idx}`}
-                  onPress={() => onFocusPlanTrailNote?.(n)}
-                  style={styles.planTrailNoteRow}
+                  onPress={() => onFocusPlanTrailNote?.(n, "plan")}
+                  style={[
+                    styles.planTrailNoteRow,
+                    hi && styles.mapPointRowHighlight,
+                  ]}
+                  {...webHoverHandlers(
+                    () => onHighlightMapPoint?.(ptId),
+                    () => onHighlightMapPoint?.(null)
+                  )}
                 >
                   <Text style={styles.planTrailNoteText} numberOfLines={3}>
                     {n.note || "(sans texte)"}
@@ -879,7 +936,8 @@ function TrailPlanHub({
                     </Text>
                   ) : null}
                 </Pressable>
-              ))}
+              );
+              })}
             </View>
           ) : null}
         </View>
@@ -2009,6 +2067,18 @@ const styles = StyleSheet.create({
     marginTop: 4,
     fontSize: 10,
     color: "#64748B",
+  },
+  mapPointRowHighlight: {
+    borderColor: "#0F172A",
+    borderWidth: 2,
+    backgroundColor: "#E0F2FE",
+  },
+  mapPointTextHighlight: {
+    backgroundColor: "#E0F2FE",
+    borderRadius: 4,
+    paddingHorizontal: 4,
+    fontWeight: "700",
+    color: "#0C4A6E",
   },
   planActiveMeta: {
     fontSize: 11,

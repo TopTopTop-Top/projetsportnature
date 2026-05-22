@@ -131,17 +131,41 @@ function drawSavedProbesOnMap(L, probeLayer, savedProbes) {
   });
 }
 
-function drawCommunityTrailTipsOnMap(L, layer, tips) {
+function attachMapPointHandlers(marker, pointId, { onHover, onClick, point }) {
+  if (onHover) {
+    marker.on("mouseover", () => onHover(pointId));
+    marker.on("mouseout", () => onHover(null));
+  }
+  if (onClick && point) {
+    marker.on("click", (ev) => {
+      try {
+        ev?.originalEvent?.stopPropagation?.();
+      } catch (_e) {
+        /* noop */
+      }
+      onClick(point);
+    });
+  }
+}
+
+function drawCommunityTrailTipsOnMap(
+  L,
+  layer,
+  tips,
+  { highlightedId = null, onHover, onClick } = {}
+) {
   if (!Array.isArray(tips) || !tips.length) return;
   tips.forEach((tip, index) => {
     const lat = Number(tip.point_lat);
     const lon = Number(tip.point_lon);
     if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
+    const pointId = `tip-${tip.id ?? index}`;
+    const hi = highlightedId === pointId;
     const marker = L.circleMarker([lat, lon], {
       pane: PROBE_MARKER_PANE,
-      radius: 8,
-      color: "#FFFFFF",
-      weight: 3,
+      radius: hi ? 11 : 8,
+      color: hi ? "#312E81" : "#FFFFFF",
+      weight: hi ? 3.5 : 3,
       fillColor: "#6366F1",
       fillOpacity: 1,
     });
@@ -151,12 +175,67 @@ function drawCommunityTrailTipsOnMap(L, layer, tips) {
       tip.note || null,
     ].filter(Boolean);
     marker.bindTooltip(lines.join("<br/>"), {
-      permanent: false,
+      permanent: hi,
       direction: "top",
       offset: [0, -10],
       className: "ravitobox-trail-probe-tip",
     });
+    attachMapPointHandlers(marker, pointId, {
+      onHover,
+      onClick,
+      point: {
+        id: pointId,
+        lat,
+        lon,
+        note: tip.note,
+        label: tip.label,
+        source: "tip",
+        tipId: tip.id,
+      },
+    });
     marker.addTo(layer);
+  });
+}
+
+function drawTrailMapPointsOnMap(
+  L,
+  layer,
+  points,
+  { highlightedId = null, onHover, onClick } = {}
+) {
+  if (!Array.isArray(points) || !points.length) return;
+  points.forEach((pt) => {
+    if (!Number.isFinite(pt.lat) || !Number.isFinite(pt.lon)) return;
+    const hi = highlightedId === pt.id;
+    const isShared = pt.source === "shared_preview";
+    const marker = L.circleMarker([pt.lat, pt.lon], {
+      pane: PROBE_MARKER_PANE,
+      radius: hi ? 12 : 9,
+      color: hi ? "#0F172A" : "#FFFFFF",
+      weight: hi ? 3.5 : 2.5,
+      fillColor: isShared ? "#F59E0B" : "#0891B2",
+      fillOpacity: 1,
+    });
+    const tip = [
+      pt.label || "Point",
+      pt.note ? String(pt.note).trim() : null,
+      `${Number(pt.lat).toFixed(5)}°, ${Number(pt.lon).toFixed(5)}°`,
+    ]
+      .filter(Boolean)
+      .join("<br/>");
+    marker.bindTooltip(tip, {
+      permanent: hi,
+      direction: "top",
+      offset: [0, -12],
+      className: "ravitobox-trail-probe-tip",
+    });
+    attachMapPointHandlers(marker, pt.id, { onHover, onClick, point: pt });
+    marker.addTo(layer);
+    try {
+      marker.bringToFront?.();
+    } catch (_e) {
+      /* noop */
+    }
   });
 }
 
@@ -570,6 +649,12 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
   savedTrailProbes = [],
   /** Conseils publics sur la trace. */
   communityTrailTips = [],
+  /** Points GPS du plan actif / aperçu communauté. */
+  trailMapPoints = [],
+  /** Id du point survolé (panneau ↔ carte). */
+  highlightedMapPointId = null,
+  onMapPointHover,
+  onMapPointClick,
   /** Appui long hors tracé → quitter la trace sélectionnée. */
   onRequestExitTrailSelection,
   onMapLongPress,
@@ -660,6 +745,7 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
   const probeLayerRef = useRef(null);
   const savedProbeLayerRef = useRef(null);
   const communityTipsLayerRef = useRef(null);
+  const planMapPointsLayerRef = useRef(null);
   const probeMarkerRef = useRef(null);
   const onRequestExitTrailSelectionRef = useRef(onRequestExitTrailSelection);
   onRequestExitTrailSelectionRef.current = onRequestExitTrailSelection;
@@ -677,6 +763,14 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
   trailsRef.current = trails;
   const savedTrailProbesRef = useRef(savedTrailProbes);
   savedTrailProbesRef.current = savedTrailProbes;
+  const trailMapPointsRef = useRef(trailMapPoints);
+  trailMapPointsRef.current = trailMapPoints;
+  const highlightedMapPointIdRef = useRef(highlightedMapPointId);
+  highlightedMapPointIdRef.current = highlightedMapPointId;
+  const onMapPointHoverRef = useRef(onMapPointHover);
+  onMapPointHoverRef.current = onMapPointHover;
+  const onMapPointClickRef = useRef(onMapPointClick);
+  onMapPointClickRef.current = onMapPointClick;
   const mapZoomingRef = useRef(false);
   const onVisibleBoundsChangeRef = useRef(onVisibleBoundsChange);
   onVisibleBoundsChangeRef.current = onVisibleBoundsChange;
@@ -728,11 +822,13 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
     const probeLayer = L.featureGroup().addTo(map);
     const savedProbeLayer = L.featureGroup().addTo(map);
     const communityTipsLayer = L.featureGroup().addTo(map);
+    const planMapPointsLayer = L.featureGroup().addTo(map);
     mapRef.current = map;
     overlayRef.current = overlay;
     probeLayerRef.current = probeLayer;
     savedProbeLayerRef.current = savedProbeLayer;
     communityTipsLayerRef.current = communityTipsLayer;
+    planMapPointsLayerRef.current = planMapPointsLayer;
     probeMarkerRef.current = null;
 
     let exitTrailTimer = null;
@@ -858,6 +954,7 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
       probeLayerRef.current = null;
       savedProbeLayerRef.current = null;
       communityTipsLayerRef.current = null;
+      planMapPointsLayerRef.current = null;
       probeMarkerRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- carte unique, centre géré ailleurs
@@ -985,11 +1082,36 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
       drawCommunityTrailTipsOnMap(
         L,
         layer,
-        communityTrailTipsRef.current || []
+        communityTrailTipsRef.current || [],
+        {
+          highlightedId: highlightedMapPointIdRef.current,
+          onHover: (id) => onMapPointHoverRef.current?.(id),
+          onClick: (pt) => onMapPointClickRef.current?.(pt),
+        }
       );
     }
     return undefined;
-  }, [communityTrailTips, activeTrailIdNum]);
+  }, [communityTrailTips, activeTrailIdNum, highlightedMapPointId]);
+
+  useEffect(() => {
+    if (Platform.OS !== "web") return undefined;
+    const layer = planMapPointsLayerRef.current;
+    if (!layer) return undefined;
+    const L = require("leaflet");
+    try {
+      layer.clearLayers();
+    } catch (_e) {
+      /* noop */
+    }
+    if (activeTrailIdNum != null) {
+      drawTrailMapPointsOnMap(L, layer, trailMapPointsRef.current || [], {
+        highlightedId: highlightedMapPointIdRef.current,
+        onHover: (id) => onMapPointHoverRef.current?.(id),
+        onClick: (pt) => onMapPointClickRef.current?.(pt),
+      });
+    }
+    return undefined;
+  }, [trailMapPoints, activeTrailIdNum, highlightedMapPointId]);
 
   useEffect(() => {
     if (Platform.OS !== "web") return undefined;

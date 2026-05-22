@@ -42,6 +42,11 @@ import {
   formatPlanBoxPrice,
 } from "./planBoxReservation";
 import {
+  buildTrailMapPoints,
+  trailMapPointId,
+  tipMapPointId,
+} from "./trailMapPoints";
+import {
   loadExplorerSavedProbes,
   persistExplorerSavedProbes,
   formatExplorerProbePlanNote,
@@ -2267,13 +2272,20 @@ function ExplorerScreen() {
     setExplorerProbeLock(false);
   }, [setExplorerProbeLock]);
 
+  const [highlightedMapPointId, setHighlightedMapPointId] = useState(null);
+
   const focusExplorerPlanTrailNote = useCallback(
-    (note) => {
+    (note, source = "plan") => {
       const lat = Number(note?.point_lat);
       const lon = Number(note?.point_lon);
       const tid = Number(selectedTrailId);
       if (!Number.isFinite(lat) || !Number.isFinite(lon) || !Number.isFinite(tid)) {
         return;
+      }
+      if (note?.id != null) {
+        setHighlightedMapPointId(
+          trailMapPointId(source, note.id, 0)
+        );
       }
       const trail = trails.find((t) => Number(t.id) === tid);
       if (!trail) return;
@@ -2284,6 +2296,30 @@ function ExplorerScreen() {
       }
     },
     [selectedTrailId, trails, setExplorerProbeLock]
+  );
+
+  const handleTrailMapPointClick = useCallback(
+    (pt) => {
+      if (!pt) return;
+      setHighlightedMapPointId(pt.id);
+      if (pt.source === "tip") {
+        const tid = Number(selectedTrailId);
+        const trail = trails.find((t) => Number(t.id) === tid);
+        if (trail) {
+          const p = probeTrailAt(trail, pt.lat, pt.lon);
+          if (p) {
+            setExplorerTrailProbe({ ...p, trailId: tid, source: "map" });
+            setExplorerProbeLock(true);
+          }
+        }
+        return;
+      }
+      focusExplorerPlanTrailNote(
+        { id: pt.noteId, point_lat: pt.lat, point_lon: pt.lon, note: pt.note },
+        pt.source === "shared_preview" ? "shared_preview" : "plan"
+      );
+    },
+    [selectedTrailId, trails, focusExplorerPlanTrailNote, setExplorerProbeLock]
   );
   const updateExplorerSavedProbeNotes = useCallback((id, notes) => {
     const text = String(notes ?? "");
@@ -2713,6 +2749,27 @@ function ExplorerScreen() {
   const [trailTips, setTrailTips] = useState([]);
   const [sharedPlanPreview, setSharedPlanPreview] = useState(null);
   const [sharedPlanPreviewBusy, setSharedPlanPreviewBusy] = useState(false);
+
+  const trailMapPoints = useMemo(
+    () =>
+      buildTrailMapPoints({
+        trailId: selectedTrailId,
+        plan: activePlanForSelectedTrail,
+        sharedPreview: sharedPlanPreview,
+      }),
+    [selectedTrailId, activePlanForSelectedTrail, sharedPlanPreview]
+  );
+
+  useEffect(() => {
+    if (!sharedPlanPreview) return;
+    const tid = Number(sharedPlanPreview.trail_id);
+    if (!Number.isFinite(tid)) return;
+    setSelectedTrailId(tid);
+    setMapTrailPickIds((prev) =>
+      Array.isArray(prev) && prev.includes(tid) ? prev : [...(prev || []), tid]
+    );
+  }, [sharedPlanPreview, setSelectedTrailId, setMapTrailPickIds]);
+
   const isTrailCreator = useMemo(() => {
     if (!user || !selectedTrail) return false;
     return (
@@ -2786,25 +2843,9 @@ function ExplorerScreen() {
         setSelectedBoxId(boxIds[0]);
         setMapBoxSelectionMode("picked");
       }
-      const notes = Array.isArray(d.trail_notes) ? d.trail_notes : [];
-      const first = notes.find(
-        (n) =>
-          Number.isFinite(Number(n.point_lat)) &&
-          Number.isFinite(Number(n.point_lon))
-      );
-      if (first && Number.isFinite(trailId)) {
-        const trail = trails.find((t) => Number(t.id) === trailId);
-        if (trail) {
-          const p = probeTrailAt(trail, Number(first.point_lat), Number(first.point_lon));
-          if (p) {
-            setExplorerTrailProbe({ ...p, trailId, source: "map" });
-            setExplorerProbeLock(true);
-          }
-        }
-      }
       userAlert(
         "Plan sur la carte",
-        "Trace, box et premier point GPS du plan affichés (aperçu — pas encore ton plan)."
+        "Trace, box et tous les points GPS du plan sont affichés (survol = surbrillance)."
       );
     },
     [
@@ -5916,6 +5957,8 @@ function ExplorerScreen() {
                   onSelectSharedPlan={openSharedPlanPreview}
                   onShowSharedPlanOnMap={showSharedPlanPreviewOnMap}
                   onFocusPlanTrailNote={focusExplorerPlanTrailNote}
+                  highlightedMapPointId={highlightedMapPointId}
+                  onHighlightMapPoint={setHighlightedMapPointId}
                   boxCommentDraftById={boxCommentDraftById}
                   onBoxCommentDraftChange={(boxId, text) =>
                     setBoxCommentDraftById((prev) => ({
@@ -5995,6 +6038,10 @@ function ExplorerScreen() {
                     }
                     savedTrailProbes={savedProbesForSelectedTrail}
                     communityTrailTips={trailTips}
+                    trailMapPoints={trailMapPoints}
+                    highlightedMapPointId={highlightedMapPointId}
+                    onMapPointHover={setHighlightedMapPointId}
+                    onMapPointClick={handleTrailMapPointClick}
                     lockTrailProbe={explorerProbeLocked || chartProbeHover}
                     onTrailProbeLock={setExplorerProbeLock}
                     onRequestExitTrailSelection={handleRequestExitExplorerTrail}
@@ -6080,6 +6127,10 @@ function ExplorerScreen() {
                 }
                 savedTrailProbes={savedProbesForSelectedTrail}
                 communityTrailTips={trailTips}
+                trailMapPoints={trailMapPoints}
+                highlightedMapPointId={highlightedMapPointId}
+                onMapPointHover={setHighlightedMapPointId}
+                onMapPointClick={handleTrailMapPointClick}
                 lockTrailProbe={explorerProbeLocked || chartProbeHover}
                 onTrailProbeLock={setExplorerProbeLock}
                 onRequestExitTrailSelection={handleRequestExitExplorerTrail}
