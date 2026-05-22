@@ -60,6 +60,9 @@ import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { Ionicons } from "@expo/vector-icons";
 
+/** Navigation onglets (Carte, Resa, …) — partagée hors MainTabs. */
+const mainTabNavigationRef = { current: null };
+
 /** Backend Node (Render « Web Service »), pas l’URL du site statique. */
 const PROD_API_BASE_URL = "https://projetsportnature.onrender.com/api";
 const DEV_API_BASE_URL = "http://localhost:3000/api";
@@ -591,6 +594,8 @@ function buildBookingAgendaEntries(bookings, { hostView = false } = {}) {
 }
 
 function canShowBookingAccessInfo(booking, now = new Date()) {
+  const approval = String(booking?.approval_status || "pending");
+  if (approval !== "accepted") return false;
   const start = parseBookingDateTimeLocal(
     booking?.booking_date,
     booking?.start_time
@@ -3325,12 +3330,8 @@ function ExplorerScreen() {
     actionsRef,
   ]);
   const refreshRoutePlanBookingLinks = useCallback(async () => {
-    await actionsRef.current.loadRoutePlans?.();
-    const pid = Number(selectedRoutePlanId);
-    if (Number.isFinite(pid) && pid > 0) {
-      await actionsRef.current.loadRoutePlanDetail?.(pid);
-    }
-  }, [actionsRef, selectedRoutePlanId]);
+    await actionsRef.current.refreshRoutePlanBookingLinks?.();
+  }, [actionsRef]);
 
   const [editingPlanBookingId, setEditingPlanBookingId] = useState(null);
   const [planBookingDraft, setPlanBookingDraft] = useState({
@@ -9801,8 +9802,9 @@ function ReservationsScreen() {
                     ) : null}
                     {!showAccess ? (
                       <Text style={styles.cardAvailability}>
-                        Les informations d'accès sont masquées hors fenêtre
-                        autorisée.
+                        {approval !== "accepted"
+                          ? "Le code d’accès apparaîtra après validation par l’hôte."
+                          : "Les informations d’accès sont masquées hors fenêtre autorisée (avant/après le créneau)."}
                       </Text>
                     ) : null}
                     {b.special_request ? (
@@ -9905,7 +9907,6 @@ function MainTabs() {
   const ultraCompactTabs = width < 355;
   const isNarrowScreen = width < 430;
   const [webTabPickerVisible, setWebTabPickerVisible] = useState(false);
-  const pickerNavRef = useRef(null);
   const tabTargets = [
     { key: "Carte", label: "Carte" },
     { key: "Trails", label: "Traces" },
@@ -9917,7 +9918,7 @@ function MainTabs() {
     (navigation) => {
       if (!navigation?.navigate) return;
       if (Platform.OS === "web") {
-        pickerNavRef.current = navigation;
+        mainTabNavigationRef.current = navigation;
         setWebTabPickerVisible(true);
         return;
       }
@@ -9935,7 +9936,9 @@ function MainTabs() {
   return (
     <>
       <Tab.Navigator
-        screenOptions={({ route, navigation }) => ({
+        screenOptions={({ route, navigation }) => {
+          mainTabNavigationRef.current = navigation;
+          return {
           sceneStyle: { flex: 1 },
           tabBarPosition: "bottom",
           headerStyle: {
@@ -9997,7 +10000,8 @@ function MainTabs() {
               />
             );
           },
-        })}
+        };
+        }}
       >
         <Tab.Screen
           name="Carte"
@@ -10059,7 +10063,7 @@ function MainTabs() {
                   <TouchableOpacity
                     key={t.key}
                     onPress={() => {
-                      pickerNavRef.current?.navigate?.(t.key);
+                      mainTabNavigationRef.current?.navigate?.(t.key);
                       setWebTabPickerVisible(false);
                     }}
                     style={styles.roleChip}
@@ -11315,6 +11319,14 @@ function RavitoApp() {
     }
   };
 
+  const refreshRoutePlanBookingLinks = async () => {
+    await loadRoutePlans().catch(() => {});
+    const pid = Number(selectedRoutePlanId);
+    if (Number.isFinite(pid) && pid > 0) {
+      await loadRoutePlanDetail(pid);
+    }
+  };
+
   const createRoutePlanFromSelection = async ({
     trailId,
     boxIds,
@@ -11912,12 +11924,26 @@ function RavitoApp() {
         },
       });
       setBookingConfirm({ visible: false, boxId: null });
-      userAlert(
-        "Réservation enregistrée",
-        `Code d’accès : ${result.access_code}${
-          result.special_request ? `\nDemande : ${result.special_request}` : ""
-        }`
-      );
+      const approval = String(result.approval_status || "pending");
+      if (approval === "accepted") {
+        const accessHint =
+          result.access_code && canShowBookingAccessInfo(result)
+            ? `Code d’accès : ${result.access_code}`
+            : result.access_code
+            ? "Code d’accès : visible à l’approche du créneau (onglet Resa)."
+            : "";
+        userAlert(
+          "Réservation confirmée",
+          [accessHint, result.special_request ? `Demande : ${result.special_request}` : ""]
+            .filter(Boolean)
+            .join("\n")
+        );
+      } else {
+        userAlert(
+          "Demande envoyée",
+          "En attente de validation par l’hôte. Le code d’accès apparaîtra dans l’onglet Resa une fois la réservation acceptée."
+        );
+      }
       await loadAthleteBookings();
       await refreshRoutePlanBookingLinks();
     } catch (error) {
@@ -12346,6 +12372,12 @@ function RavitoApp() {
       await loadAthleteBookings();
       await loadNotifications();
       await refreshRoutePlanBookingLinks();
+      userAlert(
+        decision === "accept" ? "Réservation acceptée" : "Réservation refusée",
+        decision === "accept"
+          ? "L’athlète verra le statut mis à jour dans l’onglet Resa."
+          : "La demande a été annulée côté athlète."
+      );
     } catch (error) {
       userAlert("Erreur", error.message);
     }
@@ -12935,6 +12967,7 @@ function RavitoApp() {
     loadTrails,
     loadRoutePlans,
     loadRoutePlanDetail,
+    refreshRoutePlanBookingLinks,
     loadTrailTips,
     loadSharedPlansForTrail,
     loadSharedRoutePlan,
@@ -12979,7 +13012,7 @@ function RavitoApp() {
     centerMapOnTrail,
     isolateTrailOnMap,
     navigateToReservations: () =>
-      pickerNavRef.current?.navigate?.("Reservations"),
+      mainTabNavigationRef.current?.navigate?.("Reservations"),
     refreshSession,
     logout,
     updateMyRole,

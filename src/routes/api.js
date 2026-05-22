@@ -3075,7 +3075,11 @@ router.post("/bookings", requireAuth, async (req, res) => {
       specialRequest: created.special_request,
     },
   });
-  return res.status(201).json(created);
+  const payload = { ...created };
+  if (String(payload.approval_status || "pending") !== "accepted") {
+    delete payload.access_code;
+  }
+  return res.status(201).json(payload);
 });
 
 router.get("/host/bookings", requireAuth, async (req, res) => {
@@ -3302,7 +3306,15 @@ router.get("/bookings", requireAuth, async (req, res) => {
      ORDER BY b.created_at DESC`,
     [req.auth.sub]
   );
-  res.json(rows);
+  res.json(
+    rows.map((row) => {
+      const out = { ...row };
+      if (String(out.approval_status || "pending") !== "accepted") {
+        delete out.access_code;
+      }
+      return out;
+    })
+  );
 });
 
 router.get("/bookings/:id/events", requireAuth, async (req, res) => {
