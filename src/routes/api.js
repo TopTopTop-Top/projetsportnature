@@ -1696,7 +1696,52 @@ router.get("/trails", optionalAuth, async (req, res) => {
     `SELECT * FROM trails${where} ORDER BY created_at DESC`,
     params
   );
-  res.json(rows);
+  const enriched = await attachTrailSignals(rows, userId);
+  res.json(enriched);
+});
+
+router.post("/relevance", requireAuth, async (req, res) => {
+  const parsed = setRelevanceSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error.flatten() });
+  }
+  const { resourceType, resourceId, score } = parsed.data;
+  const userId = Number(req.auth.sub);
+  if (resourceType === "trail") {
+    const { rows: trailRows } = await pool.query(
+      `SELECT id FROM trails WHERE id = $1 AND (is_public = 1 OR creator_user_id = $2)`,
+      [resourceId, userId]
+    );
+    if (!trailRows[0]) {
+      return res.status(404).json({ error: "Trail not found" });
+    }
+  } else {
+    const { rows: planRows } = await pool.query(
+      `SELECT id FROM route_plans
+       WHERE id = $1 AND (visibility = 'shared' OR athlete_user_id = $2)`,
+      [resourceId, userId]
+    );
+    if (!planRows[0]) {
+      return res.status(404).json({ error: "Plan not found" });
+    }
+  }
+  const { rows } = await pool.query(
+    `INSERT INTO resource_relevance (user_id, resource_type, resource_id, score, updated_at)
+     VALUES ($1, $2, $3, $4, NOW())
+     ON CONFLICT (user_id, resource_type, resource_id)
+     DO UPDATE SET score = EXCLUDED.score, updated_at = NOW()
+     RETURNING resource_type, resource_id, score AS my_relevance_score`,
+    [userId, resourceType, resourceId, score]
+  );
+  const agg = await getRelevanceAggregates(resourceType, [resourceId], userId);
+  const stats = agg[resourceId] || {
+    relevance_count: 0,
+    relevance_avg_score: 0,
+  };
+  return res.json({
+    ...stats,
+    my_relevance_score: Number(rows[0]?.my_relevance_score) || score,
+  });
 });
 
 function unlinkTrailGpxFile(gpxUrl) {
@@ -2084,10 +2129,120 @@ function authorDisplayLabel(fullName) {
   return `${parts[0]} ${parts[1].charAt(0)}.`;
 }
 
-async function getSharedRoutePlanPublicDetail(routePlanId) {
+async function getRelevanceAggregates(resourceType, resourceIds, userId = null) {
+  const ids = [
+    ...new Set(
+      (resourceIds || [])
+        .map((x) => Number(x))
+        .filter((id) => Number.isInteger(id) && id > 0)
+    ),
+  ];
+  if (ids.length === 0) return {};
+  const { rows } = await pool.query(
+    `SELECT resource_id,
+            COUNT(*)::int AS relevance_count,
+            COALESCE(AVG(score), 0)::float AS relevance_avg_score
+     FROM resource_relevance
+     WHERE resource_type = $1 AND resource_id = ANY($2::int[])
+     GROUP BY resource_id`,
+    [resourceType, ids]
+  );
+  const map = {};
+  for (const r of rows) {
+    map[Number(r.resource_id)] = {
+      relevance_count: Number(r.relevance_count) || 0,
+      relevance_avg_score: Number(r.relevance_avg_score) || 0,
+    };
+  }
+  if (userId != null && Number.isFinite(Number(userId))) {
+    const { rows: mine } = await pool.query(
+      `SELECT resource_id, score AS my_relevance_score
+       FROM resource_relevance
+       WHERE resource_type = $1 AND resource_id = ANY($2::int[]) AND user_id = $3`,
+      [resourceType, ids, Number(userId)]
+    );
+    for (const r of mine) {
+      const id = Number(r.resource_id);
+      map[id] = {
+        relevance_count: map[id]?.relevance_count || 0,
+        relevance_avg_score: map[id]?.relevance_avg_score || 0,
+        my_relevance_score: Number(r.my_relevance_score),
+      };
+    }
+  }
+  return map;
+}
+
+function withRelevanceFields(row, aggMap) {
+  const id = Number(row.id);
+  const a = aggMap[id] || {};
+  return {
+    ...row,
+    relevance_count: a.relevance_count || 0,
+    relevance_avg_score: a.relevance_avg_score || 0,
+    my_relevance_score:
+      a.my_relevance_score != null ? Number(a.my_relevance_score) : null,
+  };
+}
+
+async function attachTrailSignals(rows, userId = null) {
+  const list = Array.isArray(rows) ? rows : [];
+  const ids = list.map((r) => Number(r.id)).filter(Number.isFinite);
+  const [relMap, tipRows] = await Promise.all([
+    getRelevanceAggregates("trail", ids, userId),
+    ids.length
+      ? pool.query(
+          `SELECT trail_id, COUNT(*)::int AS tip_count
+           FROM trail_tips
+           WHERE trail_id = ANY($1::int[])
+           GROUP BY trail_id`,
+          [ids]
+        )
+      : Promise.resolve({ rows: [] }),
+  ]);
+  const tipByTrail = {};
+  for (const r of tipRows.rows || []) {
+    tipByTrail[Number(r.trail_id)] = Number(r.tip_count) || 0;
+  }
+  return list.map((row) => ({
+    ...withRelevanceFields(row, relMap),
+    tip_count: tipByTrail[Number(row.id)] || 0,
+  }));
+}
+
+async function attachPlanSignals(rows, userId = null) {
+  const list = Array.isArray(rows) ? rows : [];
+  const ids = list.map((r) => Number(r.id)).filter(Number.isFinite);
+  if (ids.length === 0) return [];
+  const relMap = await getRelevanceAggregates("plan", ids, userId);
+  const { rows: forkRows } = await pool.query(
+    `SELECT forked_from_plan_id AS plan_id, COUNT(*)::int AS fork_count
+     FROM route_plans
+     WHERE forked_from_plan_id = ANY($1::int[])
+     GROUP BY forked_from_plan_id`,
+    [ids]
+  );
+  const forkByPlan = {};
+  for (const r of forkRows) {
+    forkByPlan[Number(r.plan_id)] = Number(r.fork_count) || 0;
+  }
+  return list.map((row) => ({
+    ...withRelevanceFields(row, relMap),
+    fork_count: forkByPlan[Number(row.id)] || 0,
+  }));
+}
+
+const setRelevanceSchema = z.object({
+  resourceType: z.enum(["trail", "plan"]),
+  resourceId: z.coerce.number().int().positive(),
+  score: z.coerce.number().int().min(1).max(5),
+});
+
+async function getSharedRoutePlanPublicDetail(routePlanId, viewerUserId = null) {
   const { rows: planRows } = await pool.query(
     `SELECT rp.id, rp.name, rp.notes, rp.trail_id, rp.visibility, rp.created_at, rp.updated_at,
             rp.forked_from_plan_id,
+            (SELECT COUNT(*)::int FROM route_plans c WHERE c.forked_from_plan_id = rp.id) AS fork_count,
             t.name AS trail_name, t.territory, t.distance_km,
             u.full_name AS author_name
      FROM route_plans rp
@@ -2116,14 +2271,17 @@ async function getSharedRoutePlanPublicDetail(routePlanId) {
     [routePlanId]
   );
 
-  return {
+  const base = {
     ...plan,
     author_label: authorDisplayLabel(plan.author_name),
     boxes: boxRows,
     trail_notes: trailNoteRows,
     box_count: boxRows.length,
     tip_count: trailNoteRows.length,
+    fork_count: Number(plan.fork_count) || 0,
   };
+  const [enriched] = await attachPlanSignals([base], viewerUserId);
+  return enriched || base;
 }
 
 async function forkRoutePlanForUser(sourcePlanId, athleteUserId, customName) {
@@ -2288,19 +2446,77 @@ router.get("/route-plans", requireAuth, async (req, res) => {
   const trailId = Number(req.query.trailId);
   const hasTrail = Number.isInteger(trailId) && trailId > 0;
   const { rows } = await pool.query(
-    `SELECT rp.id, rp.name, rp.trail_id, rp.created_at, rp.updated_at,
+    `SELECT rp.id, rp.name, rp.notes, rp.visibility, rp.trail_id,
+            rp.created_at, rp.updated_at,
             t.name AS trail_name, t.territory,
-            COUNT(rpb.id)::int AS selected_box_count
+            COUNT(DISTINCT rpb.id)::int AS selected_box_count,
+            COUNT(DISTINCT rtn.id)::int AS tip_count,
+            (SELECT COUNT(*)::int FROM route_plans c WHERE c.forked_from_plan_id = rp.id) AS fork_count
      FROM route_plans rp
      JOIN trails t ON t.id = rp.trail_id
      LEFT JOIN route_plan_boxes rpb ON rpb.route_plan_id = rp.id
+     LEFT JOIN route_plan_trail_notes rtn ON rtn.route_plan_id = rp.id
      WHERE rp.athlete_user_id = $1
        ${hasTrail ? "AND rp.trail_id = $2" : ""}
      GROUP BY rp.id, t.id
      ORDER BY rp.updated_at DESC`,
     hasTrail ? [athleteUserId, trailId] : [athleteUserId]
   );
-  return res.json(rows);
+  const enriched = await attachPlanSignals(rows, athleteUserId);
+  return res.json(enriched);
+});
+
+router.get("/route-plans/discover", optionalAuth, async (req, res) => {
+  const city = String(req.query.city || "").trim();
+  const limit = Math.min(
+    60,
+    Math.max(1, parseInt(String(req.query.limit || "40"), 10) || 40)
+  );
+  const excludeUserId =
+    req.auth?.sub != null && Number.isFinite(Number(req.auth.sub))
+      ? Number(req.auth.sub)
+      : null;
+  const vals = [];
+  let n = 1;
+  const where = ["rp.visibility = 'shared'"];
+  if (excludeUserId != null) {
+    where.push(`rp.athlete_user_id <> $${n++}`);
+    vals.push(excludeUserId);
+  }
+  if (city.length >= 2) {
+    where.push(
+      `(t.territory ILIKE $${n} OR t.name ILIKE $${n} OR rp.name ILIKE $${n})`
+    );
+    vals.push(`%${city}%`);
+    n += 1;
+  }
+  vals.push(limit);
+  const { rows } = await pool.query(
+    `SELECT rp.id, rp.name, rp.notes, rp.trail_id, rp.updated_at, rp.created_at,
+            t.name AS trail_name, t.territory,
+            u.full_name AS author_name,
+            COUNT(DISTINCT rpb.id)::int AS box_count,
+            COUNT(DISTINCT rtn.id)::int AS tip_count,
+            (SELECT COUNT(*)::int FROM route_plans c WHERE c.forked_from_plan_id = rp.id) AS fork_count
+     FROM route_plans rp
+     JOIN trails t ON t.id = rp.trail_id
+     JOIN users u ON u.id = rp.athlete_user_id
+     LEFT JOIN route_plan_boxes rpb ON rpb.route_plan_id = rp.id
+     LEFT JOIN route_plan_trail_notes rtn ON rtn.route_plan_id = rp.id
+     WHERE ${where.join(" AND ")}
+     GROUP BY rp.id, t.id, u.full_name
+     ORDER BY rp.updated_at DESC
+     LIMIT $${n}`,
+    vals
+  );
+  const enriched = await attachPlanSignals(
+    rows.map((r) => ({
+      ...r,
+      author_label: authorDisplayLabel(r.author_name),
+    })),
+    excludeUserId
+  );
+  return res.json(enriched);
 });
 
 router.get("/route-plans/:id", requireAuth, async (req, res) => {
@@ -2310,7 +2526,8 @@ router.get("/route-plans/:id", requireAuth, async (req, res) => {
   }
   const detail = await getRoutePlanDetailsForUser(routePlanId, req.auth.sub);
   if (!detail) return res.status(404).json({ error: "Route plan not found" });
-  return res.json(detail);
+  const [enriched] = await attachPlanSignals([detail], req.auth.sub);
+  return res.json(enriched || detail);
 });
 
 router.get("/route-plans/shared/:id", async (req, res) => {
@@ -2318,7 +2535,11 @@ router.get("/route-plans/shared/:id", async (req, res) => {
   if (!Number.isInteger(routePlanId) || routePlanId <= 0) {
     return res.status(400).json({ error: "Invalid route plan id" });
   }
-  const detail = await getSharedRoutePlanPublicDetail(routePlanId);
+  const viewerId =
+    req.auth?.sub != null && Number.isFinite(Number(req.auth.sub))
+      ? Number(req.auth.sub)
+      : null;
+  const detail = await getSharedRoutePlanPublicDetail(routePlanId, viewerId);
   if (!detail) return res.status(404).json({ error: "Shared plan not found" });
   return res.json(detail);
 });
@@ -2332,7 +2553,8 @@ router.get("/trails/:trailId/shared-plans", async (req, res) => {
     `SELECT rp.id, rp.name, rp.notes, rp.updated_at, rp.created_at,
             u.full_name AS author_name,
             COUNT(DISTINCT rpb.id)::int AS box_count,
-            COUNT(DISTINCT rtn.id)::int AS tip_count
+            COUNT(DISTINCT rtn.id)::int AS tip_count,
+            (SELECT COUNT(*)::int FROM route_plans c WHERE c.forked_from_plan_id = rp.id) AS fork_count
      FROM route_plans rp
      JOIN users u ON u.id = rp.athlete_user_id
      LEFT JOIN route_plan_boxes rpb ON rpb.route_plan_id = rp.id
@@ -2343,12 +2565,18 @@ router.get("/trails/:trailId/shared-plans", async (req, res) => {
      LIMIT 40`,
     [trailId]
   );
-  return res.json(
+  const viewerId =
+    req.auth?.sub != null && Number.isFinite(Number(req.auth.sub))
+      ? Number(req.auth.sub)
+      : null;
+  const enriched = await attachPlanSignals(
     rows.map((r) => ({
       ...r,
       author_label: authorDisplayLabel(r.author_name),
-    }))
+    })),
+    viewerId
   );
+  return res.json(enriched);
 });
 
 router.post("/route-plans/:id/fork", requireAuth, async (req, res) => {

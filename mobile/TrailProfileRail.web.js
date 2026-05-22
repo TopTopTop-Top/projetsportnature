@@ -31,6 +31,7 @@ import {
   mapPointDomId,
   planBoxDomId,
 } from "./trailMapPoints";
+import { formatPlanSignals } from "./relevanceIndicators";
 
 function webHoverHandlers(onEnter, onLeave) {
   if (Platform.OS !== "web") return {};
@@ -640,7 +641,7 @@ function CommunityPanel({
                 {plan.name} · {plan.author_label || "Athlète"}
               </Text>
               <Text style={styles.communityCardMeta}>
-                {plan.box_count || 0} box · {plan.tip_count || 0} note(s) GPS
+                {formatPlanSignals(plan)}
                 {selected ? " · sélectionné" : ""}
               </Text>
               {plan.notes ? (

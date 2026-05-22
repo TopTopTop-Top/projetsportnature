@@ -30,6 +30,14 @@ import TrailElevationProfile from "./TrailElevationProfile";
 import TrailProfileRail from "./TrailProfileRail";
 import TrailMapInspectOverlay from "./TrailMapInspectOverlay";
 import TrailAltitudeBadge from "./TrailAltitudeBadge";
+import PlansScreenBase from "./PlansScreen";
+import {
+  RelevanceBadge,
+  RelevanceVoteRow,
+  formatTrailSignals,
+  formatPlanSignals,
+  formatHostRatingShort,
+} from "./relevanceIndicators";
 import {
   formatTrailElevationSummary,
   probeTrailAt,
@@ -2625,7 +2633,24 @@ function ExplorerScreen() {
     setExplorerTrailProbe(null);
     setExplorerProbeLock(false);
     setChartProbeHover(false);
-  }, [selectedTrailId]);
+    // Revenir à l’exploration large : ne pas garder les filtres plan/trace (picked, proximité, etc.)
+    setMapShowTrails(true);
+    setMapShowBoxes(true);
+    setMapTrailsScope("all");
+    setMapBoxSelectionMode("all");
+    setMapBoxesNearTrailsOnly(false);
+    setMapNearShowAllOnMap(true);
+    setMapBoxesSlotCompatibleOnly(false);
+  }, [
+    selectedTrailId,
+    setMapShowTrails,
+    setMapShowBoxes,
+    setMapTrailsScope,
+    setMapBoxSelectionMode,
+    setMapBoxesNearTrailsOnly,
+    setMapNearShowAllOnMap,
+    setMapBoxesSlotCompatibleOnly,
+  ]);
   const handleExplorerMapLongPress = useCallback(
     (lat, lng) => {
       const plat = Number(lat);
@@ -3236,6 +3261,38 @@ function ExplorerScreen() {
     [user, selectExplorerRoutePlan, refreshTrailCommunityData]
   );
 
+  const isExplorerFocused = useIsFocused();
+  useEffect(() => {
+    if (!isExplorerFocused) return;
+    const req = actionsRef.current.takeQueuedOpenPlanOnMap?.();
+    if (!req?.planId) return;
+    const pid = Number(req.planId);
+    if (!Number.isFinite(pid)) return;
+    let cancelled = false;
+    (async () => {
+      if (req.kind === "shared") {
+        await openSharedPlanPreview(pid);
+        if (!cancelled) showSharedPlanPreviewOnMap();
+        return;
+      }
+      const detail = await actionsRef.current.loadRoutePlanDetail?.(pid);
+      if (cancelled || !detail) return;
+      await selectExplorerRoutePlan(pid);
+      if (!cancelled) {
+        actionsRef.current.showRoutePlanOnMap?.(detail);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    isExplorerFocused,
+    actionsRef,
+    openSharedPlanPreview,
+    showSharedPlanPreviewOnMap,
+    selectExplorerRoutePlan,
+  ]);
+
   const upsertPickedBoxesToActivePlan = useCallback(async () => {
     if (!user) {
       userAlert(
@@ -3513,6 +3570,7 @@ function ExplorerScreen() {
 
   const MAP_TRAIL_SORT_LABELS = {
     default: "Défaut",
+    relevance_desc: "Pertinence ↓",
     distance_desc: "Distance ↓",
     distance_asc: "Distance ↑",
     elevation_desc: "D+ ↓",
@@ -4163,6 +4221,7 @@ function ExplorerScreen() {
         <View style={[styles.roleRow, { flexWrap: "wrap" }]}>
           {[
             { id: "default", label: "Défaut" },
+            { id: "relevance_desc", label: "Pertinence ↓" },
             { id: "distance_desc", label: "Distance ↓" },
             { id: "distance_asc", label: "Distance ↑" },
             { id: "elevation_desc", label: "D+ ↓" },
@@ -5490,9 +5549,30 @@ function ExplorerScreen() {
                 {item.distance_km != null &&
                   ` · ≈ ${Number(item.distance_km).toFixed(1)} km`}
               </Text>
-              <Text style={styles.cardAvailability}>
-                {formatHostRatingLine(item)}
-              </Text>
+              <View
+                style={{
+                  flexDirection: "row",
+                  flexWrap: "wrap",
+                  alignItems: "center",
+                  gap: 8,
+                  marginBottom: 4,
+                }}
+              >
+                <RelevanceBadge
+                  avg={item.host_avg_score}
+                  count={item.host_review_count}
+                  compact
+                />
+                {formatHostRatingShort(item) ? (
+                  <Text style={styles.cardAvailability}>
+                    {formatHostRatingShort(item)}
+                  </Text>
+                ) : (
+                  <Text style={styles.cardAvailability}>
+                    Hôte sans avis réservation
+                  </Text>
+                )}
+              </View>
               {mapBoxesNearTrailsOnly ? (
                 <View
                   style={[
@@ -5701,6 +5781,22 @@ function ExplorerScreen() {
                       {selectedTrail.name || "Trace"} ·{" "}
                       {selectedTrail.territory || "Territoire inconnu"}
                     </Text>
+                    <Text style={styles.cardAvailability}>
+                      {formatTrailSignals(selectedTrail)}
+                    </Text>
+                    {user ? (
+                      <RelevanceVoteRow
+                        label="Pertinence de cette trace"
+                        myScore={selectedTrail.my_relevance_score}
+                        onVote={async (score) => {
+                          await actionsRef.current.setResourceRelevance?.({
+                            resourceType: "trail",
+                            resourceId: Number(selectedTrail.id),
+                            score,
+                          });
+                        }}
+                      />
+                    ) : null}
                   </View>
                 </View>
               ) : null
@@ -5782,6 +5878,23 @@ function ExplorerScreen() {
                     {TRAIL_ACTIVITY_LABELS[trail.activity || "hike"]}
                     {mine ? " · Mienne" : ""}
                   </Text>
+                  <View
+                    style={{
+                      flexDirection: "row",
+                      flexWrap: "wrap",
+                      alignItems: "center",
+                      gap: 8,
+                      marginTop: 4,
+                    }}
+                  >
+                    <RelevanceBadge
+                      avg={trail.relevance_avg_score}
+                      count={trail.relevance_count}
+                    />
+                    <Text style={styles.cardAvailability}>
+                      {formatTrailSignals(trail)}
+                    </Text>
+                  </View>
                   <TrailAltitudeBadge trail={trail} compact />
                   {trail.notes ? (
                     <Text style={styles.cardAvailability} numberOfLines={2}>
@@ -6976,6 +7089,9 @@ function TrailsScreen() {
                       {formatTrailElevationSummary(trail)}
                     </Text>
                     <TrailAltitudeBadge trail={trail} compact />
+                    <Text style={styles.cardAvailability}>
+                      {formatTrailSignals(trail)}
+                    </Text>
                     <Text style={styles.cardAvailability}>
                       {isPicked ? "Sélectionnée" : "Non sélectionnée"}
                       {isActive ? " · Active" : ""}
@@ -9984,6 +10100,7 @@ function MainTabs() {
   const tabTargets = [
     { key: "Carte", label: "Carte" },
     { key: "Trails", label: "Traces" },
+    { key: "Plans", label: "Plans" },
     ...(canHost ? [{ key: "Host", label: "Mes box" }] : []),
     { key: "Reservations", label: "Reservations" },
     { key: "Profil", label: "Profil" },
@@ -10062,6 +10179,7 @@ function MainTabs() {
             const map = {
               Carte: "map-outline",
               Trails: "navigate-outline",
+              Plans: "layers-outline",
               Host: "home-outline",
               Reservations: "calendar-outline",
               Profil: "person-circle-outline",
@@ -10086,6 +10204,11 @@ function MainTabs() {
           name="Trails"
           component={TrailsScreen}
           options={{ title: "Traces", tabBarLabel: "Traces" }}
+        />
+        <Tab.Screen
+          name="Plans"
+          component={PlansScreen}
+          options={{ title: "Plans", tabBarLabel: "Plans" }}
         />
         {canHost ? (
           <Tab.Screen
@@ -10152,6 +10275,11 @@ function MainTabs() {
       ) : null}
     </>
   );
+}
+
+function PlansScreen() {
+  const appMain = useAppMain();
+  return <PlansScreenBase appMain={appMain} />;
 }
 
 function AuthenticatedRoot() {
@@ -10658,6 +10786,19 @@ function RavitoApp() {
       return 3;
     };
     switch (mapTrailListSort) {
+      case "relevance_desc":
+        list.sort((a, b) => {
+          const ca = Number(a.relevance_count) || 0;
+          const cb = Number(b.relevance_count) || 0;
+          if (ca === 0 && cb > 0) return 1;
+          if (cb === 0 && ca > 0) return -1;
+          const avgDiff =
+            (Number(b.relevance_avg_score) || 0) -
+            (Number(a.relevance_avg_score) || 0);
+          if (avgDiff !== 0) return avgDiff;
+          return (Number(b.tip_count) || 0) - (Number(a.tip_count) || 0);
+        });
+        break;
       case "distance_desc":
         list.sort(
           (a, b) => (Number(b.distance_km) || 0) - (Number(a.distance_km) || 0)
@@ -11538,6 +11679,60 @@ function RavitoApp() {
     if (!Number.isFinite(pid) || pid <= 0) return null;
     try {
       return await apiFetch(`/route-plans/shared/${pid}`);
+    } catch (error) {
+      userAlert("Erreur", error.message);
+      return null;
+    }
+  };
+
+  const loadDiscoverRoutePlans = async ({ city: cityQ } = {}) => {
+    try {
+      const params = new URLSearchParams();
+      const c = String(cityQ ?? city ?? "").trim();
+      if (c.length >= 2) params.set("city", c);
+      const query = params.toString() ? `?${params.toString()}` : "";
+      return await apiFetch(`/route-plans/discover${query}`, {
+        token: token || undefined,
+      });
+    } catch (_e) {
+      return [];
+    }
+  };
+
+  const setResourceRelevance = async ({
+    resourceType,
+    resourceId,
+    score,
+  } = {}) => {
+    if (!token) {
+      userAlert(
+        "Connexion",
+        "Connecte-toi pour indiquer la pertinence (note 1 à 5)."
+      );
+      return null;
+    }
+    const rid = Number(resourceId);
+    if (!Number.isFinite(rid) || rid <= 0) return null;
+    try {
+      const stats = await apiFetch("/relevance", {
+        method: "POST",
+        token,
+        body: JSON.stringify({
+          resourceType,
+          resourceId: rid,
+          score: Number(score),
+        }),
+      });
+      if (resourceType === "trail") {
+        await loadTrails();
+      } else if (resourceType === "plan") {
+        await loadRoutePlans();
+        const pid = Number(selectedRoutePlanId);
+        if (Number.isFinite(pid) && pid === rid) {
+          await loadRoutePlanDetail(pid);
+        }
+      }
+      return stats;
     } catch (error) {
       userAlert("Erreur", error.message);
       return null;
@@ -13019,6 +13214,7 @@ function RavitoApp() {
   }, [token, syncLiveSessionData]);
 
   const actionsRef = useRef({});
+  const explorerOpenPlanQueueRef = useRef(null);
 
   actionsRef.current = {
     loadBoxes,
@@ -13087,6 +13283,24 @@ function RavitoApp() {
     isolateTrailOnMap,
     navigateToReservations: () =>
       mainTabNavigationRef.current?.navigate?.("Reservations"),
+    navigateToPlans: () =>
+      mainTabNavigationRef.current?.navigate?.("Plans"),
+    queueOpenPlanOnMap: ({ planId, kind = "mine" } = {}) => {
+      const pid = Number(planId);
+      if (!Number.isFinite(pid) || pid <= 0) return;
+      explorerOpenPlanQueueRef.current = {
+        planId: pid,
+        kind: kind === "shared" ? "shared" : "mine",
+      };
+      mainTabNavigationRef.current?.navigate?.("Carte");
+    },
+    takeQueuedOpenPlanOnMap: () => {
+      const req = explorerOpenPlanQueueRef.current;
+      explorerOpenPlanQueueRef.current = null;
+      return req;
+    },
+    loadDiscoverRoutePlans,
+    setResourceRelevance,
     refreshSession,
     logout,
     updateMyRole,

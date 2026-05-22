@@ -420,6 +420,22 @@ async function migrate() {
     await client.query(
       `CREATE INDEX IF NOT EXISTS idx_trail_tips_trail_sort ON trail_tips(trail_id, sort_index, created_at)`
     );
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS resource_relevance (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        resource_type TEXT NOT NULL CHECK (resource_type IN ('trail', 'plan')),
+        resource_id INTEGER NOT NULL,
+        score SMALLINT NOT NULL CHECK (score >= 1 AND score <= 5),
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        UNIQUE (user_id, resource_type, resource_id)
+      )
+    `);
+    await client.query(
+      `CREATE INDEX IF NOT EXISTS idx_resource_relevance_target ON resource_relevance(resource_type, resource_id)`
+    );
     await client.query(
       `ALTER TABLE trails ADD COLUMN IF NOT EXISTS is_public SMALLINT NOT NULL DEFAULT 1`
     );
