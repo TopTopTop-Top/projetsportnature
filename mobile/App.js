@@ -10279,7 +10279,14 @@ function MainTabs() {
 
 function PlansScreen() {
   const appMain = useAppMain();
-  return <PlansScreenBase appMain={appMain} />;
+  return (
+    <PlansScreenBase
+      appMain={{
+        ...appMain,
+        staticOrigin: API_STATIC_ORIGIN,
+      }}
+    />
+  );
 }
 
 function AuthenticatedRoot() {

@@ -8,10 +8,14 @@ import {
   Platform,
   ActivityIndicator,
   StyleSheet,
+  useWindowDimensions,
 } from "react-native";
 import { useIsFocused } from "@react-navigation/native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
+import ExplorerWebMap from "./ExplorerWebMap";
+import NativeExplorerMap from "./NativeExplorerMap";
+import { buildTrailMapPoints } from "./trailMapPoints";
 import {
   RelevanceBadge,
   RelevanceVoteRow,
@@ -45,64 +49,130 @@ function formatPlanDate(iso) {
   }
 }
 
-function noteItemsFromPlanDetail(detail) {
-  if (!detail) return [];
-  const items = [];
-  const planName = detail.name || `Plan #${detail.id}`;
-  const trailLabel = detail.trail_name || detail.territory || "Trace";
-  if (String(detail.notes || "").trim()) {
-    items.push({
-      key: `plan-notes-${detail.id}`,
-      kind: "plan",
-      planId: detail.id,
-      planName,
-      trailLabel,
-      title: "Note générale du plan",
-      body: String(detail.notes).trim(),
-    });
-  }
-  const boxes = Array.isArray(detail.boxes) ? detail.boxes : [];
+function computePlanMapCenter(detail, trails, fallbackLat, fallbackLon) {
+  const pts = [];
+  const boxes = Array.isArray(detail?.boxes) ? detail.boxes : [];
   for (const b of boxes) {
-    const c = String(b.plan_box_comment || "").trim();
-    if (!c) continue;
-    items.push({
-      key: `box-${detail.id}-${b.id}`,
-      kind: "box",
-      planId: detail.id,
-      planName,
-      trailLabel,
-      title: b.name || `Box #${b.id}`,
-      body: c,
-    });
+    const lat = Number(b.latitude);
+    const lng = Number(b.longitude);
+    if (Number.isFinite(lat) && Number.isFinite(lng)) pts.push([lat, lng]);
   }
-  const trailNotes = Array.isArray(detail.trail_notes)
-    ? detail.trail_notes
-    : [];
-  trailNotes.forEach((n, idx) => {
-    const body = String(n.note || "").trim();
-    if (!body) return;
-    items.push({
-      key: `tn-${detail.id}-${n.id ?? idx}`,
-      kind: "trail_note",
-      planId: detail.id,
-      planName,
-      trailLabel,
-      title: `Point GPS ${idx + 1}`,
-      body,
-      meta:
-        n.point_lat != null && n.point_lon != null
-          ? `${Number(n.point_lat).toFixed(5)}, ${Number(n.point_lon).toFixed(5)}`
-          : null,
-    });
-  });
-  return items;
+  const trailNotes = Array.isArray(detail?.trail_notes) ? detail.trail_notes : [];
+  for (const n of trailNotes) {
+    const lat = Number(n.point_lat);
+    const lng = Number(n.point_lon);
+    if (Number.isFinite(lat) && Number.isFinite(lng)) pts.push([lat, lng]);
+  }
+  const tid = Number(detail?.trail_id);
+  const trail = (trails || []).find((t) => Number(t.id) === tid);
+  if (trail?.polyline_json) {
+    try {
+      const positions = JSON.parse(trail.polyline_json);
+      if (Array.isArray(positions)) {
+        for (const p of positions) {
+          if (Array.isArray(p) && p.length >= 2) {
+            const lat = Number(p[0]);
+            const lng = Number(p[1]);
+            if (Number.isFinite(lat) && Number.isFinite(lng)) pts.push([lat, lng]);
+          }
+        }
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+  if (pts.length === 0) {
+    return [
+      Number(fallbackLat) || 45.8992,
+      Number(fallbackLon) || 6.1294,
+    ];
+  }
+  let sumLat = 0;
+  let sumLng = 0;
+  for (const [lat, lng] of pts) {
+    sumLat += lat;
+    sumLng += lng;
+  }
+  return [sumLat / pts.length, sumLng / pts.length];
+}
+
+function PlanPreviewMap({
+  detail,
+  selectedKind,
+  trails,
+  staticOrigin,
+  mapLat,
+  mapLon,
+  fullHeight = false,
+}) {
+  const trailId = Number(detail?.trail_id);
+  const trail = useMemo(
+    () => (trails || []).find((t) => Number(t.id) === trailId) || null,
+    [trails, trailId]
+  );
+  const boxes = Array.isArray(detail?.boxes) ? detail.boxes : [];
+  const boxIds = useMemo(
+    () => boxes.map((b) => Number(b.id)).filter(Number.isFinite),
+    [boxes]
+  );
+  const trailsOnMap = useMemo(() => (trail ? [trail] : []), [trail]);
+  const center = useMemo(
+    () => computePlanMapCenter(detail, trails, mapLat, mapLon),
+    [detail, trails, mapLat, mapLon]
+  );
+  const trailMapPoints = useMemo(
+    () =>
+      buildTrailMapPoints({
+        trailId,
+        plan: selectedKind === "discover" ? null : detail,
+        sharedPreview: selectedKind === "discover" ? detail : null,
+      }),
+    [detail, trailId, selectedKind]
+  );
+  const recenterNonce = Number(detail?.id) || 0;
+  const mapHeight = fullHeight ? undefined : Platform.OS === "web" ? 300 : 220;
+
+  const common = {
+    center,
+    boxes,
+    trails: trailsOnMap,
+    selectedTrailId: Number.isFinite(trailId) ? trailId : null,
+    selectedTrailIds: Number.isFinite(trailId) ? [trailId] : [],
+    selectedBoxIds: boxIds,
+    planBoxIds: boxIds,
+    selectedBoxId: boxIds[0] ?? null,
+    autoFitToData: true,
+    followExternalCenter: false,
+    recenterNonce,
+    onSelectBox: () => {},
+    onSelectTrail: () => {},
+  };
+
+  return (
+    <View
+      style={[
+        styles.mapWrap,
+        fullHeight ? styles.mapWrapTall : null,
+        mapHeight != null ? { height: mapHeight } : null,
+      ]}
+    >
+      {Platform.OS === "web" ? (
+        <ExplorerWebMap
+          {...common}
+          trailMapPoints={trailMapPoints}
+          staticOrigin={staticOrigin || ""}
+        />
+      ) : (
+        <NativeExplorerMap {...common} />
+      )}
+    </View>
+  );
 }
 
 function PlanListCard({
   plan,
   selected,
   onPress,
-  onOpenMap,
   onToggleVisibility,
   onFork,
   isMine,
@@ -110,9 +180,6 @@ function PlanListCard({
 }) {
   const pid = Number(plan.id);
   const shared = String(plan.visibility) === "shared";
-  const boxCount =
-    Number(plan.selected_box_count ?? plan.box_count) || 0;
-  const tipCount = Number(plan.tip_count) || 0;
 
   return (
     <TouchableOpacity
@@ -150,15 +217,7 @@ function PlanListCard({
         {plan.trail_name || "Trace"}
         {plan.territory ? ` · ${plan.territory}` : ""}
       </Text>
-      <View
-        style={{
-          flexDirection: "row",
-          flexWrap: "wrap",
-          alignItems: "center",
-          gap: 8,
-          marginTop: 4,
-        }}
-      >
+      <View style={styles.cardSignalsRow}>
         <RelevanceBadge
           avg={plan.relevance_avg_score}
           count={plan.relevance_count}
@@ -174,16 +233,6 @@ function PlanListCard({
         </Text>
       ) : null}
       <View style={styles.cardActions}>
-        <TouchableOpacity
-          style={styles.cardActionBtn}
-          onPress={(e) => {
-            e?.stopPropagation?.();
-            onOpenMap?.();
-          }}
-        >
-          <Ionicons name="map-outline" size={14} color={theme.primary} />
-          <Text style={styles.cardActionText}>Carte</Text>
-        </TouchableOpacity>
         {isMine && onToggleVisibility ? (
           <TouchableOpacity
             style={styles.cardActionBtn}
@@ -224,7 +273,7 @@ function PlanListCard({
 function PlanDetailPanel({
   detail,
   loading,
-  onOpenMap,
+  onOpenExplorer,
   isAuthed,
   selectedKind,
   onVoteRelevance,
@@ -237,8 +286,10 @@ function PlanDetailPanel({
     );
   }
   if (!detail) return null;
-  const items = noteItemsFromPlanDetail(detail);
   const boxes = Array.isArray(detail.boxes) ? detail.boxes : [];
+  const gpsCount = Array.isArray(detail.trail_notes)
+    ? detail.trail_notes.length
+    : 0;
 
   return (
     <View style={styles.detailPanel}>
@@ -254,6 +305,9 @@ function PlanDetailPanel({
           detail.relevance_count
         )}
       </Text>
+      {String(detail.notes || "").trim() ? (
+        <Text style={styles.detailBody}>{String(detail.notes).trim()}</Text>
+      ) : null}
       {isAuthed ? (
         <RelevanceVoteRow
           label={
@@ -271,45 +325,26 @@ function PlanDetailPanel({
           }
         />
       ) : null}
-      <TouchableOpacity style={styles.primaryBtn} onPress={onOpenMap}>
-        <Ionicons name="map" size={16} color="#fff" />
-        <Text style={styles.primaryBtnText}>Voir sur la carte</Text>
+      <TouchableOpacity style={styles.secondaryBtn} onPress={onOpenExplorer}>
+        <Ionicons name="compass-outline" size={16} color={theme.primary} />
+        <Text style={styles.secondaryBtnText}>
+          Composer / réserver sur la Carte
+        </Text>
       </TouchableOpacity>
-      <Text style={styles.detailSection}>Box ({boxes.length})</Text>
+      <Text style={styles.detailSection}>
+        Box ({boxes.length}) · points GPS ({gpsCount})
+      </Text>
       {boxes.length === 0 ? (
         <Text style={styles.emptyHint}>Aucune box dans ce plan.</Text>
       ) : (
         boxes.map((b) => (
           <View key={`db-${b.id}`} style={styles.noteRow}>
-            <Text style={styles.noteKind}>Box</Text>
             <Text style={styles.noteTitle}>{b.name || `Box #${b.id}`}</Text>
+            {b.city ? (
+              <Text style={styles.noteMeta}>{b.city}</Text>
+            ) : null}
             {b.plan_box_comment ? (
               <Text style={styles.noteBody}>{b.plan_box_comment}</Text>
-            ) : (
-              <Text style={styles.noteEmpty}>Pas de note</Text>
-            )}
-          </View>
-        ))
-      )}
-      <Text style={styles.detailSection}>Registre des notes</Text>
-      {items.length === 0 ? (
-        <Text style={styles.emptyHint}>
-          Aucune note enregistrée (plan, box ou point GPS).
-        </Text>
-      ) : (
-        items.map((item) => (
-          <View key={item.key} style={styles.noteRow}>
-            <Text style={styles.noteKind}>
-              {item.kind === "plan"
-                ? "Plan"
-                : item.kind === "box"
-                  ? "Box"
-                  : "GPS"}
-            </Text>
-            <Text style={styles.noteTitle}>{item.title}</Text>
-            <Text style={styles.noteBody}>{item.body}</Text>
-            {item.meta ? (
-              <Text style={styles.noteMeta}>{item.meta}</Text>
             ) : null}
           </View>
         ))
@@ -322,10 +357,15 @@ export default function PlansScreen({ appMain = {} }) {
   const {
     user,
     city,
+    trails,
     routePlans,
     routePlanBusy,
     actionsRef,
+    mapLat,
+    mapLon,
+    staticOrigin,
   } = appMain;
+  const { width } = useWindowDimensions();
   const isFocused = useIsFocused();
   const [section, setSection] = useState("private");
   const [search, setSearch] = useState("");
@@ -335,10 +375,9 @@ export default function PlansScreen({ appMain = {} }) {
   const [selectedKind, setSelectedKind] = useState(null);
   const [detail, setDetail] = useState(null);
   const [detailBusy, setDetailBusy] = useState(false);
-  const [notesFeed, setNotesFeed] = useState([]);
-  const [notesFeedBusy, setNotesFeedBusy] = useState(false);
 
   const isAuthed = Boolean(user);
+  const wideLayout = width >= 900;
 
   const refreshMine = useCallback(async () => {
     if (!isAuthed) return;
@@ -370,12 +409,7 @@ export default function PlansScreen({ appMain = {} }) {
     return (routePlans || []).filter((p) => {
       if (String(p.visibility) === "shared") return false;
       if (!q) return true;
-      const hay = [
-        p.name,
-        p.trail_name,
-        p.territory,
-        p.notes,
-      ]
+      const hay = [p.name, p.trail_name, p.territory, p.notes]
         .filter(Boolean)
         .join(" ")
         .toLowerCase();
@@ -388,12 +422,7 @@ export default function PlansScreen({ appMain = {} }) {
     return (routePlans || []).filter((p) => {
       if (String(p.visibility) !== "shared") return false;
       if (!q) return true;
-      const hay = [
-        p.name,
-        p.trail_name,
-        p.territory,
-        p.notes,
-      ]
+      const hay = [p.name, p.trail_name, p.territory, p.notes]
         .filter(Boolean)
         .join(" ")
         .toLowerCase();
@@ -432,6 +461,13 @@ export default function PlansScreen({ appMain = {} }) {
     });
   }, [discoverPlans, search]);
 
+  const listForSection =
+    section === "private"
+      ? myPrivate
+      : section === "shared_mine"
+        ? myShared
+        : discoverFiltered;
+
   const loadDetail = useCallback(
     async (planId, kind) => {
       const pid = Number(planId);
@@ -455,7 +491,7 @@ export default function PlansScreen({ appMain = {} }) {
     [actionsRef]
   );
 
-  const openOnMap = useCallback(
+  const openOnExplorer = useCallback(
     (planId, kind) => {
       const pid = Number(planId);
       if (!Number.isFinite(pid)) return;
@@ -516,229 +552,175 @@ export default function PlansScreen({ appMain = {} }) {
     [actionsRef, refreshMine]
   );
 
-  const buildNotesFeed = useCallback(async () => {
-    if (!isAuthed || !(routePlans || []).length) return;
-    setNotesFeedBusy(true);
-    setNotesFeed([]);
-    try {
-      const allItems = [];
-      for (const plan of routePlans) {
-        const pid = Number(plan.id);
-        if (!Number.isFinite(pid)) continue;
-        const hasNotes =
-          String(plan.notes || "").trim() ||
-          Number(plan.tip_count) > 0 ||
-          Number(plan.selected_box_count) > 0;
-        if (!hasNotes) continue;
-        const d = await actionsRef.current.loadRoutePlanDetail?.(pid);
-        if (!d) continue;
-        allItems.push(...noteItemsFromPlanDetail(d));
-      }
-      setNotesFeed(allItems);
-    } finally {
-      setNotesFeedBusy(false);
-    }
-  }, [isAuthed, routePlans, actionsRef]);
-
-  useEffect(() => {
-    if (section !== "notes" || !isFocused) return;
-    buildNotesFeed();
-  }, [section, isFocused, buildNotesFeed]);
-
-  const listForSection =
-    section === "private"
-      ? myPrivate
-      : section === "shared_mine"
-        ? myShared
-        : section === "discover"
-          ? discoverFiltered
-          : [];
+  const mapPane =
+    selectedId != null && (detail || detailBusy) ? (
+      <View style={[styles.mapPane, wideLayout && styles.mapPaneWide]}>
+        <Text style={styles.mapPaneTitle}>
+          {detail?.name || "Aperçu du plan"}
+        </Text>
+        {detailBusy && !detail ? (
+          <View style={styles.mapLoading}>
+            <ActivityIndicator color={theme.primary} />
+          </View>
+        ) : detail ? (
+          <PlanPreviewMap
+            detail={detail}
+            selectedKind={selectedKind}
+            trails={trails}
+            staticOrigin={staticOrigin}
+            mapLat={mapLat}
+            mapLon={mapLon}
+          />
+        ) : null}
+      </View>
+    ) : (
+      <View style={styles.mapPlaceholder}>
+        <Ionicons name="map-outline" size={28} color={theme.inkMuted} />
+        <Text style={styles.mapPlaceholderText}>
+          Touche un plan pour afficher la trace, les box et les points GPS ici.
+        </Text>
+      </View>
+    );
 
   return (
     <SafeAreaView style={styles.screen} edges={["left", "right"]}>
-      <ScrollView
-        style={styles.scroll}
-        contentContainerStyle={[
-          styles.content,
-          { paddingBottom: TABBAR_SCROLL_PADDING },
-        ]}
-        keyboardShouldPersistTaps="handled"
-        showsVerticalScrollIndicator={Platform.OS === "web"}
-      >
-        <Text style={styles.intro}>
-          Bibliothèque de tes parcours. Les badges ★ résument la pertinence (votes
-          1–5, sans discussion). Les box s’appuient sur les avis après
-          réservation (note hôte).
-        </Text>
+      <View style={[styles.root, wideLayout && styles.rootWide]}>
+        {wideLayout ? (
+          <View style={styles.mapColumn}>{mapPane}</View>
+        ) : null}
+        <ScrollView
+          style={styles.scroll}
+          contentContainerStyle={[
+            styles.content,
+            { paddingBottom: TABBAR_SCROLL_PADDING },
+          ]}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={Platform.OS === "web"}
+        >
+          <Text style={styles.intro}>
+            Bibliothèque de tes parcours. Touche un plan pour l’aperçu sur la
+            carte (trace, box, points GPS). Les badges ★ indiquent la
+            pertinence (votes 1–5).
+          </Text>
 
-        <View style={styles.tabRow}>
-          {[
-            { id: "private", label: "Mes privés" },
-            { id: "shared_mine", label: "Mes publics" },
-            { id: "discover", label: "Découverte" },
-            { id: "notes", label: "Notes" },
-          ].map((t) => (
-            <TouchableOpacity
-              key={t.id}
-              style={[styles.tabChip, section === t.id && styles.tabChipActive]}
-              onPress={() => {
-                setSection(t.id);
-                setSelectedId(null);
-                setDetail(null);
-              }}
-            >
-              <Text
+          {!wideLayout ? mapPane : null}
+
+          <View style={styles.tabRow}>
+            {[
+              { id: "private", label: "Mes privés" },
+              { id: "shared_mine", label: "Mes publics" },
+              { id: "discover", label: "Découverte" },
+            ].map((t) => (
+              <TouchableOpacity
+                key={t.id}
                 style={[
-                  styles.tabChipText,
-                  section === t.id && styles.tabChipTextActive,
+                  styles.tabChip,
+                  section === t.id && styles.tabChipActive,
                 ]}
+                onPress={() => {
+                  setSection(t.id);
+                  setSelectedId(null);
+                  setSelectedKind(null);
+                  setDetail(null);
+                }}
               >
-                {t.label}
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </View>
-
-        {section !== "notes" ? (
-          <>
-            <TextInput
-              style={styles.searchInput}
-              value={search}
-              onChangeText={setSearch}
-              placeholder="Rechercher un plan, une trace, une ville…"
-              placeholderTextColor="#94A3B8"
-            />
-            {!isAuthed && section !== "discover" ? (
-              <Text style={styles.emptyHint}>
-                Connecte-toi pour voir et gérer tes plans.
-              </Text>
-            ) : null}
-            {section === "discover" && discoverBusy ? (
-              <ActivityIndicator
-                style={{ marginVertical: 16 }}
-                color={theme.primary}
-              />
-            ) : null}
-            {isAuthed || section === "discover" ? (
-              listForSection.length === 0 ? (
-                <Text style={styles.emptyHint}>
-                  {section === "private"
-                    ? "Aucun plan privé. Crée-en un depuis la Carte (trace + Mon plan)."
-                    : section === "shared_mine"
-                      ? "Aucun plan public à ton nom. Passe un plan en « Public » depuis cette liste ou depuis la Carte."
-                      : "Aucun plan public trouvé pour cette zone. Essaie une autre ville dans le profil ou la Carte."}
+                <Text
+                  style={[
+                    styles.tabChipText,
+                    section === t.id && styles.tabChipTextActive,
+                  ]}
+                >
+                  {t.label}
                 </Text>
-              ) : (
-                listForSection.map((plan) => {
-                  const pid = Number(plan.id);
-                  const kind =
-                    section === "discover" ? "discover" : "mine";
-                  const selected =
-                    Number(selectedId) === pid && selectedKind === kind;
-                  return (
-                    <PlanListCard
-                      key={`${kind}-${pid}`}
-                      plan={plan}
-                      selected={selected}
-                      isMine={kind === "mine"}
-                      busy={routePlanBusy}
-                      onPress={() => loadDetail(pid, kind)}
-                      onOpenMap={() => openOnMap(pid, kind)}
-                      onToggleVisibility={
-                        kind === "mine"
-                          ? () => toggleVisibility(plan)
-                          : undefined
-                      }
-                      onFork={
-                        kind === "discover" && isAuthed
-                          ? () => forkPlan(plan)
-                          : undefined
-                      }
-                    />
-                  );
-                })
-              )
-            ) : null}
-            {selectedId != null ? (
-              <PlanDetailPanel
-                detail={detail}
-                loading={detailBusy}
-                isAuthed={isAuthed}
-                selectedKind={selectedKind}
-                onVoteRelevance={votePlanRelevance}
-                onOpenMap={() => openOnMap(selectedId, selectedKind)}
-              />
-            ) : null}
-          </>
-        ) : (
-          <View>
-            {!isAuthed ? (
+              </TouchableOpacity>
+            ))}
+          </View>
+
+          <TextInput
+            style={styles.searchInput}
+            value={search}
+            onChangeText={setSearch}
+            placeholder="Rechercher un plan, une trace, une ville…"
+            placeholderTextColor="#94A3B8"
+          />
+          {!isAuthed && section !== "discover" ? (
+            <Text style={styles.emptyHint}>
+              Connecte-toi pour voir et gérer tes plans.
+            </Text>
+          ) : null}
+          {section === "discover" && discoverBusy ? (
+            <ActivityIndicator
+              style={{ marginVertical: 16 }}
+              color={theme.primary}
+            />
+          ) : null}
+          {isAuthed || section === "discover" ? (
+            listForSection.length === 0 ? (
               <Text style={styles.emptyHint}>
-                Connecte-toi pour parcourir tes notes de plans.
+                {section === "private"
+                  ? "Aucun plan privé. Crée-en un depuis la Carte (trace + Mon plan)."
+                  : section === "shared_mine"
+                    ? "Aucun plan public à ton nom. Passe un plan en « Public » depuis la liste ou la Carte."
+                    : "Aucun plan public trouvé pour cette zone."}
               </Text>
             ) : (
-              <>
-                <Text style={styles.notesLegend}>
-                  Plan = note générale · Box = commentaire par box · GPS =
-                  point enregistré sur la trace du plan. Les conseils publics
-                  (violet) restent sur la trace, dans la Carte → Communauté.
-                </Text>
-                <TouchableOpacity
-                  style={styles.secondaryBtn}
-                  onPress={buildNotesFeed}
-                  disabled={notesFeedBusy}
-                >
-                  <Text style={styles.secondaryBtnText}>
-                    {notesFeedBusy ? "Chargement…" : "Actualiser le registre"}
-                  </Text>
-                </TouchableOpacity>
-                {notesFeedBusy && notesFeed.length === 0 ? (
-                  <ActivityIndicator
-                    style={{ marginVertical: 12 }}
-                    color={theme.primary}
+              listForSection.map((plan) => {
+                const pid = Number(plan.id);
+                const kind = section === "discover" ? "discover" : "mine";
+                const selected =
+                  Number(selectedId) === pid && selectedKind === kind;
+                return (
+                  <PlanListCard
+                    key={`${kind}-${pid}`}
+                    plan={plan}
+                    selected={selected}
+                    isMine={kind === "mine"}
+                    busy={routePlanBusy}
+                    onPress={() => loadDetail(pid, kind)}
+                    onToggleVisibility={
+                      kind === "mine"
+                        ? () => toggleVisibility(plan)
+                        : undefined
+                    }
+                    onFork={
+                      kind === "discover" && isAuthed
+                        ? () => forkPlan(plan)
+                        : undefined
+                    }
                   />
-                ) : null}
-                {notesFeed.length === 0 && !notesFeedBusy ? (
-                  <Text style={styles.emptyHint}>
-                    Aucune note enregistrée dans tes plans pour l’instant.
-                  </Text>
-                ) : (
-                  notesFeed.map((item) => (
-                    <View key={item.key} style={styles.noteRow}>
-                      <Text style={styles.noteKind}>
-                        {item.kind === "plan"
-                          ? "Plan"
-                          : item.kind === "box"
-                            ? "Box"
-                            : "GPS"}
-                      </Text>
-                      <Text style={styles.noteMeta}>
-                        {item.planName} · {item.trailLabel}
-                      </Text>
-                      <Text style={styles.noteTitle}>{item.title}</Text>
-                      <Text style={styles.noteBody}>{item.body}</Text>
-                      {item.meta ? (
-                        <Text style={styles.noteMeta}>{item.meta}</Text>
-                      ) : null}
-                      <TouchableOpacity
-                        onPress={() => openOnMap(item.planId, "mine")}
-                      >
-                        <Text style={styles.linkText}>Ouvrir sur la carte</Text>
-                      </TouchableOpacity>
-                    </View>
-                  ))
-                )}
-              </>
-            )}
-          </View>
-        )}
-      </ScrollView>
+                );
+              })
+            )
+          ) : null}
+          {selectedId != null ? (
+            <PlanDetailPanel
+              detail={detail}
+              loading={detailBusy}
+              isAuthed={isAuthed}
+              selectedKind={selectedKind}
+              onVoteRelevance={votePlanRelevance}
+              onOpenExplorer={() => openOnExplorer(selectedId, selectedKind)}
+            />
+          ) : null}
+        </ScrollView>
+      </View>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: theme.bg },
+  root: { flex: 1 },
+  rootWide: { flexDirection: "row" },
+  mapColumn: {
+    flex: 1,
+    maxWidth: 480,
+    minWidth: 300,
+    borderRightWidth: 1,
+    borderRightColor: theme.border,
+    backgroundColor: theme.surface,
+    padding: 12,
+  },
   scroll: { flex: 1 },
   content: {
     padding: 16,
@@ -751,6 +733,54 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     color: theme.inkMuted,
     marginBottom: 12,
+  },
+  mapPane: {
+    marginBottom: 14,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: theme.border,
+    backgroundColor: theme.surface,
+    overflow: "hidden",
+  },
+  mapPaneWide: { flex: 1, marginBottom: 0 },
+  mapPaneTitle: {
+    fontSize: 12,
+    fontWeight: "800",
+    color: theme.hero,
+    paddingHorizontal: 12,
+    paddingTop: 10,
+    paddingBottom: 6,
+  },
+  mapWrap: {
+    width: "100%",
+    borderTopWidth: 1,
+    borderTopColor: theme.border,
+  },
+  mapWrapTall: {
+    flex: 1,
+    minHeight: 240,
+  },
+  mapLoading: {
+    height: 220,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  mapPlaceholder: {
+    marginBottom: 14,
+    padding: 24,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: theme.border,
+    borderStyle: "dashed",
+    backgroundColor: theme.surface,
+    alignItems: "center",
+    gap: 8,
+  },
+  mapPlaceholderText: {
+    fontSize: 12,
+    color: theme.inkMuted,
+    textAlign: "center",
+    lineHeight: 17,
   },
   tabRow: {
     flexDirection: "row",
@@ -805,6 +835,13 @@ const styles = StyleSheet.create({
     color: theme.ink,
   },
   cardAuthor: { fontSize: 11, color: theme.inkMuted, fontWeight: "600" },
+  cardSignalsRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    alignItems: "center",
+    gap: 8,
+    marginTop: 4,
+  },
   badge: {
     paddingHorizontal: 8,
     paddingVertical: 3,
@@ -830,6 +867,12 @@ const styles = StyleSheet.create({
   },
   detailTitle: { fontSize: 17, fontWeight: "800", color: theme.ink },
   detailMeta: { fontSize: 12, color: theme.inkMuted, marginTop: 4 },
+  detailBody: {
+    fontSize: 13,
+    color: theme.ink,
+    marginTop: 8,
+    lineHeight: 18,
+  },
   detailSection: {
     fontSize: 12,
     fontWeight: "800",
@@ -839,28 +882,21 @@ const styles = StyleSheet.create({
     textTransform: "uppercase",
     letterSpacing: 0.3,
   },
-  primaryBtn: {
+  secondaryBtn: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     gap: 8,
-    backgroundColor: theme.primary,
-    borderRadius: 10,
+    alignSelf: "stretch",
     paddingVertical: 10,
-    marginTop: 12,
-  },
-  primaryBtnText: { color: "#fff", fontWeight: "800", fontSize: 14 },
-  secondaryBtn: {
-    alignSelf: "flex-start",
-    paddingVertical: 8,
     paddingHorizontal: 12,
     borderRadius: 10,
     borderWidth: 1,
     borderColor: theme.border,
     backgroundColor: theme.surface,
-    marginBottom: 12,
+    marginTop: 12,
   },
-  secondaryBtnText: { fontSize: 12, fontWeight: "700", color: theme.primary },
+  secondaryBtnText: { fontSize: 13, fontWeight: "700", color: theme.primary },
   noteRow: {
     backgroundColor: theme.surface,
     borderRadius: 10,
@@ -869,27 +905,8 @@ const styles = StyleSheet.create({
     padding: 10,
     marginBottom: 8,
   },
-  noteKind: {
-    fontSize: 10,
-    fontWeight: "800",
-    color: theme.primary,
-    textTransform: "uppercase",
-  },
-  noteTitle: { fontSize: 13, fontWeight: "700", color: theme.ink, marginTop: 2 },
+  noteTitle: { fontSize: 13, fontWeight: "700", color: theme.ink },
   noteBody: { fontSize: 12, color: theme.ink, marginTop: 4, lineHeight: 17 },
   noteMeta: { fontSize: 11, color: theme.inkMuted, marginTop: 2 },
-  noteEmpty: { fontSize: 11, color: theme.inkMuted, fontStyle: "italic" },
   emptyHint: { fontSize: 13, color: theme.inkMuted, lineHeight: 18 },
-  notesLegend: {
-    fontSize: 11,
-    lineHeight: 15,
-    color: theme.inkMuted,
-    marginBottom: 10,
-  },
-  linkText: {
-    fontSize: 12,
-    fontWeight: "700",
-    color: theme.primary,
-    marginTop: 6,
-  },
 });
