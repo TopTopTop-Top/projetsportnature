@@ -48,3 +48,11 @@ export function buildTrailMapPoints({
 export function tipMapPointId(tipId) {
   return `tip-${tipId}`;
 }
+
+export function mapPointDomId(pointId) {
+  return `map-point-${pointId}`;
+}
+
+export function planBoxDomId(boxId) {
+  return `plan-box-${Number(boxId)}`;
+}

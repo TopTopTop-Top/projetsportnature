@@ -45,6 +45,8 @@ import {
   buildTrailMapPoints,
   trailMapPointId,
   tipMapPointId,
+  mapPointDomId,
+  planBoxDomId,
 } from "./trailMapPoints";
 import {
   loadExplorerSavedProbes,
@@ -2273,20 +2275,35 @@ function ExplorerScreen() {
   }, [setExplorerProbeLock]);
 
   const [highlightedMapPointId, setHighlightedMapPointId] = useState(null);
+  const [highlightedPlanBoxId, setHighlightedPlanBoxId] = useState(null);
+
+  const handleMapPointHover = useCallback((pointId) => {
+    setHighlightedMapPointId(pointId || null);
+    if (pointId) setHighlightedPlanBoxId(null);
+  }, []);
+
+  const handlePlanBoxHover = useCallback((boxId) => {
+    if (boxId == null || boxId === "") {
+      setHighlightedPlanBoxId(null);
+      return;
+    }
+    const bid = Number(boxId);
+    setHighlightedPlanBoxId(Number.isFinite(bid) ? bid : null);
+    setHighlightedMapPointId(null);
+  }, []);
 
   const focusExplorerPlanTrailNote = useCallback(
-    (note, source = "plan") => {
+    (note, source = "plan", noteIndex = 0) => {
       const lat = Number(note?.point_lat);
       const lon = Number(note?.point_lon);
       const tid = Number(selectedTrailId);
       if (!Number.isFinite(lat) || !Number.isFinite(lon) || !Number.isFinite(tid)) {
         return;
       }
-      if (note?.id != null) {
-        setHighlightedMapPointId(
-          trailMapPointId(source, note.id, 0)
-        );
-      }
+      setHighlightedMapPointId(
+        trailMapPointId(source, note?.id, noteIndex)
+      );
+      setHighlightedPlanBoxId(null);
       const trail = trails.find((t) => Number(t.id) === tid);
       if (!trail) return;
       const p = probeTrailAt(trail, lat, lon);
@@ -5958,7 +5975,9 @@ function ExplorerScreen() {
                   onShowSharedPlanOnMap={showSharedPlanPreviewOnMap}
                   onFocusPlanTrailNote={focusExplorerPlanTrailNote}
                   highlightedMapPointId={highlightedMapPointId}
-                  onHighlightMapPoint={setHighlightedMapPointId}
+                  onHighlightMapPoint={handleMapPointHover}
+                  highlightedPlanBoxId={highlightedPlanBoxId}
+                  onHighlightPlanBox={handlePlanBoxHover}
                   boxCommentDraftById={boxCommentDraftById}
                   onBoxCommentDraftChange={(boxId, text) =>
                     setBoxCommentDraftById((prev) => ({
@@ -6040,8 +6059,10 @@ function ExplorerScreen() {
                     communityTrailTips={trailTips}
                     trailMapPoints={trailMapPoints}
                     highlightedMapPointId={highlightedMapPointId}
-                    onMapPointHover={setHighlightedMapPointId}
+                    onMapPointHover={handleMapPointHover}
                     onMapPointClick={handleTrailMapPointClick}
+                    highlightedPlanBoxId={highlightedPlanBoxId}
+                    onPlanBoxHover={handlePlanBoxHover}
                     lockTrailProbe={explorerProbeLocked || chartProbeHover}
                     onTrailProbeLock={setExplorerProbeLock}
                     onRequestExitTrailSelection={handleRequestExitExplorerTrail}
@@ -6129,8 +6150,10 @@ function ExplorerScreen() {
                 communityTrailTips={trailTips}
                 trailMapPoints={trailMapPoints}
                 highlightedMapPointId={highlightedMapPointId}
-                onMapPointHover={setHighlightedMapPointId}
+                onMapPointHover={handleMapPointHover}
                 onMapPointClick={handleTrailMapPointClick}
+                highlightedPlanBoxId={highlightedPlanBoxId}
+                onPlanBoxHover={handlePlanBoxHover}
                 lockTrailProbe={explorerProbeLocked || chartProbeHover}
                 onTrailProbeLock={setExplorerProbeLock}
                 onRequestExitTrailSelection={handleRequestExitExplorerTrail}

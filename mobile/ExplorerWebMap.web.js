@@ -90,12 +90,18 @@ function drawTrailProbeOnMap(L, probeLayer, probe, trail, lineColor, locked) {
   }
 }
 
-function drawSavedProbesOnMap(L, probeLayer, savedProbes) {
+function drawSavedProbesOnMap(
+  L,
+  probeLayer,
+  savedProbes,
+  { onHover, onClick, markerRegistry } = {}
+) {
   if (!Array.isArray(savedProbes) || !savedProbes.length) return;
   savedProbes.forEach((entry, index) => {
     const p = entry?.probe;
     if (!p || !Number.isFinite(p.lat) || !Number.isFinite(p.lng)) return;
     const n = index + 1;
+    const pointId = `draft-${entry.id ?? index}`;
     const marker = L.circleMarker([p.lat, p.lng], {
       pane: PROBE_MARKER_PANE,
       radius: 9,
@@ -122,7 +128,28 @@ function drawSavedProbesOnMap(L, probeLayer, savedProbes) {
       offset: [0, -12],
       className: "ravitobox-trail-probe-tip",
     });
+    if (onHover || onClick) {
+      attachMapPointHandlers(marker, pointId, {
+        onHover,
+        onClick,
+        point: {
+          id: pointId,
+          lat: p.lat,
+          lon: p.lng,
+          note: entry.notes,
+          label: entry.label || `Brouillon ${n}`,
+          source: "draft",
+          entryId: entry.id,
+        },
+      });
+    }
     marker.addTo(probeLayer);
+    if (markerRegistry) {
+      markerRegistry.set(pointId, {
+        marker,
+        meta: { source: "draft", baseRadius: 9, baseWeight: 2.5 },
+      });
+    }
     try {
       marker.bringToFront?.();
     } catch (_e) {
@@ -152,20 +179,20 @@ function drawCommunityTrailTipsOnMap(
   L,
   layer,
   tips,
-  { highlightedId = null, onHover, onClick } = {}
+  { onHover, onClick, markerRegistry } = {}
 ) {
   if (!Array.isArray(tips) || !tips.length) return;
+  if (markerRegistry) markerRegistry.clear();
   tips.forEach((tip, index) => {
     const lat = Number(tip.point_lat);
     const lon = Number(tip.point_lon);
     if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
     const pointId = `tip-${tip.id ?? index}`;
-    const hi = highlightedId === pointId;
     const marker = L.circleMarker([lat, lon], {
       pane: PROBE_MARKER_PANE,
-      radius: hi ? 11 : 8,
-      color: hi ? "#312E81" : "#FFFFFF",
-      weight: hi ? 3.5 : 3,
+      radius: 8,
+      color: "#FFFFFF",
+      weight: 3,
       fillColor: "#6366F1",
       fillOpacity: 1,
     });
@@ -175,7 +202,7 @@ function drawCommunityTrailTipsOnMap(
       tip.note || null,
     ].filter(Boolean);
     marker.bindTooltip(lines.join("<br/>"), {
-      permanent: hi,
+      permanent: false,
       direction: "top",
       offset: [0, -10],
       className: "ravitobox-trail-probe-tip",
@@ -194,6 +221,36 @@ function drawCommunityTrailTipsOnMap(
       },
     });
     marker.addTo(layer);
+    if (markerRegistry) {
+      markerRegistry.set(pointId, {
+        marker,
+        meta: { source: "tip", baseRadius: 8, baseWeight: 3 },
+      });
+    }
+  });
+}
+
+function updateRegisteredMapPointStyles(markerRegistry, highlightedId) {
+  if (!markerRegistry || typeof markerRegistry.forEach !== "function") return;
+  markerRegistry.forEach((entry, id) => {
+    const { marker, meta } = entry;
+    if (!marker?.setStyle) return;
+    const hi = highlightedId === id;
+    const isShared = meta?.source === "shared_preview";
+    const isDraft = meta?.source === "draft";
+    marker.setStyle({
+      radius: hi ? 12 : meta.baseRadius,
+      color: hi ? "#0F172A" : "#FFFFFF",
+      weight: hi ? 3.5 : meta.baseWeight,
+      fillColor: isShared ? "#F59E0B" : isDraft ? "#0F766E" : "#0891B2",
+      fillOpacity: 1,
+    });
+    try {
+      if (hi) marker.openTooltip?.();
+      else marker.closeTooltip?.();
+    } catch (_e) {
+      /* noop */
+    }
   });
 }
 
@@ -201,18 +258,18 @@ function drawTrailMapPointsOnMap(
   L,
   layer,
   points,
-  { highlightedId = null, onHover, onClick } = {}
+  { onHover, onClick, markerRegistry } = {}
 ) {
   if (!Array.isArray(points) || !points.length) return;
+  if (markerRegistry) markerRegistry.clear();
   points.forEach((pt) => {
     if (!Number.isFinite(pt.lat) || !Number.isFinite(pt.lon)) return;
-    const hi = highlightedId === pt.id;
     const isShared = pt.source === "shared_preview";
     const marker = L.circleMarker([pt.lat, pt.lon], {
       pane: PROBE_MARKER_PANE,
-      radius: hi ? 12 : 9,
-      color: hi ? "#0F172A" : "#FFFFFF",
-      weight: hi ? 3.5 : 2.5,
+      radius: 9,
+      color: "#FFFFFF",
+      weight: 2.5,
       fillColor: isShared ? "#F59E0B" : "#0891B2",
       fillOpacity: 1,
     });
@@ -224,13 +281,23 @@ function drawTrailMapPointsOnMap(
       .filter(Boolean)
       .join("<br/>");
     marker.bindTooltip(tip, {
-      permanent: hi,
+      permanent: false,
       direction: "top",
       offset: [0, -12],
       className: "ravitobox-trail-probe-tip",
     });
     attachMapPointHandlers(marker, pt.id, { onHover, onClick, point: pt });
     marker.addTo(layer);
+    if (markerRegistry) {
+      markerRegistry.set(pt.id, {
+        marker,
+        meta: {
+          source: pt.source,
+          baseRadius: 9,
+          baseWeight: 2.5,
+        },
+      });
+    }
     try {
       marker.bringToFront?.();
     } catch (_e) {
@@ -562,13 +629,16 @@ function buildTrailPinIcon({
 function buildBoxHouseDivIcon(L, opts) {
   const {
     isSelected,
+    isHighlighted,
     isPlanBox,
     isCompatible,
     dimIncompatibleBoxes,
     status,
   } = opts;
-  const w = isSelected ? 30 : 26;
-  const stroke = isSelected
+  const w = isSelected || isHighlighted ? 30 : 26;
+  const stroke = isHighlighted
+    ? "#EA580C"
+    : isSelected
     ? isPlanBox
       ? "#4C1D95"
       : "#0F172A"
@@ -577,7 +647,11 @@ function buildBoxHouseDivIcon(L, opts) {
     : dimIncompatibleBoxes && !isCompatible
     ? "#94A3B8"
     : status.stroke;
-  const fill = isSelected
+  const fill = isHighlighted
+    ? isPlanBox
+      ? "#FED7AA"
+      : "#FEF3C7"
+    : isSelected
     ? isPlanBox
       ? "#A78BFA"
       : "#14B8A6"
@@ -586,7 +660,8 @@ function buildBoxHouseDivIcon(L, opts) {
     : dimIncompatibleBoxes && !isCompatible
     ? "#E2E8F0"
     : "#FFFFFF";
-  const opacity = dimIncompatibleBoxes && !isCompatible ? 0.65 : 1;
+  const opacity =
+    dimIncompatibleBoxes && !isCompatible && !isHighlighted ? 0.65 : 1;
   const html = `<div style="width:${w}px;height:${w}px;opacity:${opacity};filter:drop-shadow(0 2px 5px rgba(15,23,42,.28));">
     <svg width="${w}" height="${w}" viewBox="0 0 24 24" aria-hidden="true">
       <path d="M4 10.5L12 4l8 6.5V20a1 1 0 01-1 1h-4.5v-7h-5v7H5a1 1 0 01-1-1v-9.5z" fill="${fill}" stroke="${stroke}" stroke-width="1.35" stroke-linejoin="round"/>
@@ -655,6 +730,8 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
   highlightedMapPointId = null,
   onMapPointHover,
   onMapPointClick,
+  highlightedPlanBoxId = null,
+  onPlanBoxHover,
   /** Appui long hors tracé → quitter la trace sélectionnée. */
   onRequestExitTrailSelection,
   onMapLongPress,
@@ -771,6 +848,13 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
   onMapPointHoverRef.current = onMapPointHover;
   const onMapPointClickRef = useRef(onMapPointClick);
   onMapPointClickRef.current = onMapPointClick;
+  const highlightedPlanBoxIdRef = useRef(highlightedPlanBoxId);
+  highlightedPlanBoxIdRef.current = highlightedPlanBoxId;
+  const onPlanBoxHoverRef = useRef(onPlanBoxHover);
+  onPlanBoxHoverRef.current = onPlanBoxHover;
+  const planPointMarkersRef = useRef(new Map());
+  const communityTipMarkersRef = useRef(new Map());
+  const draftPointMarkersRef = useRef(new Map());
   const mapZoomingRef = useRef(false);
   const onVisibleBoundsChangeRef = useRef(onVisibleBoundsChange);
   onVisibleBoundsChangeRef.current = onVisibleBoundsChange;
@@ -1063,7 +1147,11 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
       const saved = (savedTrailProbesRef.current || []).filter(
         (e) => Number(e?.trailId) === tid
       );
-      drawSavedProbesOnMap(L, savedLayer, saved);
+      drawSavedProbesOnMap(L, savedLayer, saved, {
+        markerRegistry: draftPointMarkersRef.current,
+        onHover: (id) => onMapPointHoverRef.current?.(id),
+        onClick: (pt) => onMapPointClickRef.current?.(pt),
+      });
     }
     return undefined;
   }, [savedTrailProbes, activeTrailIdNum]);
@@ -1084,14 +1172,14 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
         layer,
         communityTrailTipsRef.current || [],
         {
-          highlightedId: highlightedMapPointIdRef.current,
+          markerRegistry: communityTipMarkersRef.current,
           onHover: (id) => onMapPointHoverRef.current?.(id),
           onClick: (pt) => onMapPointClickRef.current?.(pt),
         }
       );
     }
     return undefined;
-  }, [communityTrailTips, activeTrailIdNum, highlightedMapPointId]);
+  }, [communityTrailTips, activeTrailIdNum]);
 
   useEffect(() => {
     if (Platform.OS !== "web") return undefined;
@@ -1105,13 +1193,22 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
     }
     if (activeTrailIdNum != null) {
       drawTrailMapPointsOnMap(L, layer, trailMapPointsRef.current || [], {
-        highlightedId: highlightedMapPointIdRef.current,
+        markerRegistry: planPointMarkersRef.current,
         onHover: (id) => onMapPointHoverRef.current?.(id),
         onClick: (pt) => onMapPointClickRef.current?.(pt),
       });
     }
     return undefined;
-  }, [trailMapPoints, activeTrailIdNum, highlightedMapPointId]);
+  }, [trailMapPoints, activeTrailIdNum]);
+
+  useEffect(() => {
+    if (Platform.OS !== "web") return undefined;
+    const hi = highlightedMapPointIdRef.current;
+    updateRegisteredMapPointStyles(planPointMarkersRef.current, hi);
+    updateRegisteredMapPointStyles(communityTipMarkersRef.current, hi);
+    updateRegisteredMapPointStyles(draftPointMarkersRef.current, hi);
+    return undefined;
+  }, [highlightedMapPointId]);
 
   useEffect(() => {
     if (Platform.OS !== "web") return undefined;
@@ -1232,10 +1329,15 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
           const lat = Number(box.latitude);
           const lng = Number(box.longitude);
           if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+          const bid = Number(box.id);
+          const isHighlighted =
+            Number.isFinite(bid) &&
+            bid === Number(highlightedPlanBoxIdRef.current);
           const isSelected =
-            Number(box.id) === Number(selectedBoxIdRef.current) ||
-            selectedBoxSet.has(Number(box.id));
-          const isPlanBox = planBoxSet.has(Number(box.id));
+            bid === Number(selectedBoxIdRef.current) ||
+            selectedBoxSet.has(bid) ||
+            isHighlighted;
+          const isPlanBox = planBoxSet.has(bid);
           const isCompatible =
             compatibleBoxSet.size === 0 || compatibleBoxSet.has(Number(box.id));
           const status = boxVisualStatus(box);
@@ -1250,13 +1352,19 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
           }
           const labelIcon = buildBoxHouseDivIcon(L, {
             isSelected,
+            isHighlighted,
             isPlanBox,
             isCompatible,
             dimIncompatibleBoxes,
             status,
           });
           const m = L.marker([lat, lng], { icon: labelIcon });
-          m.on("click", () => onSelectBoxRef.current?.(box.id));
+          m.on("mouseover", () => onPlanBoxHoverRef.current?.(bid));
+          m.on("mouseout", () => onPlanBoxHoverRef.current?.(null));
+          m.on("click", () => {
+            onPlanBoxHoverRef.current?.(bid);
+            onSelectBoxRef.current?.(box.id);
+          });
           const planSuffix = isPlanBox ? " · plan" : "";
           m.bindTooltip(
             `${escapeHtml(box.title || "Box")} · ${status.label}${planSuffix}`,
@@ -1558,7 +1666,7 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
     } catch (_e) {
       // Keep current viewport if bounds computation fails.
     }
-  }, [boxes, trails, staticOrigin, draftPoint, pickedMapPoint, pickerMode, autoFitToData, selectedBoxId, selectedBoxSet, selectedTrailIds, selectedTrailId, pickedTrailSet, activeTrailIdNum, effectiveHoveredTrailId, hasHoveredTrail, compatibleBoxSet, planBoxSet, proximityTrailSet, trailCorridorKm, dimIncompatibleBoxes]);
+  }, [boxes, trails, staticOrigin, draftPoint, pickedMapPoint, pickerMode, autoFitToData, selectedBoxId, selectedBoxSet, selectedTrailIds, selectedTrailId, pickedTrailSet, activeTrailIdNum, effectiveHoveredTrailId, hasHoveredTrail, compatibleBoxSet, planBoxSet, proximityTrailSet, trailCorridorKm, dimIncompatibleBoxes, highlightedPlanBoxId]);
 
   if (Platform.OS !== "web") {
     return null;

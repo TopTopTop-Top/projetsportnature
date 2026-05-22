@@ -25,7 +25,12 @@ import {
   formatPlanBoxPrice,
   planBoxStatusColors,
 } from "./planBoxReservation";
-import { trailMapPointId, tipMapPointId } from "./trailMapPoints";
+import {
+  trailMapPointId,
+  tipMapPointId,
+  mapPointDomId,
+  planBoxDomId,
+} from "./trailMapPoints";
 
 function webHoverHandlers(onEnter, onLeave) {
   if (Platform.OS !== "web") return {};
@@ -98,6 +103,8 @@ export default function TrailProfileRail({
   onFocusPlanTrailNote,
   highlightedMapPointId = null,
   onHighlightMapPoint,
+  highlightedPlanBoxId = null,
+  onHighlightPlanBox,
   boxCommentDraftById = {},
   onBoxCommentDraftChange,
   onSavePlanBoxComment,
@@ -122,6 +129,19 @@ export default function TrailProfileRail({
   onSetPlanVisibility,
 }) {
   const [workspaceTab, setWorkspaceTab] = useState("composer");
+  useEffect(() => {
+    if (Platform.OS !== "web") return;
+    const scrollTo = (domId) => {
+      if (!domId) return;
+      const el = document.getElementById(domId);
+      el?.scrollIntoView?.({ block: "nearest", behavior: "smooth" });
+    };
+    if (highlightedMapPointId) {
+      scrollTo(mapPointDomId(highlightedMapPointId));
+    } else if (highlightedPlanBoxId != null) {
+      scrollTo(planBoxDomId(highlightedPlanBoxId));
+    }
+  }, [highlightedMapPointId, highlightedPlanBoxId, workspaceTab]);
   const handleChartProbe = useCallback(
     (distKm) => {
       if (!trail) return;
@@ -450,6 +470,8 @@ export default function TrailProfileRail({
             onFocusPlanTrailNote={onFocusPlanTrailNote}
           highlightedMapPointId={highlightedMapPointId}
           onHighlightMapPoint={onHighlightMapPoint}
+          highlightedPlanBoxId={highlightedPlanBoxId}
+          onHighlightPlanBox={onHighlightPlanBox}
           boxCommentDraftById={boxCommentDraftById}
           onBoxCommentDraftChange={onBoxCommentDraftChange}
           onSavePlanBoxComment={onSavePlanBoxComment}
@@ -662,20 +684,22 @@ function CommunityPanel({
                         );
                         const hi = highlightedMapPointId === ptId;
                         return (
-                          <Text
+                          <View
                             key={`prev-note-${n.id || idx}`}
+                            nativeID={mapPointDomId(ptId)}
                             style={[
                               styles.communityPreviewItem,
                               hi && styles.mapPointTextHighlight,
                             ]}
-                            numberOfLines={4}
                             {...webHoverHandlers(
                               () => onHighlightMapPoint?.(ptId),
                               () => onHighlightMapPoint?.(null)
                             )}
                           >
-                            · {n.note || "(sans texte)"}
-                          </Text>
+                            <Text numberOfLines={4}>
+                              · {n.note || "(sans texte)"}
+                            </Text>
+                          </View>
                         );
                       })}
                     </>
@@ -768,6 +792,8 @@ function TrailPlanHub({
   onFocusPlanTrailNote,
   highlightedMapPointId = null,
   onHighlightMapPoint,
+  highlightedPlanBoxId = null,
+  onHighlightPlanBox,
   boxCommentDraftById = {},
   onBoxCommentDraftChange,
   onSavePlanBoxComment,
@@ -916,7 +942,8 @@ function TrailPlanHub({
                 return (
                 <Pressable
                   key={`plan-trail-note-${n.id || idx}`}
-                  onPress={() => onFocusPlanTrailNote?.(n, "plan")}
+                  nativeID={mapPointDomId(ptId)}
+                  onPress={() => onFocusPlanTrailNote?.(n, "plan", idx)}
                   style={[
                     styles.planTrailNoteRow,
                     hi && styles.mapPointRowHighlight,
@@ -1006,7 +1033,11 @@ function TrailPlanHub({
           {planBoxes.map((b) => (
             <PlanBoxReservationCard
               key={`plan-box-${b.id}`}
+              nativeID={planBoxDomId(b.id)}
               box={b}
+              highlighted={Number(highlightedPlanBoxId) === Number(b.id)}
+              onHighlightBox={() => onHighlightPlanBox?.(Number(b.id))}
+              onUnhighlightBox={() => onHighlightPlanBox?.(null)}
               planId={activePlan?.id}
               commentDraft={String(boxCommentDraftById[Number(b.id)] ?? "")}
               onCommentChange={(text) =>
@@ -1087,7 +1118,11 @@ function TrailPlanHub({
 }
 
 function PlanBoxReservationCard({
+  nativeID: domId,
   box,
+  highlighted = false,
+  onHighlightBox,
+  onUnhighlightBox,
   commentDraft,
   onCommentChange,
   onSaveComment,
@@ -1118,13 +1153,16 @@ function PlanBoxReservationCard({
 
   return (
     <View
+      nativeID={domId}
       style={[
         styles.planBoxReservationCard,
         {
-          borderColor: colors.border,
-          backgroundColor: colors.bg,
+          borderColor: highlighted ? "#EA580C" : colors.border,
+          backgroundColor: highlighted ? "#FFF7ED" : colors.bg,
         },
+        highlighted && styles.mapPointRowHighlight,
       ]}
+      {...webHoverHandlers(onHighlightBox, onUnhighlightBox)}
     >
       <Pressable onPress={onFocusBox} style={styles.planBoxRowMain}>
         <Text style={styles.planBoxTitle} numberOfLines={1}>
