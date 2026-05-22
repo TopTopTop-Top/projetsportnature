@@ -76,38 +76,49 @@ export function RelevanceVoteRow({
   label = "Ta note de pertinence",
   myScore = null,
   disabled,
+  disabledReason,
   onVote,
 }) {
   const current = Number(myScore);
+  const locked = Boolean(disabled || disabledReason);
   return (
     <View style={styles.voteWrap}>
       <Text style={styles.voteLabel}>{label}</Text>
-      <View style={styles.voteStars}>
-        {[1, 2, 3, 4, 5].map((star) => {
-          const active = Number.isFinite(current) && star <= current;
-          return (
-            <TouchableOpacity
-              key={`rel-star-${star}`}
-              disabled={disabled}
-              onPress={() => onVote?.(star)}
-              style={styles.voteStarBtn}
-              activeOpacity={0.75}
-            >
-              <Text
-                style={[
-                  styles.voteStar,
-                  active ? styles.voteStarOn : styles.voteStarOff,
-                ]}
-              >
-                ★
-              </Text>
-            </TouchableOpacity>
-          );
-        })}
-      </View>
-      <Text style={styles.voteHint}>
-        1 = peu pertinent · 5 = très utile (agrégat, pas de fil de discussion)
-      </Text>
+      {locked ? (
+        <Text style={styles.voteDisabled}>
+          {disabledReason ||
+            "Tu ne peux pas noter pour l’instant (parcours non éligible)."}
+        </Text>
+      ) : (
+        <>
+          <View style={styles.voteStars}>
+            {[1, 2, 3, 4, 5].map((star) => {
+              const active = Number.isFinite(current) && star <= current;
+              return (
+                <TouchableOpacity
+                  key={`rel-star-${star}`}
+                  disabled={locked}
+                  onPress={() => onVote?.(star)}
+                  style={styles.voteStarBtn}
+                  activeOpacity={0.75}
+                >
+                  <Text
+                    style={[
+                      styles.voteStar,
+                      active ? styles.voteStarOn : styles.voteStarOff,
+                    ]}
+                  >
+                    ★
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+          <Text style={styles.voteHint}>
+            1 = peu pertinent · 5 = très utile · réservation terminée requise
+          </Text>
+        </>
+      )}
     </View>
   );
 }
@@ -155,5 +166,12 @@ const styles = StyleSheet.create({
     fontSize: 10,
     lineHeight: 14,
     color: theme.inkMuted,
+  },
+  voteDisabled: {
+    marginTop: 4,
+    fontSize: 11,
+    lineHeight: 16,
+    color: "#B45309",
+    fontWeight: "600",
   },
 });

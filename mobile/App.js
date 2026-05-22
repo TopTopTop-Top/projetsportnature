@@ -2783,6 +2783,7 @@ function ExplorerScreen() {
     setChartProbeHover(false);
   }, [selectedTrailId, setExplorerProbeLock]);
 
+  const [trailVoteEligibility, setTrailVoteEligibility] = useState(null);
   const [planSearchQuery, setPlanSearchQuery] = useState("");
   const [routePlanDraftNotes, setRoutePlanDraftNotes] = useState("");
   const [explorerPlanSaveName, setExplorerPlanSaveName] = useState("");
@@ -2850,6 +2851,26 @@ function ExplorerScreen() {
     refreshTrailCommunityData();
     setSharedPlanPreview(null);
   }, [selectedTrailId, refreshTrailCommunityData]);
+
+  useEffect(() => {
+    const tid = Number(selectedTrailId);
+    if (!user || !Number.isFinite(tid)) {
+      setTrailVoteEligibility(null);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      const elig =
+        await actionsRef.current.checkResourceRelevanceEligibility?.({
+          resourceType: "trail",
+          resourceId: tid,
+        });
+      if (!cancelled) setTrailVoteEligibility(elig || null);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedTrailId, user, actionsRef]);
 
   const openSharedPlanPreview = useCallback(
     async (planId) => {
@@ -5788,12 +5809,27 @@ function ExplorerScreen() {
                       <RelevanceVoteRow
                         label="Pertinence de cette trace"
                         myScore={selectedTrail.my_relevance_score}
+                        disabled={!trailVoteEligibility?.eligible}
+                        disabledReason={
+                          trailVoteEligibility?.eligible
+                            ? null
+                            : trailVoteEligibility?.message
+                        }
                         onVote={async (score) => {
                           await actionsRef.current.setResourceRelevance?.({
                             resourceType: "trail",
                             resourceId: Number(selectedTrail.id),
                             score,
                           });
+                          const elig =
+                            await actionsRef.current.checkResourceRelevanceEligibility?.(
+                              {
+                                resourceType: "trail",
+                                resourceId: Number(selectedTrail.id),
+                              }
+                            );
+                          setTrailVoteEligibility(elig || null);
+                          await actionsRef.current.loadTrails?.();
                         }}
                       />
                     ) : null}
@@ -11692,17 +11728,48 @@ function RavitoApp() {
     }
   };
 
-  const loadDiscoverRoutePlans = async ({ city: cityQ } = {}) => {
+  const loadDiscoverRoutePlans = async ({
+    city: cityQ,
+    scope = "others",
+    useCity = false,
+  } = {}) => {
     try {
       const params = new URLSearchParams();
-      const c = String(cityQ ?? city ?? "").trim();
-      if (c.length >= 2) params.set("city", c);
+      if (scope) params.set("scope", String(scope));
+      if (useCity) {
+        params.set("useCity", "true");
+        const c = String(cityQ ?? city ?? "").trim();
+        if (c.length >= 2) params.set("city", c);
+      }
       const query = params.toString() ? `?${params.toString()}` : "";
       return await apiFetch(`/route-plans/discover${query}`, {
         token: token || undefined,
       });
     } catch (_e) {
       return [];
+    }
+  };
+
+  const checkResourceRelevanceEligibility = async ({
+    resourceType,
+    resourceId,
+  } = {}) => {
+    if (!token) return { eligible: false, message: "Connexion requise." };
+    const rid = Number(resourceId);
+    if (!Number.isFinite(rid) || rid <= 0) {
+      return { eligible: false, message: "Ressource invalide." };
+    }
+    try {
+      const params = new URLSearchParams({
+        resourceType: String(resourceType),
+        resourceId: String(rid),
+      });
+      return await apiFetch(`/relevance/eligibility?${params}`, { token });
+    } catch (error) {
+      return {
+        eligible: false,
+        message: error.message || "Éligibilité indisponible.",
+      };
     }
   };
 
@@ -13308,6 +13375,7 @@ function RavitoApp() {
     },
     loadDiscoverRoutePlans,
     setResourceRelevance,
+    checkResourceRelevanceEligibility,
     refreshSession,
     logout,
     updateMyRole,

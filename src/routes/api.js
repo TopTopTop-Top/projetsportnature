@@ -1700,6 +1700,154 @@ router.get("/trails", optionalAuth, async (req, res) => {
   res.json(enriched);
 });
 
+async function athleteHasCompletedBoxBooking(userId, boxId) {
+  const { rows } = await pool.query(
+    `SELECT 1 FROM bookings
+     WHERE athlete_user_id = $1 AND box_id = $2
+       AND status = 'completed'
+       AND approval_status = 'accepted'
+     LIMIT 1`,
+    [userId, boxId]
+  );
+  return !!rows[0];
+}
+
+async function getPlanRelevanceEligibility(userId, planId) {
+  const { rows } = await pool.query(
+    `SELECT id, athlete_user_id, name, visibility FROM route_plans WHERE id = $1`,
+    [planId]
+  );
+  const plan = rows[0];
+  if (!plan) {
+    return {
+      eligible: false,
+      reasonCode: "not_found",
+      message: "Plan introuvable.",
+    };
+  }
+  if (Number(plan.athlete_user_id) === userId) {
+    return {
+      eligible: false,
+      reasonCode: "own_plan",
+      message:
+        "Tu ne notes pas ton propre plan. La pertinence reflète un parcours réalisé par d’autres athlètes.",
+    };
+  }
+  const { rows: boxRows } = await pool.query(
+    `SELECT rpb.box_id, b.title
+     FROM route_plan_boxes rpb
+     JOIN boxes b ON b.id = rpb.box_id
+     WHERE rpb.route_plan_id = $1
+     ORDER BY rpb.sort_index ASC`,
+    [planId]
+  );
+  if (boxRows.length === 0) {
+    return {
+      eligible: false,
+      reasonCode: "no_boxes",
+      message: "Ce plan n’a pas de box : pas de note collective possible.",
+    };
+  }
+  const missing = [];
+  for (const row of boxRows) {
+    const bid = Number(row.box_id);
+    if (!(await athleteHasCompletedBoxBooking(userId, bid))) {
+      missing.push(String(row.title || `Box #${bid}`));
+    }
+  }
+  if (missing.length > 0) {
+    return {
+      eligible: false,
+      reasonCode: "incomplete_plan",
+      message: `Il faut une réservation terminée et acceptée sur chaque box du plan. Manquant : ${missing.join(", ")}.`,
+      missing_boxes: missing,
+    };
+  }
+  return {
+    eligible: true,
+    reasonCode: "ok",
+    message: "Parcours complet : toutes les box du plan ont été réservées et terminées.",
+  };
+}
+
+async function getTrailRelevanceEligibility(userId, trailId) {
+  const { rows: trailRows } = await pool.query(
+    `SELECT id, creator_user_id, is_public FROM trails WHERE id = $1`,
+    [trailId]
+  );
+  const trail = trailRows[0];
+  if (!trail) {
+    return {
+      eligible: false,
+      reasonCode: "not_found",
+      message: "Trace introuvable.",
+    };
+  }
+  if (Number(trail.creator_user_id) === userId) {
+    return {
+      eligible: false,
+      reasonCode: "own_trail",
+      message:
+        "Tu ne notes pas ta propre trace (évite les notes de dissuasion ou d’auto-promotion).",
+    };
+  }
+  if (Number(trail.is_public) !== 1) {
+    return {
+      eligible: false,
+      reasonCode: "private_trail",
+      message: "Trace non publique.",
+    };
+  }
+  const { rows: plans } = await pool.query(
+    `SELECT id, name FROM route_plans
+     WHERE trail_id = $1 AND visibility = 'shared' AND athlete_user_id <> $2`,
+    [trailId, userId]
+  );
+  for (const p of plans) {
+    const elig = await getPlanRelevanceEligibility(userId, Number(p.id));
+    if (elig.eligible) {
+      return {
+        eligible: true,
+        reasonCode: "completed_shared_plan",
+        message: `Parcours complet sur le plan partagé « ${p.name || "sans nom"} ».`,
+        via_plan_id: Number(p.id),
+      };
+    }
+  }
+  return {
+    eligible: false,
+    reasonCode: "no_full_itinerary",
+    message:
+      "Pour noter une trace, réalise toutes les box d’un plan partagé sur ce tracé (réservations acceptées, statut terminé). Une box seule ne suffit pas — preuve d’itinéraire complet.",
+  };
+}
+
+async function getResourceRelevanceEligibility(userId, resourceType, resourceId) {
+  if (resourceType === "trail") {
+    return getTrailRelevanceEligibility(userId, resourceId);
+  }
+  return getPlanRelevanceEligibility(userId, resourceId);
+}
+
+router.get("/relevance/eligibility", requireAuth, async (req, res) => {
+  const resourceType = String(req.query.resourceType || "");
+  const resourceId = Number(req.query.resourceId);
+  if (
+    !["trail", "plan"].includes(resourceType) ||
+    !Number.isInteger(resourceId) ||
+    resourceId <= 0
+  ) {
+    return res.status(400).json({ error: "Invalid resourceType or resourceId" });
+  }
+  const userId = Number(req.auth.sub);
+  const result = await getResourceRelevanceEligibility(
+    userId,
+    resourceType,
+    resourceId
+  );
+  return res.json(result);
+});
+
 async function handleSetResourceRelevance(req, res) {
   const parsed = setRelevanceSchema.safeParse(req.body);
   if (!parsed.success) {
@@ -1707,22 +1855,33 @@ async function handleSetResourceRelevance(req, res) {
   }
   const { resourceType, resourceId, score } = parsed.data;
   const userId = Number(req.auth.sub);
+  const eligibility = await getResourceRelevanceEligibility(
+    userId,
+    resourceType,
+    resourceId
+  );
+  if (!eligibility.eligible) {
+    return res.status(403).json({
+      error: eligibility.message,
+      reasonCode: eligibility.reasonCode,
+      ...eligibility,
+    });
+  }
   if (resourceType === "trail") {
     const { rows: trailRows } = await pool.query(
-      `SELECT id FROM trails WHERE id = $1 AND (is_public = 1 OR creator_user_id = $2)`,
-      [resourceId, userId]
+      `SELECT id FROM trails WHERE id = $1 AND is_public = 1`,
+      [resourceId]
     );
     if (!trailRows[0]) {
       return res.status(404).json({ error: "Trail not found" });
     }
   } else {
     const { rows: planRows } = await pool.query(
-      `SELECT id FROM route_plans
-       WHERE id = $1 AND (visibility = 'shared' OR athlete_user_id = $2)`,
-      [resourceId, userId]
+      `SELECT id FROM route_plans WHERE id = $1 AND visibility = 'shared'`,
+      [resourceId]
     );
     if (!planRows[0]) {
-      return res.status(404).json({ error: "Plan not found" });
+      return res.status(404).json({ error: "Shared plan not found" });
     }
   }
   try {
@@ -2481,22 +2640,27 @@ router.get("/route-plans", requireAuth, async (req, res) => {
 
 router.get("/route-plans/discover", optionalAuth, async (req, res) => {
   const city = String(req.query.city || "").trim();
+  const scope = String(req.query.scope || "others");
+  const useCity = req.query.useCity === "true";
   const limit = Math.min(
     60,
     Math.max(1, parseInt(String(req.query.limit || "40"), 10) || 40)
   );
-  const excludeUserId =
+  const viewerId =
     req.auth?.sub != null && Number.isFinite(Number(req.auth.sub))
       ? Number(req.auth.sub)
       : null;
   const vals = [];
   let n = 1;
   const where = ["rp.visibility = 'shared'"];
-  if (excludeUserId != null) {
+  if (scope === "others" && viewerId != null) {
     where.push(`rp.athlete_user_id <> $${n++}`);
-    vals.push(excludeUserId);
+    vals.push(viewerId);
+  } else if (scope === "mine" && viewerId != null) {
+    where.push(`rp.athlete_user_id = $${n++}`);
+    vals.push(viewerId);
   }
-  if (city.length >= 2) {
+  if (useCity && city.length >= 2) {
     where.push(
       `(t.territory ILIKE $${n} OR t.name ILIKE $${n} OR rp.name ILIKE $${n})`
     );
@@ -2505,7 +2669,8 @@ router.get("/route-plans/discover", optionalAuth, async (req, res) => {
   }
   vals.push(limit);
   const { rows } = await pool.query(
-    `SELECT rp.id, rp.name, rp.notes, rp.trail_id, rp.updated_at, rp.created_at,
+    `SELECT rp.id, rp.name, rp.notes, rp.trail_id, rp.athlete_user_id, rp.visibility,
+            rp.updated_at, rp.created_at,
             t.name AS trail_name, t.territory,
             u.full_name AS author_name,
             COUNT(DISTINCT rpb.id)::int AS box_count,
@@ -2517,7 +2682,7 @@ router.get("/route-plans/discover", optionalAuth, async (req, res) => {
      LEFT JOIN route_plan_boxes rpb ON rpb.route_plan_id = rp.id
      LEFT JOIN route_plan_trail_notes rtn ON rtn.route_plan_id = rp.id
      WHERE ${where.join(" AND ")}
-     GROUP BY rp.id, t.id, u.full_name
+     GROUP BY rp.id, t.id, u.full_name, rp.athlete_user_id, rp.visibility
      ORDER BY rp.updated_at DESC
      LIMIT $${n}`,
     vals
@@ -2526,8 +2691,11 @@ router.get("/route-plans/discover", optionalAuth, async (req, res) => {
     rows.map((r) => ({
       ...r,
       author_label: authorDisplayLabel(r.author_name),
+      is_own:
+        viewerId != null &&
+        Number(r.athlete_user_id) === Number(viewerId),
     })),
-    excludeUserId
+    viewerId
   );
   return res.json(enriched);
 });

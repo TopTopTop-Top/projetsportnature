@@ -15,7 +15,12 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import ExplorerWebMap from "./ExplorerWebMap";
 import NativeExplorerMap from "./NativeExplorerMap";
-import { buildTrailMapPoints } from "./trailMapPoints";
+import {
+  buildTrailMapPoints,
+  trailMapPointId,
+  mapPointDomId,
+  planBoxDomId,
+} from "./trailMapPoints";
 import {
   RelevanceBadge,
   RelevanceVoteRow,
@@ -35,6 +40,28 @@ const theme = {
 };
 
 const TABBAR_SCROLL_PADDING = Platform.OS === "web" ? 120 : 48;
+
+function webHoverHandlers(onEnter, onLeave) {
+  if (Platform.OS !== "web") return {};
+  return { onMouseEnter: onEnter, onMouseLeave: onLeave };
+}
+
+function scrollToDomId(domId) {
+  if (Platform.OS !== "web" || typeof document === "undefined" || !domId) {
+    return;
+  }
+  try {
+    document
+      .getElementById(domId)
+      ?.scrollIntoView?.({ behavior: "smooth", block: "nearest" });
+  } catch {
+    /* noop */
+  }
+}
+
+function planGpsSource(selectedKind) {
+  return selectedKind === "discover" ? "shared_preview" : "plan";
+}
 
 function formatPlanDate(iso) {
   if (!iso) return "";
@@ -104,6 +131,12 @@ function PlanPreviewMap({
   mapLat,
   mapLon,
   fullHeight = false,
+  highlightedMapPointId = null,
+  highlightedPlanBoxId = null,
+  onMapPointHover,
+  onMapPointClick,
+  onPlanBoxHover,
+  onSelectBox,
 }) {
   const trailId = Number(detail?.trail_id);
   const trail = useMemo(
@@ -144,7 +177,14 @@ function PlanPreviewMap({
     autoFitToData: true,
     followExternalCenter: false,
     recenterNonce,
-    onSelectBox: () => {},
+    onSelectBox: (boxId) => {
+      const bid = Number(boxId);
+      if (Number.isFinite(bid)) {
+        onSelectBox?.(bid);
+        onPlanBoxHover?.(bid);
+        scrollToDomId(planBoxDomId(bid));
+      }
+    },
     onSelectTrail: () => {},
   };
 
@@ -161,10 +201,21 @@ function PlanPreviewMap({
           {...common}
           trailMapPoints={trailMapPoints}
           planPointLabelsPermanent
+          highlightedMapPointId={highlightedMapPointId}
+          highlightedPlanBoxId={highlightedPlanBoxId}
+          onMapPointHover={onMapPointHover}
+          onMapPointClick={onMapPointClick}
+          onPlanBoxHover={onPlanBoxHover}
           staticOrigin={staticOrigin || ""}
         />
       ) : (
-        <NativeExplorerMap {...common} />
+        <NativeExplorerMap
+          {...common}
+          onSelectBox={(boxId) => {
+            const bid = Number(boxId);
+            if (Number.isFinite(bid)) onSelectBox?.(bid);
+          }}
+        />
       )}
     </View>
   );
@@ -176,36 +227,37 @@ function PlanListCard({
   onPress,
   onToggleVisibility,
   onFork,
-  isMine,
+  isOwn,
+  isCommunity,
   busy,
 }) {
   const pid = Number(plan.id);
-  const shared = String(plan.visibility) === "shared";
+  const isPublic = String(plan.visibility) === "shared";
 
   return (
     <TouchableOpacity
       onPress={onPress}
       activeOpacity={0.9}
-      style={[styles.card, selected && styles.cardSelected]}
+      style={[
+        styles.card,
+        isCommunity ? styles.cardCommunity : styles.cardOwnPublic,
+        selected && styles.cardSelected,
+      ]}
     >
       <View style={styles.cardHeader}>
         <Text style={styles.cardTitle} numberOfLines={2}>
           {plan.name || `Plan #${pid}`}
         </Text>
-        {isMine ? (
-          <View
-            style={[
-              styles.badge,
-              shared ? styles.badgeShared : styles.badgePrivate,
-            ]}
-          >
-            <Text
-              style={[
-                styles.badgeText,
-                shared ? styles.badgeTextShared : styles.badgeTextPrivate,
-              ]}
-            >
-              {shared ? "Public" : "Privé"}
+        {isCommunity ? (
+          <View style={[styles.badge, styles.badgeCommunity]}>
+            <Text style={[styles.badgeText, styles.badgeTextCommunity]}>
+              Communauté
+            </Text>
+          </View>
+        ) : isOwn ? (
+          <View style={[styles.badge, styles.badgeOwnPublic]}>
+            <Text style={[styles.badgeText, styles.badgeTextOwnPublic]}>
+              Mon public
             </Text>
           </View>
         ) : (
@@ -234,7 +286,7 @@ function PlanListCard({
         </Text>
       ) : null}
       <View style={styles.cardActions}>
-        {isMine && onToggleVisibility ? (
+        {isOwn && onToggleVisibility ? (
           <TouchableOpacity
             style={styles.cardActionBtn}
             disabled={busy}
@@ -244,16 +296,16 @@ function PlanListCard({
             }}
           >
             <Ionicons
-              name={shared ? "lock-closed-outline" : "globe-outline"}
+              name={isPublic ? "lock-closed-outline" : "globe-outline"}
               size={14}
               color={theme.primary}
             />
             <Text style={styles.cardActionText}>
-              {shared ? "Privé" : "Public"}
+              {isPublic ? "Passer privé" : "Rendre public"}
             </Text>
           </TouchableOpacity>
         ) : null}
-        {!isMine && onFork ? (
+        {isCommunity && onFork ? (
           <TouchableOpacity
             style={styles.cardActionBtn}
             disabled={busy}
@@ -278,6 +330,11 @@ function PlanDetailPanel({
   isAuthed,
   selectedKind,
   onVoteRelevance,
+  voteEligibility,
+  highlightedMapPointId,
+  highlightedPlanBoxId,
+  onHighlightMapPoint,
+  onHighlightPlanBox,
 }) {
   if (loading) {
     return (
@@ -290,6 +347,8 @@ function PlanDetailPanel({
   const boxes = Array.isArray(detail.boxes) ? detail.boxes : [];
   const trailNotes = Array.isArray(detail.trail_notes) ? detail.trail_notes : [];
   const isSharedPreview = selectedKind === "discover";
+  const gpsSource = planGpsSource(selectedKind);
+  const isCommunityPlan = selectedKind === "discover";
 
   return (
     <View style={styles.detailPanel}>
@@ -308,14 +367,14 @@ function PlanDetailPanel({
       {String(detail.notes || "").trim() ? (
         <Text style={styles.detailBody}>{String(detail.notes).trim()}</Text>
       ) : null}
-      {isAuthed ? (
+      {isAuthed && isCommunityPlan ? (
         <RelevanceVoteRow
-          label={
-            selectedKind === "discover"
-              ? "Ce plan partagé t’inspire ?"
-              : "Pertinence de ton plan"
-          }
+          label="Pertinence de ce plan partagé"
           myScore={detail.my_relevance_score}
+          disabled={!voteEligibility?.eligible}
+          disabledReason={
+            voteEligibility?.eligible ? null : voteEligibility?.message
+          }
           onVote={(score) =>
             onVoteRelevance?.({
               resourceType: "plan",
@@ -324,6 +383,12 @@ function PlanDetailPanel({
             })
           }
         />
+      ) : isAuthed ? (
+        <Text style={styles.eligibilityNote}>
+          La note de pertinence est réservée aux autres athlètes qui ont terminé
+          toutes les box de ce plan (réservations acceptées). Tu la vois dans
+          Découverte pour les plans des autres.
+        </Text>
       ) : null}
       <TouchableOpacity style={styles.secondaryBtn} onPress={onOpenExplorer}>
         <Ionicons name="compass-outline" size={16} color={theme.primary} />
@@ -335,20 +400,32 @@ function PlanDetailPanel({
       {boxes.length === 0 ? (
         <Text style={styles.emptyHint}>Aucune box dans ce plan.</Text>
       ) : (
-        boxes.map((b) => (
-          <View key={`db-${b.id}`} style={styles.noteRow}>
-            <Text style={styles.noteKind}>Box</Text>
-            <Text style={styles.noteTitle}>{b.title || b.name || `Box #${b.id}`}</Text>
-            {b.city ? (
-              <Text style={styles.noteMeta}>{b.city}</Text>
-            ) : null}
-            {b.plan_box_comment ? (
-              <Text style={styles.noteBody}>{b.plan_box_comment}</Text>
-            ) : (
-              <Text style={styles.noteEmpty}>Pas de commentaire</Text>
-            )}
-          </View>
-        ))
+        boxes.map((b) => {
+          const bid = Number(b.id);
+          const boxHi = Number(highlightedPlanBoxId) === bid;
+          return (
+            <View
+              key={`db-${b.id}`}
+              nativeID={planBoxDomId(bid)}
+              style={[styles.noteRow, boxHi && styles.noteRowHighlight]}
+              {...webHoverHandlers(
+                () => onHighlightPlanBox?.(bid),
+                () => onHighlightPlanBox?.(null)
+              )}
+            >
+              <Text style={styles.noteKind}>Box</Text>
+              <Text style={styles.noteTitle}>
+                {b.title || b.name || `Box #${b.id}`}
+              </Text>
+              {b.city ? <Text style={styles.noteMeta}>{b.city}</Text> : null}
+              {b.plan_box_comment ? (
+                <Text style={styles.noteBody}>{b.plan_box_comment}</Text>
+              ) : (
+                <Text style={styles.noteEmpty}>Pas de commentaire</Text>
+              )}
+            </View>
+          );
+        })
       )}
       <Text style={styles.detailSection}>
         Points GPS ({trailNotes.length})
@@ -364,8 +441,18 @@ function PlanDetailPanel({
       ) : (
         trailNotes.map((n, idx) => {
           const body = String(n.note || "").trim();
+          const ptId = trailMapPointId(gpsSource, n.id, idx);
+          const ptHi = highlightedMapPointId === ptId;
           return (
-            <View key={`gps-${n.id ?? idx}`} style={styles.noteRow}>
+            <View
+              key={`gps-${n.id ?? idx}`}
+              nativeID={mapPointDomId(ptId)}
+              style={[styles.noteRow, ptHi && styles.noteRowHighlight]}
+              {...webHoverHandlers(
+                () => onHighlightMapPoint?.(ptId),
+                () => onHighlightMapPoint?.(null)
+              )}
+            >
               <Text style={styles.noteKind}>GPS {idx + 1}</Text>
               <Text style={styles.noteTitle}>
                 {body || "Point sans texte"}
@@ -399,41 +486,83 @@ export default function PlansScreen({ appMain = {} }) {
   const { width } = useWindowDimensions();
   const isFocused = useIsFocused();
   const [section, setSection] = useState("private");
+  const [publicFilter, setPublicFilter] = useState("all");
   const [search, setSearch] = useState("");
-  const [discoverPlans, setDiscoverPlans] = useState([]);
-  const [discoverBusy, setDiscoverBusy] = useState(false);
+  const [communityPlans, setCommunityPlans] = useState([]);
+  const [communityBusy, setCommunityBusy] = useState(false);
   const [selectedId, setSelectedId] = useState(null);
   const [selectedKind, setSelectedKind] = useState(null);
   const [detail, setDetail] = useState(null);
   const [detailBusy, setDetailBusy] = useState(false);
+  const [voteEligibility, setVoteEligibility] = useState(null);
+  const [highlightedMapPointId, setHighlightedMapPointId] = useState(null);
+  const [highlightedPlanBoxId, setHighlightedPlanBoxId] = useState(null);
 
   const isAuthed = Boolean(user);
   const wideLayout = width >= 900;
+
+  const handleMapPointHover = useCallback((pointId) => {
+    setHighlightedMapPointId(pointId || null);
+    if (pointId) setHighlightedPlanBoxId(null);
+  }, []);
+
+  const handlePlanBoxHover = useCallback((boxId) => {
+    if (boxId == null || boxId === "") {
+      setHighlightedPlanBoxId(null);
+      return;
+    }
+    const bid = Number(boxId);
+    setHighlightedPlanBoxId(Number.isFinite(bid) ? bid : null);
+    setHighlightedMapPointId(null);
+  }, []);
+
+  const handleMapPointClick = useCallback((pt) => {
+    if (!pt?.id) return;
+    setHighlightedMapPointId(pt.id);
+    setHighlightedPlanBoxId(null);
+    scrollToDomId(mapPointDomId(pt.id));
+  }, []);
+
+  const handleHighlightMapPoint = useCallback((pointId) => {
+    setHighlightedMapPointId(pointId || null);
+    if (pointId) setHighlightedPlanBoxId(null);
+  }, []);
+
+  const handleHighlightPlanBox = useCallback((boxId) => {
+    if (boxId == null) {
+      setHighlightedPlanBoxId(null);
+      return;
+    }
+    const bid = Number(boxId);
+    setHighlightedPlanBoxId(Number.isFinite(bid) ? bid : null);
+    setHighlightedMapPointId(null);
+  }, []);
 
   const refreshMine = useCallback(async () => {
     if (!isAuthed) return;
     await actionsRef.current.loadRoutePlans?.();
   }, [isAuthed, actionsRef]);
 
-  const refreshDiscover = useCallback(async () => {
-    setDiscoverBusy(true);
+  const refreshCommunity = useCallback(async () => {
+    setCommunityBusy(true);
     try {
       const rows = await actionsRef.current.loadDiscoverRoutePlans?.({
-        city,
+        scope: "others",
+        useCity: false,
       });
-      setDiscoverPlans(Array.isArray(rows) ? rows : []);
+      setCommunityPlans(Array.isArray(rows) ? rows : []);
     } catch {
-      setDiscoverPlans([]);
+      setCommunityPlans([]);
     } finally {
-      setDiscoverBusy(false);
+      setCommunityBusy(false);
     }
-  }, [actionsRef, city]);
+  }, [actionsRef]);
 
   useEffect(() => {
     if (!isFocused) return;
     refreshMine();
-    refreshDiscover();
-  }, [isFocused, refreshMine, refreshDiscover]);
+    refreshCommunity();
+  }, [isFocused, refreshMine, refreshCommunity]);
 
   const myPrivate = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -448,33 +577,47 @@ export default function PlansScreen({ appMain = {} }) {
     });
   }, [routePlans, search]);
 
-  const myShared = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    return (routePlans || []).filter((p) => {
-      if (String(p.visibility) !== "shared") return false;
-      if (!q) return true;
-      const hay = [p.name, p.trail_name, p.territory, p.notes]
-        .filter(Boolean)
-        .join(" ")
-        .toLowerCase();
-      return hay.includes(q);
-    });
-  }, [routePlans, search]);
+  const myPublicPlans = useMemo(() => {
+    return (routePlans || []).filter((p) => String(p.visibility) === "shared");
+  }, [routePlans]);
 
-  const discoverFiltered = useMemo(() => {
+  const publicPlansMerged = useMemo(() => {
+    const byId = new Map();
+    for (const p of myPublicPlans) {
+      const pid = Number(p.id);
+      if (!Number.isFinite(pid)) continue;
+      byId.set(pid, {
+        ...p,
+        listKind: "mine",
+        isOwn: true,
+        isCommunity: false,
+      });
+    }
+    for (const p of communityPlans) {
+      const pid = Number(p.id);
+      if (!Number.isFinite(pid) || byId.has(pid)) continue;
+      byId.set(pid, {
+        ...p,
+        listKind: "discover",
+        isOwn: false,
+        isCommunity: true,
+      });
+    }
+    return [...byId.values()].sort(
+      (a, b) =>
+        new Date(b.updated_at || 0).getTime() -
+        new Date(a.updated_at || 0).getTime()
+    );
+  }, [myPublicPlans, communityPlans]);
+
+  const publicPlansFiltered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    let list = [...discoverPlans];
-    list.sort((a, b) => {
-      const ca = Number(a.relevance_count) || 0;
-      const cb = Number(b.relevance_count) || 0;
-      if (ca === 0 && cb > 0) return 1;
-      if (cb === 0 && ca > 0) return -1;
-      const avgDiff =
-        (Number(b.relevance_avg_score) || 0) -
-        (Number(a.relevance_avg_score) || 0);
-      if (avgDiff !== 0) return avgDiff;
-      return (Number(b.fork_count) || 0) - (Number(a.fork_count) || 0);
-    });
+    let list = publicPlansMerged;
+    if (publicFilter === "mine") {
+      list = list.filter((p) => p.isOwn);
+    } else if (publicFilter === "community") {
+      list = list.filter((p) => p.isCommunity);
+    }
     if (!q) return list;
     return list.filter((p) => {
       const hay = [
@@ -490,14 +633,19 @@ export default function PlansScreen({ appMain = {} }) {
         .toLowerCase();
       return hay.includes(q);
     });
-  }, [discoverPlans, search]);
+  }, [publicPlansMerged, publicFilter, search]);
 
   const listForSection =
-    section === "private"
-      ? myPrivate
-      : section === "shared_mine"
-        ? myShared
-        : discoverFiltered;
+    section === "private" ? myPrivate : publicPlansFiltered;
+
+  const publicCounts = useMemo(
+    () => ({
+      all: publicPlansMerged.length,
+      mine: publicPlansMerged.filter((p) => p.isOwn).length,
+      community: publicPlansMerged.filter((p) => p.isCommunity).length,
+    }),
+    [publicPlansMerged]
+  );
 
   const loadDetail = useCallback(
     async (planId, kind) => {
@@ -507,10 +655,21 @@ export default function PlansScreen({ appMain = {} }) {
       setSelectedKind(kind);
       setDetailBusy(true);
       setDetail(null);
+      setVoteEligibility(null);
+      setHighlightedMapPointId(null);
+      setHighlightedPlanBoxId(null);
       try {
         if (kind === "discover") {
           const d = await actionsRef.current.loadSharedRoutePlan?.(pid);
           setDetail(d || null);
+          if (d) {
+            const elig =
+              await actionsRef.current.checkResourceRelevanceEligibility?.({
+                resourceType: "plan",
+                resourceId: pid,
+              });
+            setVoteEligibility(elig || null);
+          }
         } else {
           const d = await actionsRef.current.loadRoutePlanDetail?.(pid);
           setDetail(d || null);
@@ -542,11 +701,12 @@ export default function PlansScreen({ appMain = {} }) {
         String(plan.visibility) === "shared" ? "private" : "shared";
       await actionsRef.current.updateRoutePlan?.(pid, { visibility: next });
       await refreshMine();
+      await refreshCommunity();
       if (Number(selectedId) === pid) {
         await loadDetail(pid, "mine");
       }
     },
-    [actionsRef, refreshMine, selectedId, loadDetail]
+    [actionsRef, refreshMine, refreshCommunity, selectedId, loadDetail]
   );
 
   const votePlanRelevance = useCallback(
@@ -556,17 +716,24 @@ export default function PlansScreen({ appMain = {} }) {
       const kind = selectedKind;
       if (Number.isFinite(pid)) {
         await loadDetail(pid, kind);
+        if (kind === "discover") {
+          const elig =
+            await actionsRef.current.checkResourceRelevanceEligibility?.({
+              resourceType: "plan",
+              resourceId: pid,
+            });
+          setVoteEligibility(elig || null);
+        }
       }
       await refreshMine();
-      if (section === "discover") await refreshDiscover();
+      await refreshCommunity();
     },
     [
       actionsRef,
       selectedKind,
       loadDetail,
       refreshMine,
-      refreshDiscover,
-      section,
+      refreshCommunity,
     ]
   );
 
@@ -601,6 +768,13 @@ export default function PlansScreen({ appMain = {} }) {
             staticOrigin={staticOrigin}
             mapLat={mapLat}
             mapLon={mapLon}
+            fullHeight={wideLayout}
+            highlightedMapPointId={highlightedMapPointId}
+            highlightedPlanBoxId={highlightedPlanBoxId}
+            onMapPointHover={handleMapPointHover}
+            onMapPointClick={handleMapPointClick}
+            onPlanBoxHover={handlePlanBoxHover}
+            onSelectBox={handleHighlightPlanBox}
           />
         ) : null}
       </View>
@@ -628,19 +802,18 @@ export default function PlansScreen({ appMain = {} }) {
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={Platform.OS === "web"}
         >
-          <Text style={styles.intro}>
-            Bibliothèque de tes parcours. Touche un plan pour l’aperçu sur la
-            carte (trace, box, points GPS). Les badges ★ indiquent la
-            pertinence (votes 1–5).
-          </Text>
+        <Text style={styles.intro}>
+          Touche un plan : carte et liste restent liées (survol box / point GPS).
+          Plans publics = les tiens et ceux de la communauté. Note ★ communauté
+          seulement après toutes les box réservées et terminées.
+        </Text>
 
           {!wideLayout ? mapPane : null}
 
           <View style={styles.tabRow}>
             {[
               { id: "private", label: "Mes privés" },
-              { id: "shared_mine", label: "Mes publics" },
-              { id: "discover", label: "Découverte" },
+              { id: "public", label: "Plans publics" },
             ].map((t) => (
               <TouchableOpacity
                 key={t.id}
@@ -653,6 +826,9 @@ export default function PlansScreen({ appMain = {} }) {
                   setSelectedId(null);
                   setSelectedKind(null);
                   setDetail(null);
+                  setVoteEligibility(null);
+                  setHighlightedMapPointId(null);
+                  setHighlightedPlanBoxId(null);
                 }}
               >
                 <Text
@@ -667,6 +843,37 @@ export default function PlansScreen({ appMain = {} }) {
             ))}
           </View>
 
+          {section === "public" ? (
+            <View style={[styles.tabRow, { marginTop: 0 }]}>
+              {[
+                { id: "all", label: `Tous (${publicCounts.all})` },
+                { id: "mine", label: `Les miens (${publicCounts.mine})` },
+                {
+                  id: "community",
+                  label: `Communauté (${publicCounts.community})`,
+                },
+              ].map((t) => (
+                <TouchableOpacity
+                  key={`pf-${t.id}`}
+                  style={[
+                    styles.filterChip,
+                    publicFilter === t.id && styles.filterChipActive,
+                  ]}
+                  onPress={() => setPublicFilter(t.id)}
+                >
+                  <Text
+                    style={[
+                      styles.filterChipText,
+                      publicFilter === t.id && styles.filterChipTextActive,
+                    ]}
+                  >
+                    {t.label}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          ) : null}
+
           <TextInput
             style={styles.searchInput}
             value={search}
@@ -674,30 +881,32 @@ export default function PlansScreen({ appMain = {} }) {
             placeholder="Rechercher un plan, une trace, une ville…"
             placeholderTextColor="#94A3B8"
           />
-          {!isAuthed && section !== "discover" ? (
+          {!isAuthed && section === "private" ? (
             <Text style={styles.emptyHint}>
               Connecte-toi pour voir et gérer tes plans.
             </Text>
           ) : null}
-          {section === "discover" && discoverBusy ? (
+          {section === "public" && communityBusy ? (
             <ActivityIndicator
               style={{ marginVertical: 16 }}
               color={theme.primary}
             />
           ) : null}
-          {isAuthed || section === "discover" ? (
+          {section === "public" || isAuthed ? (
             listForSection.length === 0 ? (
               <Text style={styles.emptyHint}>
                 {section === "private"
                   ? "Aucun plan privé. Crée-en un depuis la Carte (trace + Mon plan)."
-                  : section === "shared_mine"
-                    ? "Aucun plan public à ton nom. Passe un plan en « Public » depuis la liste ou la Carte."
-                    : "Aucun plan public trouvé pour cette zone."}
+                  : publicFilter === "community"
+                    ? "Aucun plan public d’un autre athlète pour l’instant. Quand quelqu’un partage un plan, il apparaît ici."
+                    : publicFilter === "mine"
+                      ? "Aucun de tes plans n’est public. Passe un plan en « Public » depuis la Carte ou la liste."
+                      : "Aucun plan public. Publie le tien ou explore ceux de la communauté."}
               </Text>
             ) : (
               listForSection.map((plan) => {
                 const pid = Number(plan.id);
-                const kind = section === "discover" ? "discover" : "mine";
+                const kind = plan.listKind || "mine";
                 const selected =
                   Number(selectedId) === pid && selectedKind === kind;
                 return (
@@ -705,16 +914,17 @@ export default function PlansScreen({ appMain = {} }) {
                     key={`${kind}-${pid}`}
                     plan={plan}
                     selected={selected}
-                    isMine={kind === "mine"}
+                    isOwn={Boolean(plan.isOwn)}
+                    isCommunity={Boolean(plan.isCommunity)}
                     busy={routePlanBusy}
                     onPress={() => loadDetail(pid, kind)}
                     onToggleVisibility={
-                      kind === "mine"
+                      plan.isOwn
                         ? () => toggleVisibility(plan)
                         : undefined
                     }
                     onFork={
-                      kind === "discover" && isAuthed
+                      plan.isCommunity && isAuthed
                         ? () => forkPlan(plan)
                         : undefined
                     }
@@ -724,14 +934,19 @@ export default function PlansScreen({ appMain = {} }) {
             )
           ) : null}
           {selectedId != null ? (
-            <PlanDetailPanel
-              detail={detail}
-              loading={detailBusy}
-              isAuthed={isAuthed}
-              selectedKind={selectedKind}
-              onVoteRelevance={votePlanRelevance}
-              onOpenExplorer={() => openOnExplorer(selectedId, selectedKind)}
-            />
+              <PlanDetailPanel
+                detail={detail}
+                loading={detailBusy}
+                isAuthed={isAuthed}
+                selectedKind={selectedKind}
+                voteEligibility={voteEligibility}
+                highlightedMapPointId={highlightedMapPointId}
+                highlightedPlanBoxId={highlightedPlanBoxId}
+                onHighlightMapPoint={handleHighlightMapPoint}
+                onHighlightPlanBox={handleHighlightPlanBox}
+                onVoteRelevance={votePlanRelevance}
+                onOpenExplorer={() => openOnExplorer(selectedId, selectedKind)}
+              />
           ) : null}
         </ScrollView>
       </View>
@@ -853,6 +1068,14 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   cardSelected: { borderColor: theme.primary, borderWidth: 2 },
+  cardOwnPublic: {
+    backgroundColor: "#F0FDFA",
+    borderColor: "#99F6E4",
+  },
+  cardCommunity: {
+    backgroundColor: "#FFFBEB",
+    borderColor: "#FCD34D",
+  },
   cardHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
@@ -880,9 +1103,27 @@ const styles = StyleSheet.create({
   },
   badgePrivate: { backgroundColor: "#F1F5F9" },
   badgeShared: { backgroundColor: "#DCFCE7" },
+  badgeOwnPublic: { backgroundColor: "#CCFBF1" },
+  badgeCommunity: { backgroundColor: "#FEF3C7" },
   badgeText: { fontSize: 10, fontWeight: "800" },
   badgeTextPrivate: { color: "#475569" },
   badgeTextShared: { color: "#166534" },
+  badgeTextOwnPublic: { color: "#0F766E" },
+  badgeTextCommunity: { color: "#92400E" },
+  filterChip: {
+    paddingVertical: 6,
+    paddingHorizontal: 8,
+    borderRadius: 8,
+    backgroundColor: theme.surface,
+    borderWidth: 1,
+    borderColor: theme.border,
+  },
+  filterChipActive: {
+    backgroundColor: "#E0F2FE",
+    borderColor: "#7DD3FC",
+  },
+  filterChipText: { fontSize: 10, fontWeight: "700", color: theme.inkMuted },
+  filterChipTextActive: { color: "#0369A1" },
   cardMeta: { fontSize: 12, color: theme.inkMuted, marginTop: 4 },
   cardSnippet: { fontSize: 12, color: theme.ink, marginTop: 6 },
   cardActions: { flexDirection: "row", flexWrap: "wrap", gap: 12, marginTop: 10 },
@@ -936,6 +1177,11 @@ const styles = StyleSheet.create({
     padding: 10,
     marginBottom: 8,
   },
+  noteRowHighlight: {
+    borderColor: theme.primary,
+    borderWidth: 2,
+    backgroundColor: "#F0FDFA",
+  },
   noteTitle: { fontSize: 13, fontWeight: "700", color: theme.ink },
   noteBody: { fontSize: 12, color: theme.ink, marginTop: 4, lineHeight: 17 },
   noteMeta: { fontSize: 11, color: theme.inkMuted, marginTop: 2 },
@@ -953,4 +1199,11 @@ const styles = StyleSheet.create({
     lineHeight: 15,
   },
   emptyHint: { fontSize: 13, color: theme.inkMuted, lineHeight: 18 },
+  eligibilityNote: {
+    fontSize: 11,
+    lineHeight: 16,
+    color: theme.inkMuted,
+    marginTop: 10,
+    fontStyle: "italic",
+  },
 });
