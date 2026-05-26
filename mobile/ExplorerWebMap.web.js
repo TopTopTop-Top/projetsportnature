@@ -203,6 +203,39 @@ function attachMapPointTooltipHandlers(
   });
 }
 
+function findNearbyMapPoint(map, latlng, points, maxPx = 26) {
+  if (!map || !latlng || !Array.isArray(points) || points.length === 0) {
+    return null;
+  }
+  let clickPoint = null;
+  try {
+    clickPoint = map.latLngToLayerPoint(latlng);
+  } catch (_e) {
+    return null;
+  }
+  let best = null;
+  let bestDistance = Infinity;
+  for (const pt of points) {
+    const lat = Number(pt?.lat);
+    const lon = Number(pt?.lon);
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) continue;
+    try {
+      const point = map.latLngToLayerPoint([lat, lon]);
+      const distance =
+        typeof clickPoint.distanceTo === "function"
+          ? clickPoint.distanceTo(point)
+          : Math.hypot(clickPoint.x - point.x, clickPoint.y - point.y);
+      if (distance < bestDistance) {
+        bestDistance = distance;
+        best = pt;
+      }
+    } catch (_e) {
+      /* ignore malformed point */
+    }
+  }
+  return best && bestDistance <= maxPx ? best : null;
+}
+
 function drawCommunityTrailTipsOnMap(
   L,
   layer,
@@ -777,6 +810,8 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
   lockTrailProbe = false,
   /** Clic sur le tracé : verrouille la sonde (coords + tooltip). */
   onTrailProbeLock,
+  /** Désactive la sonde dynamique quand la carte sert d’aperçu cliquable. */
+  enableTrailProbe = true,
   /** Points mémorisés sur la trace active (affichés sur la carte). */
   savedTrailProbes = [],
   /** Conseils publics sur la trace. */
@@ -880,6 +915,8 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
   lockTrailProbeRef.current = lockTrailProbe;
   const onTrailProbeLockRef = useRef(onTrailProbeLock);
   onTrailProbeLockRef.current = onTrailProbeLock;
+  const enableTrailProbeRef = useRef(enableTrailProbe);
+  enableTrailProbeRef.current = enableTrailProbe;
   const probeLayerRef = useRef(null);
   const savedProbeLayerRef = useRef(null);
   const communityTipsLayerRef = useRef(null);
@@ -1055,8 +1092,24 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
       const lat = Number(ev?.latlng?.lat);
       const lng = Number(ev?.latlng?.lng);
       if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+      const nearbyPoint = findNearbyMapPoint(
+        map,
+        ev.latlng,
+        trailMapPointsRef.current || []
+      );
+      if (nearbyPoint) {
+        try {
+          L.DomEvent.stopPropagation(ev);
+          if (ev?.originalEvent) L.DomEvent.stop(ev.originalEvent);
+        } catch (_e) {
+          /* noop */
+        }
+        onMapPointHoverRef.current?.(nearbyPoint.id);
+        onMapPointClickRef.current?.(nearbyPoint);
+        return;
+      }
       const tid = Number(activeTrailIdRef.current);
-      if (Number.isFinite(tid)) {
+      if (enableTrailProbeRef.current && Number.isFinite(tid)) {
         const activeTrail = (trailsRef.current || []).find(
           (t) => Number(t.id) === tid
         );
@@ -1128,7 +1181,7 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
       if (typeof fn === "function") fn(probe);
     };
 
-    if (activeTrailIdNum == null) {
+    if (!enableTrailProbe || activeTrailIdNum == null) {
       clearLiveProbeVisual();
       emitProbe(null);
       return undefined;
@@ -1150,6 +1203,17 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
       const lat = Number(ev?.latlng?.lat);
       const lng = Number(ev?.latlng?.lng);
       if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+      const nearbyPoint = findNearbyMapPoint(
+        map,
+        ev.latlng,
+        trailMapPointsRef.current || [],
+        22
+      );
+      if (nearbyPoint) {
+        clearLiveProbeVisual();
+        emitProbe(null);
+        return;
+      }
       const probe = probeTrailAt(activeTrail, lat, lng);
       if (!probe || probe.distToPointKm > maxSnapKm) {
         clearLiveProbeVisual();
@@ -1194,7 +1258,7 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
         emitProbe(null);
       }
     };
-  }, [activeTrailIdNum]);
+  }, [activeTrailIdNum, enableTrailProbe, trails]);
 
   useEffect(() => {
     if (Platform.OS !== "web") return undefined;
@@ -1555,7 +1619,7 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
           }
         };
         line.on("click", focusTrail);
-        if (isActive) {
+        if (isActive && enableTrailProbe) {
           const hitLine = L.polyline(positions, {
             color: "#000000",
             weight: Math.max(18, mainWeight + 14),
@@ -1594,6 +1658,16 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
           };
           hitLine.on("mousemove", (ev) => {
             if (lockTrailProbeRef.current) return;
+            if (
+              findNearbyMapPoint(
+                mapRef.current,
+                ev.latlng,
+                trailMapPointsRef.current || [],
+                22
+              )
+            ) {
+              return;
+            }
             emitTrailProbe(ev, false);
           });
           hitLine.on("click", (ev) => {
@@ -1605,6 +1679,16 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
               }
             } catch (_e) {
               /* noop */
+            }
+            const nearbyPoint = findNearbyMapPoint(
+              mapRef.current,
+              ev.latlng,
+              trailMapPointsRef.current || []
+            );
+            if (nearbyPoint) {
+              onMapPointHoverRef.current?.(nearbyPoint.id);
+              onMapPointClickRef.current?.(nearbyPoint);
+              return;
             }
             emitTrailProbe(ev, true);
           });
@@ -1738,7 +1822,7 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
     } catch (_e) {
       // Keep current viewport if bounds computation fails.
     }
-  }, [boxes, trails, staticOrigin, draftPoint, pickedMapPoint, pickerMode, autoFitToData, autoFitDataKey, selectedBoxId, selectedBoxSet, selectedTrailIds, selectedTrailId, pickedTrailSet, activeTrailIdNum, effectiveHoveredTrailId, hasHoveredTrail, compatibleBoxSet, planBoxSet, proximityTrailSet, trailCorridorKm, dimIncompatibleBoxes, highlightedPlanBoxId]);
+  }, [boxes, trails, staticOrigin, draftPoint, pickedMapPoint, pickerMode, autoFitToData, autoFitDataKey, selectedBoxId, selectedBoxSet, selectedTrailIds, selectedTrailId, pickedTrailSet, activeTrailIdNum, effectiveHoveredTrailId, hasHoveredTrail, compatibleBoxSet, planBoxSet, proximityTrailSet, trailCorridorKm, dimIncompatibleBoxes, highlightedPlanBoxId, enableTrailProbe]);
 
   if (Platform.OS !== "web") {
     return null;
