@@ -64,6 +64,29 @@ function normalizeAuthEmail(value) {
 
 const authEmailSchema = z.preprocess(normalizeAuthEmail, z.email());
 
+function isBcryptHash(value) {
+  return /^\$2[aby]\$\d{2}\$/.test(String(value || "").trim());
+}
+
+function verifyStoredPassword(password, passwordHash) {
+  const rawHash = String(passwordHash || "");
+  const stored = rawHash.trim();
+  if (!stored) return { hasPassword: false, ok: false, needsUpgrade: false };
+  if (isBcryptHash(stored)) {
+    try {
+      return {
+        hasPassword: true,
+        ok: bcrypt.compareSync(password, stored),
+        needsUpgrade: false,
+      };
+    } catch (_e) {
+      return { hasPassword: true, ok: false, needsUpgrade: false };
+    }
+  }
+  const ok = password === rawHash || password === stored;
+  return { hasPassword: true, ok, needsUpgrade: ok };
+}
+
 const createUserSchema = z.object({
   fullName: z.string().min(2),
   email: authEmailSchema,
@@ -965,6 +988,30 @@ router.post("/auth/register", async (req, res) => {
       (u) => u.password_hash && String(u.password_hash).trim() !== ""
     );
     if (existingWithPassword) {
+      const passwordCheck = verifyStoredPassword(
+        password,
+        existingWithPassword.password_hash
+      );
+      if (passwordCheck.ok) {
+        const nextHash = passwordCheck.needsUpgrade
+          ? bcrypt.hashSync(password, 10)
+          : existingWithPassword.password_hash;
+        const { rows } = await pool.query(
+          `UPDATE users
+           SET password_hash = $1,
+               email = $2
+           WHERE id = $3
+           RETURNING id, full_name, email, role, city, created_at`,
+          [nextHash, email, existingWithPassword.id]
+        );
+        const activated = rows[0];
+        const session = await createSessionForUser({
+          id: activated.id,
+          email: activated.email,
+          role: activated.role,
+        });
+        return res.status(200).json({ user: activated, ...session });
+      }
       return res.status(409).json({ error: "Email already exists" });
     }
     const legacyUser = existing.rows[0];
@@ -1030,11 +1077,17 @@ router.post("/auth/login", async (req, res) => {
         "Ce compte existe mais n’a pas encore de mot de passe. Va dans Créer un compte avec le même email pour l’activer.",
     });
   }
-  if (
-    !user ||
-    !bcrypt.compareSync(password, user.password_hash)
-  ) {
+  const passwordCheck = user
+    ? verifyStoredPassword(password, user.password_hash)
+    : { ok: false };
+  if (!user || !passwordCheck.ok) {
     return res.status(401).json({ error: "Invalid email or password" });
+  }
+  if (passwordCheck.needsUpgrade) {
+    await pool.query(`UPDATE users SET password_hash = $1 WHERE id = $2`, [
+      bcrypt.hashSync(password, 10),
+      user.id,
+    ]);
   }
 
   const session = await createSessionForUser({
