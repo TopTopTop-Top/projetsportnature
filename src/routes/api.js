@@ -955,11 +955,37 @@ router.post("/auth/register", async (req, res) => {
   const passwordHash = bcrypt.hashSync(password, 10);
   try {
     const existing = await pool.query(
-      `SELECT id FROM users WHERE LOWER(TRIM(email)) = $1 LIMIT 1`,
+      `SELECT id, full_name, email, role, city, password_hash, created_at
+       FROM users
+       WHERE LOWER(TRIM(email)) = $1
+       ORDER BY (password_hash IS NOT NULL AND TRIM(password_hash) <> '') DESC, id DESC`,
       [email]
     );
-    if (existing.rows.length > 0) {
+    const existingWithPassword = existing.rows.find(
+      (u) => u.password_hash && String(u.password_hash).trim() !== ""
+    );
+    if (existingWithPassword) {
       return res.status(409).json({ error: "Email already exists" });
+    }
+    const legacyUser = existing.rows[0];
+    if (legacyUser) {
+      const { rows } = await pool.query(
+        `UPDATE users
+         SET password_hash = $1,
+             email = $2,
+             full_name = COALESCE(NULLIF(TRIM($3), ''), full_name),
+             city = COALESCE(city, $4)
+         WHERE id = $5
+         RETURNING id, full_name, email, role, city, created_at`,
+        [passwordHash, email, fullName, city ?? null, legacyUser.id]
+      );
+      const activated = rows[0];
+      const session = await createSessionForUser({
+        id: activated.id,
+        email: activated.email,
+        role: activated.role,
+      });
+      return res.status(200).json({ user: activated, ...session });
     }
     const { rows } = await pool.query(
       `INSERT INTO users (full_name, email, password_hash, role, city)
@@ -993,13 +1019,19 @@ router.post("/auth/login", async (req, res) => {
     `SELECT id, full_name, email, role, city, password_hash, created_at
      FROM users
      WHERE LOWER(TRIM(email)) = $1
+     ORDER BY (password_hash IS NOT NULL AND TRIM(password_hash) <> '') DESC, id DESC
      LIMIT 1`,
     [email]
   );
   const user = rows[0];
+  if (user && (!user.password_hash || String(user.password_hash).trim() === "")) {
+    return res.status(409).json({
+      error:
+        "Ce compte existe mais n’a pas encore de mot de passe. Va dans Créer un compte avec le même email pour l’activer.",
+    });
+  }
   if (
     !user ||
-    !user.password_hash ||
     !bcrypt.compareSync(password, user.password_hash)
   ) {
     return res.status(401).json({ error: "Invalid email or password" });
