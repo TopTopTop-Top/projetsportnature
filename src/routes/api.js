@@ -58,9 +58,15 @@ const upload = multer({
   },
 });
 
+function normalizeAuthEmail(value) {
+  return typeof value === "string" ? value.trim().toLowerCase() : value;
+}
+
+const authEmailSchema = z.preprocess(normalizeAuthEmail, z.email());
+
 const createUserSchema = z.object({
   fullName: z.string().min(2),
-  email: z.email(),
+  email: authEmailSchema,
   password: z.string().min(6),
   role: z.enum(["athlete", "host", "both"]),
   city: z.string().min(2).optional(),
@@ -246,7 +252,7 @@ const updateBookingSchema = z.object({
 });
 
 const loginSchema = z.object({
-  email: z.email(),
+  email: authEmailSchema,
   password: z.string().min(6),
 });
 
@@ -948,6 +954,13 @@ router.post("/auth/register", async (req, res) => {
   const { fullName, email, password, role, city } = parsed.data;
   const passwordHash = bcrypt.hashSync(password, 10);
   try {
+    const existing = await pool.query(
+      `SELECT id FROM users WHERE LOWER(TRIM(email)) = $1 LIMIT 1`,
+      [email]
+    );
+    if (existing.rows.length > 0) {
+      return res.status(409).json({ error: "Email already exists" });
+    }
     const { rows } = await pool.query(
       `INSERT INTO users (full_name, email, password_hash, role, city)
        VALUES ($1, $2, $3, $4, $5)
@@ -977,7 +990,10 @@ router.post("/auth/login", async (req, res) => {
   }
   const { email, password } = parsed.data;
   const { rows } = await pool.query(
-    `SELECT id, full_name, email, role, city, password_hash, created_at FROM users WHERE email = $1`,
+    `SELECT id, full_name, email, role, city, password_hash, created_at
+     FROM users
+     WHERE LOWER(TRIM(email)) = $1
+     LIMIT 1`,
     [email]
   );
   const user = rows[0];
