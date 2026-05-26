@@ -175,6 +175,34 @@ function attachMapPointHandlers(marker, pointId, { onHover, onClick, point }) {
   }
 }
 
+function attachMapPointTooltipHandlers(
+  L,
+  marker,
+  pointId,
+  { onHover, onClick, point }
+) {
+  if (!onHover && !(onClick && point)) return;
+  marker.on("tooltipopen", (ev) => {
+    const el = ev?.tooltip?.getElement?.();
+    if (!el || el.__ravitoboxPointHandlersAttached) return;
+    el.__ravitoboxPointHandlersAttached = true;
+    if (onHover) {
+      L.DomEvent.on(el, "mouseover", () => onHover(pointId));
+      L.DomEvent.on(el, "mouseout", () => onHover(null));
+    }
+    if (onClick && point) {
+      L.DomEvent.on(el, "click", (domEvent) => {
+        try {
+          L.DomEvent.stopPropagation(domEvent);
+        } catch (_e) {
+          /* noop */
+        }
+        onClick(point);
+      });
+    }
+  });
+}
+
 function drawCommunityTrailTipsOnMap(
   L,
   layer,
@@ -288,6 +316,7 @@ function drawTrailMapPointsOnMap(
       : `${index + 1}. ${escapeHtml(pt.label || "GPS")}`;
     marker.bindTooltip(permanentTooltips ? permanentLabel : tip, {
       permanent: permanentTooltips,
+      interactive: Boolean(permanentTooltips && (onHover || onClick)),
       direction: "top",
       offset: [0, permanentTooltips ? -14 : -12],
       className: permanentTooltips
@@ -295,6 +324,13 @@ function drawTrailMapPointsOnMap(
         : "ravitobox-trail-probe-tip",
     });
     attachMapPointHandlers(marker, pt.id, { onHover, onClick, point: pt });
+    if (permanentTooltips) {
+      attachMapPointTooltipHandlers(L, marker, pt.id, {
+        onHover,
+        onClick,
+        point: pt,
+      });
+    }
     marker.addTo(layer);
     if (markerRegistry) {
       markerRegistry.set(pt.id, {
@@ -369,6 +405,8 @@ function ensureLeafletTileFix() {
       max-width: 200px;
       white-space: normal;
       line-height: 1.25;
+      cursor: pointer;
+      pointer-events: auto;
     }
   `;
   document.head.appendChild(s);
@@ -768,6 +806,8 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
   inFixedPane = false,
   /** Quand false : ne recentre pas la carte sur les données (évite les boucles avec chargement par viewport). */
   autoFitToData = true,
+  /** Si renseigné, le fit automatique ne se rejoue que lorsque cette clé change. */
+  autoFitDataKey = null,
   /** Quand false : ignore les changements de `center` venant du parent (pan / zoom utilisateur préservés). */
   followExternalCenter = true,
   /** Chaque incrément force un setView (ex. sync GPS depuis Mes box). */
@@ -878,6 +918,7 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
   const planPointMarkersRef = useRef(new Map());
   const communityTipMarkersRef = useRef(new Map());
   const draftPointMarkersRef = useRef(new Map());
+  const lastAutoFitDataKeyRef = useRef(null);
   const mapZoomingRef = useRef(false);
   const onVisibleBoundsChangeRef = useRef(onVisibleBoundsChange);
   onVisibleBoundsChangeRef.current = onVisibleBoundsChange;
@@ -1675,8 +1716,12 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
     }
 
     try {
-      if (
+      const keyedAutoFit = autoFitDataKey != null && autoFitDataKey !== "";
+      const shouldAutoFit =
         autoFitToData &&
+        (!keyedAutoFit || lastAutoFitDataKeyRef.current !== autoFitDataKey);
+      if (
+        shouldAutoFit &&
         !pickerMode &&
         map &&
         typeof group.getBounds === "function" &&
@@ -1685,12 +1730,15 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
         const b = group.getBounds();
         if (b && typeof b.isValid === "function" && b.isValid()) {
           map.fitBounds(b, { padding: [28, 28], maxZoom: 18, animate: false });
+          if (keyedAutoFit) {
+            lastAutoFitDataKeyRef.current = autoFitDataKey;
+          }
         }
       }
     } catch (_e) {
       // Keep current viewport if bounds computation fails.
     }
-  }, [boxes, trails, staticOrigin, draftPoint, pickedMapPoint, pickerMode, autoFitToData, selectedBoxId, selectedBoxSet, selectedTrailIds, selectedTrailId, pickedTrailSet, activeTrailIdNum, effectiveHoveredTrailId, hasHoveredTrail, compatibleBoxSet, planBoxSet, proximityTrailSet, trailCorridorKm, dimIncompatibleBoxes, highlightedPlanBoxId]);
+  }, [boxes, trails, staticOrigin, draftPoint, pickedMapPoint, pickerMode, autoFitToData, autoFitDataKey, selectedBoxId, selectedBoxSet, selectedTrailIds, selectedTrailId, pickedTrailSet, activeTrailIdNum, effectiveHoveredTrailId, hasHoveredTrail, compatibleBoxSet, planBoxSet, proximityTrailSet, trailCorridorKm, dimIncompatibleBoxes, highlightedPlanBoxId]);
 
   if (Platform.OS !== "web") {
     return null;

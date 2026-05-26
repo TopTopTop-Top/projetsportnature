@@ -123,6 +123,10 @@ function computePlanMapCenter(detail, trails, fallbackLat, fallbackLon) {
   return [sumLat / pts.length, sumLng / pts.length];
 }
 
+function defaultMapCenter(mapLat, mapLon) {
+  return [Number(mapLat) || 45.8992, Number(mapLon) || 6.1294];
+}
+
 function PlanPreviewMap({
   detail,
   selectedKind,
@@ -175,6 +179,7 @@ function PlanPreviewMap({
     planBoxIds: boxIds,
     selectedBoxId: boxIds[0] ?? null,
     autoFitToData: true,
+    autoFitDataKey: `plan-${selectedKind || "mine"}-${detail?.id ?? "new"}`,
     followExternalCenter: false,
     recenterNonce,
     onSelectBox: (boxId) => {
@@ -216,6 +221,48 @@ function PlanPreviewMap({
             if (Number.isFinite(bid)) onSelectBox?.(bid);
           }}
         />
+      )}
+    </View>
+  );
+}
+
+function PlansOverviewMap({
+  boxes,
+  trails,
+  staticOrigin,
+  mapLat,
+  mapLon,
+  fullHeight = false,
+}) {
+  const center = useMemo(() => defaultMapCenter(mapLat, mapLon), [mapLat, mapLon]);
+  const mapHeight = fullHeight ? undefined : Platform.OS === "web" ? 300 : 220;
+  const common = {
+    center,
+    boxes: Array.isArray(boxes) ? boxes : [],
+    trails: Array.isArray(trails) ? trails : [],
+    selectedTrailIds: [],
+    selectedTrailId: null,
+    selectedBoxIds: [],
+    planBoxIds: [],
+    selectedBoxId: null,
+    autoFitToData: false,
+    followExternalCenter: false,
+    onSelectBox: () => {},
+    onSelectTrail: () => {},
+  };
+
+  return (
+    <View
+      style={[
+        styles.mapWrap,
+        fullHeight ? styles.mapWrapTall : null,
+        mapHeight != null ? { height: mapHeight } : null,
+      ]}
+    >
+      {Platform.OS === "web" ? (
+        <ExplorerWebMap {...common} staticOrigin={staticOrigin || ""} />
+      ) : (
+        <NativeExplorerMap {...common} />
       )}
     </View>
   );
@@ -475,7 +522,10 @@ export default function PlansScreen({ appMain = {} }) {
   const {
     user,
     city,
+    boxes,
+    boxesForMap,
     trails,
+    trailsForMap,
     routePlans,
     routePlanBusy,
     actionsRef,
@@ -637,6 +687,24 @@ export default function PlansScreen({ appMain = {} }) {
 
   const listForSection =
     section === "private" ? myPrivate : publicPlansFiltered;
+  const overviewBoxes = useMemo(
+    () =>
+      Array.isArray(boxesForMap) && boxesForMap.length > 0
+        ? boxesForMap
+        : Array.isArray(boxes)
+          ? boxes
+          : [],
+    [boxesForMap, boxes]
+  );
+  const overviewTrails = useMemo(
+    () =>
+      Array.isArray(trailsForMap) && trailsForMap.length > 0
+        ? trailsForMap
+        : Array.isArray(trails)
+          ? trails
+          : [],
+    [trailsForMap, trails]
+  );
 
   const publicCounts = useMemo(
     () => ({
@@ -750,42 +818,43 @@ export default function PlansScreen({ appMain = {} }) {
     [actionsRef, refreshMine]
   );
 
-  const mapPane =
-    selectedId != null && (detail || detailBusy) ? (
-      <View style={[styles.mapPane, wideLayout && styles.mapPaneWide]}>
-        <Text style={styles.mapPaneTitle}>
-          {detail?.name || "Aperçu du plan"}
-        </Text>
-        {detailBusy && !detail ? (
-          <View style={styles.mapLoading}>
-            <ActivityIndicator color={theme.primary} />
-          </View>
-        ) : detail ? (
-          <PlanPreviewMap
-            detail={detail}
-            selectedKind={selectedKind}
-            trails={trails}
-            staticOrigin={staticOrigin}
-            mapLat={mapLat}
-            mapLon={mapLon}
-            fullHeight={wideLayout}
-            highlightedMapPointId={highlightedMapPointId}
-            highlightedPlanBoxId={highlightedPlanBoxId}
-            onMapPointHover={handleMapPointHover}
-            onMapPointClick={handleMapPointClick}
-            onPlanBoxHover={handlePlanBoxHover}
-            onSelectBox={handleHighlightPlanBox}
-          />
-        ) : null}
-      </View>
-    ) : (
-      <View style={styles.mapPlaceholder}>
-        <Ionicons name="map-outline" size={28} color={theme.inkMuted} />
-        <Text style={styles.mapPlaceholderText}>
-          Touche un plan pour afficher la trace, les box et les points GPS ici.
-        </Text>
-      </View>
-    );
+  const mapPane = (
+    <View style={[styles.mapPane, wideLayout && styles.mapPaneWide]}>
+      <Text style={styles.mapPaneTitle}>
+        {selectedId != null ? detail?.name || "Aperçu du plan" : "Carte des plans"}
+      </Text>
+      {detailBusy && !detail ? (
+        <View style={styles.mapLoading}>
+          <ActivityIndicator color={theme.primary} />
+        </View>
+      ) : detail ? (
+        <PlanPreviewMap
+          detail={detail}
+          selectedKind={selectedKind}
+          trails={trails}
+          staticOrigin={staticOrigin}
+          mapLat={mapLat}
+          mapLon={mapLon}
+          fullHeight={wideLayout}
+          highlightedMapPointId={highlightedMapPointId}
+          highlightedPlanBoxId={highlightedPlanBoxId}
+          onMapPointHover={handleMapPointHover}
+          onMapPointClick={handleMapPointClick}
+          onPlanBoxHover={handlePlanBoxHover}
+          onSelectBox={handleHighlightPlanBox}
+        />
+      ) : (
+        <PlansOverviewMap
+          boxes={overviewBoxes}
+          trails={overviewTrails}
+          staticOrigin={staticOrigin}
+          mapLat={mapLat}
+          mapLon={mapLon}
+          fullHeight={wideLayout}
+        />
+      )}
+    </View>
+  );
 
   return (
     <SafeAreaView style={styles.screen} edges={["left", "right"]}>
