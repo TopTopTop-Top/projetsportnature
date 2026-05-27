@@ -6209,6 +6209,7 @@ function ExplorerScreen() {
                   style={[
                     styles.explorerWebMapInner,
                     styles.explorerWebMapInnerDesktop,
+                    selectedTrail && styles.explorerWebMapInnerRelative,
                   ]}
                 >
                   <ExplorerWebMap
@@ -6268,6 +6269,23 @@ function ExplorerScreen() {
                     staticOrigin={API_STATIC_ORIGIN}
                     inFixedPane
                   />
+                  {selectedTrail ? (
+                    <TrailMapInspectOverlay
+                      trail={selectedTrail}
+                      probe={
+                        explorerTrailProbe &&
+                        Number(explorerTrailProbe.trailId) ===
+                          Number(selectedTrail.id)
+                          ? explorerTrailProbe
+                          : null
+                      }
+                      onProbeChange={setExplorerTrailProbe}
+                      onChartHoverActive={handleChartProbeHoverStart}
+                      onChartHoverEnd={handleChartProbeHoverEnd}
+                      onProbeLock={setExplorerProbeLock}
+                      probeLocked={explorerProbeLocked}
+                    />
+                  ) : null}
                 </View>
               </View>
             </View>
