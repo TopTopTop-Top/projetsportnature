@@ -3114,6 +3114,67 @@ function ExplorerScreen() {
     return true;
   }, [selectedTrail]);
 
+  const appendComposerProbesToPlan = useCallback(
+    async (planId, probes = [], existingNotes = []) => {
+      const pid = Number(planId);
+      if (!Number.isFinite(pid) || pid <= 0) return 0;
+      const list = Array.isArray(probes) ? probes : [];
+      if (list.length === 0) return 0;
+
+      const noteKey = (lat, lon, noteText) =>
+        `${Number(lat).toFixed(6)}|${Number(lon).toFixed(6)}|${String(
+          noteText || ""
+        )
+          .trim()
+          .toLowerCase()}`;
+
+      const existingKeySet = new Set(
+        (Array.isArray(existingNotes) ? existingNotes : [])
+          .map((n) => {
+            const lat = Number(n?.point_lat);
+            const lon = Number(n?.point_lon);
+            if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+            return noteKey(lat, lon, n?.note || "");
+          })
+          .filter(Boolean)
+      );
+
+      let addedNotes = 0;
+      for (let i = 0; i < list.length; i += 1) {
+        const entry = list[i];
+        const linkedId = Number(entry.linkedBoxId);
+        let linkedBoxTitle = "";
+        if (Number.isFinite(linkedId)) {
+          const lb =
+            boxes.find((b) => Number(b.id) === linkedId) ||
+            boxesOnMap.find((b) => Number(b.id) === linkedId);
+          linkedBoxTitle = lb?.title || `Box #${linkedId}`;
+        }
+        const noteText = formatExplorerProbePlanNote(entry, { linkedBoxTitle });
+        if (!noteText) continue;
+        const lat = Number(entry.probe?.lat);
+        const lon = Number(entry.probe?.lng);
+        if (!Number.isFinite(lat) || !Number.isFinite(lon)) continue;
+
+        const key = noteKey(lat, lon, noteText);
+        if (existingKeySet.has(key)) continue;
+
+        const ok = await actionsRef.current.addRoutePlanTrailNote?.(pid, {
+          note: noteText,
+          pointLat: lat,
+          pointLon: lon,
+          sortIndex: i,
+        });
+        if (ok) {
+          addedNotes += 1;
+          existingKeySet.add(key);
+        }
+      }
+      return addedNotes;
+    },
+    [actionsRef, boxes, boxesOnMap]
+  );
+
   const saveExplorerRoutePlan = useCallback(async () => {
     if (!user) {
       userAlert(
@@ -3161,41 +3222,7 @@ function ExplorerScreen() {
 
     const detail = await actionsRef.current.loadRoutePlanDetail?.(planId);
     const existing = Array.isArray(detail?.trail_notes) ? detail.trail_notes : [];
-    let addedNotes = 0;
-    for (let i = 0; i < probes.length; i += 1) {
-      const entry = probes[i];
-      const linkedId = Number(entry.linkedBoxId);
-      let linkedBoxTitle = "";
-      if (Number.isFinite(linkedId)) {
-        const lb =
-          boxes.find((b) => Number(b.id) === linkedId) ||
-          boxesOnMap.find((b) => Number(b.id) === linkedId);
-        linkedBoxTitle = lb?.title || `Box #${linkedId}`;
-      }
-      const noteText = formatExplorerProbePlanNote(entry, { linkedBoxTitle });
-      if (!noteText) continue;
-      const lat = Number(entry.probe?.lat);
-      const lon = Number(entry.probe?.lng);
-      if (!Number.isFinite(lat) || !Number.isFinite(lon)) continue;
-      const dup = existing.some((n) => {
-        const nlat = Number(n.point_lat);
-        const nlon = Number(n.point_lon);
-        return (
-          Number.isFinite(nlat) &&
-          Number.isFinite(nlon) &&
-          nlat.toFixed(5) === lat.toFixed(5) &&
-          nlon.toFixed(5) === lon.toFixed(5)
-        );
-      });
-      if (dup) continue;
-      const ok = await actionsRef.current.addRoutePlanTrailNote?.(planId, {
-        note: noteText,
-        pointLat: lat,
-        pointLon: lon,
-        sortIndex: i,
-      });
-      if (ok) addedNotes += 1;
-    }
+    const addedNotes = await appendComposerProbesToPlan(planId, probes, existing);
 
     await actionsRef.current.loadRoutePlans?.();
     const parts = ["Trace enregistrée"];
@@ -3225,8 +3252,7 @@ function ExplorerScreen() {
     routePlanDraftNotes,
     actionsRef,
     setSelectedRoutePlanId,
-    boxes,
-    boxesOnMap,
+    appendComposerProbesToPlan,
     clearComposerDraftsForTrail,
   ]);
 
@@ -3445,6 +3471,15 @@ function ExplorerScreen() {
         changed = true;
       }
     }
+    const probesToSync = savedProbesForSelectedTrail.filter(
+      (e) => e.includeInPlan !== false
+    );
+    const addedNotes = await appendComposerProbesToPlan(
+      planId,
+      probesToSync,
+      plan.trail_notes || []
+    );
+    if (addedNotes > 0) changed = true;
     await actionsRef.current.loadRoutePlanDetail?.(planId);
     if (changed) {
       userAlert("Plan", "Toutes les modifications du plan sont enregistrées.");
@@ -3464,6 +3499,8 @@ function ExplorerScreen() {
     updateRoutePlanBoxComment,
     updateRoutePlanTrailNote,
     actionsRef,
+    savedProbesForSelectedTrail,
+    appendComposerProbesToPlan,
   ]);
   const refreshRoutePlanBookingLinks = useCallback(async () => {
     await actionsRef.current.refreshRoutePlanBookingLinks?.();
