@@ -464,10 +464,6 @@ function ensureLeafletTileFix() {
       background: transparent !important;
       border: none !important;
     }
-    .ravitobox-box-house-picked,
-    .ravitobox-box-house-focused {
-      transition: transform 0.15s ease;
-    }
     .leaflet-tooltip.ravitobox-trail-probe-tip {
       font-size: 11px;
       font-weight: 700;
@@ -776,53 +772,47 @@ function buildBoxHouseDivIcon(L, opts) {
     dimIncompatibleBoxes = false,
     status,
   } = opts;
-  const w = isFocused ? 36 : isPicked || isHighlighted ? 32 : 26;
+  const isActive = isFocused || isPicked;
+  const accent = isPlanBox ? "#6D28D9" : "#0F766E";
+  const w = isFocused ? 30 : isPicked ? 28 : isHighlighted ? 27 : 24;
   const opacity =
-    dimIncompatibleBoxes && !isCompatible && !isHighlighted && !isPicked
-      ? 0.55
+    dimIncompatibleBoxes && !isCompatible && !isHighlighted && !isActive
+      ? 0.5
       : 1;
 
-  let stroke = status?.stroke || "#10B981";
   let fill = "#FFFFFF";
-  let ring = "";
-  let badge = "";
+  let stroke = isPlanBox ? "#8B5CF6" : status?.stroke || "#0F766E";
+  let sw = 1.4;
 
-  if (isFocused) {
-    stroke = isPlanBox ? "#5B21B6" : "#C2410C";
-    fill = "#FFFBEB";
-    ring =
-      "box-shadow:0 0 0 3px #F59E0B, 0 0 0 7px rgba(245,158,11,0.45);";
-    badge = `<circle cx="20" cy="5" r="5.5" fill="#F59E0B" stroke="#fff" stroke-width="1.5"/>
-      <path d="M17.2 5.2 L19.2 7.2 L22.8 3.6" fill="none" stroke="#fff" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>`;
-  } else if (isPicked) {
-    stroke = isPlanBox ? "#6D28D9" : "#047857";
-    fill = isPlanBox ? "#F5F3FF" : "#ECFDF5";
-    ring = isPlanBox
-      ? "box-shadow:0 0 0 3px #8B5CF6, 0 0 0 6px rgba(139,92,246,0.35);"
-      : "box-shadow:0 0 0 3px #10B981, 0 0 0 6px rgba(16,185,129,0.4);";
-    badge = `<circle cx="20" cy="5" r="5.5" fill="${isPlanBox ? "#7C3AED" : "#10B981"}" stroke="#fff" stroke-width="1.5"/>
-      <path d="M17.2 5.2 L19.2 7.2 L22.8 3.6" fill="none" stroke="#fff" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>`;
+  if (isActive) {
+    fill = accent;
+    stroke = "#FFFFFF";
+    sw = 1.6;
   } else if (isHighlighted) {
-    stroke = "#EA580C";
-    fill = "#FFF7ED";
-    ring = "box-shadow:0 0 0 2px #FB923C;";
+    fill = "#FFFFFF";
+    stroke = accent;
+    sw = 2;
   } else if (isPlanBox) {
-    stroke = "#7C3AED";
-    fill = "#F5F3FF";
+    fill = "#FAF5FF";
+    stroke = "#8B5CF6";
   } else if (dimIncompatibleBoxes && !isCompatible) {
-    stroke = "#94A3B8";
     fill = "#F8FAFC";
+    stroke = "#94A3B8";
   }
 
-  const sw = isFocused ? 2.2 : isPicked ? 2 : 1.35;
-  const html = `<div class="${isFocused ? "ravitobox-box-house-focused" : isPicked ? "ravitobox-box-house-picked" : "ravitobox-box-house"}" style="width:${w}px;height:${w}px;opacity:${opacity};${ring}filter:drop-shadow(0 3px 6px rgba(15,23,42,.32));">
+  const shadow = isActive
+    ? "filter:drop-shadow(0 2px 4px rgba(15,118,110,0.45));"
+    : "filter:drop-shadow(0 1px 3px rgba(15,23,42,0.22));";
+
+  const html = `<div style="width:${w}px;height:${w}px;opacity:${opacity};${shadow}">
     <svg width="${w}" height="${w}" viewBox="0 0 24 24" aria-hidden="true">
       <path d="M4 10.5L12 4l8 6.5V20a1 1 0 01-1 1h-4.5v-7h-5v7H5a1 1 0 01-1-1v-9.5z" fill="${fill}" stroke="${stroke}" stroke-width="${sw}" stroke-linejoin="round"/>
-      ${badge}
     </svg>
   </div>`;
   return L.divIcon({
-    className: "ravitobox-box-house",
+    className: isActive
+      ? "ravitobox-box-house ravitobox-box-house-active"
+      : "ravitobox-box-house",
     html,
     iconSize: [w, w],
     iconAnchor: [Math.round(w / 2), Math.round(w * 0.95)],
@@ -1836,32 +1826,15 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
           const isCompatible =
             compatibleBoxSet.size === 0 || compatibleBoxSet.has(Number(box.id));
           const status = boxVisualStatus(box);
-          if (isFocused) {
+          const accent = isPlanBox ? "#7C3AED" : "#0F766E";
+          if (isFocused || isPicked) {
             L.circleMarker([lat, lng], {
               pane: BOX_MARKER_PANE,
-              radius: 20,
-              color: "#EA580C",
-              weight: 3,
-              fillColor: "#FEF3C7",
-              fillOpacity: 0.55,
-            }).addTo(group);
-          } else if (isPicked) {
-            L.circleMarker([lat, lng], {
-              pane: BOX_MARKER_PANE,
-              radius: 17,
-              color: isPlanBox ? "#7C3AED" : "#059669",
-              weight: 2.5,
-              fillColor: isPlanBox ? "#EDE9FE" : "#D1FAE5",
-              fillOpacity: 0.5,
-            }).addTo(group);
-          } else if (isHighlighted) {
-            L.circleMarker([lat, lng], {
-              pane: BOX_MARKER_PANE,
-              radius: 14,
-              color: "#FB923C",
+              radius: isFocused ? 15 : 13,
+              color: accent,
               weight: 2,
-              fillColor: "#FFEDD5",
-              fillOpacity: 0.45,
+              fillColor: accent,
+              fillOpacity: 0.14,
             }).addTo(group);
           }
           const labelIcon = buildBoxHouseDivIcon(L, {
@@ -1893,16 +1866,11 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
             onSelectBoxRef.current?.(box.id);
           });
           const planSuffix = isPlanBox ? " · plan" : "";
-          const stateSuffix = isFocused
-            ? " · cible active"
-            : isPicked
-            ? " · sélectionnée"
-            : "";
           m.bindTooltip(
-            `${escapeHtml(box.title || "Box")} · ${status.label}${planSuffix}${stateSuffix}`,
+            `${escapeHtml(box.title || "Box")} · ${status.label}${planSuffix}`,
             {
               direction: "top",
-              offset: [0, -14],
+              offset: [0, -10],
             }
           );
           m.addTo(group);
