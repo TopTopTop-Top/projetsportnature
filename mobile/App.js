@@ -29,6 +29,7 @@ import ExplorerWebMap from "./ExplorerWebMap";
 import TrailElevationProfile from "./TrailElevationProfile";
 import TrailProfileRail from "./TrailProfileRail";
 import TrailMapInspectOverlay from "./TrailMapInspectOverlay";
+import ExplorerMapChrome from "./ExplorerMapChrome";
 import TrailAltitudeBadge from "./TrailAltitudeBadge";
 import PlansScreenBase from "./PlansScreen";
 import {
@@ -6270,8 +6271,7 @@ function ExplorerScreen() {
                     inFixedPane
                   />
                   {selectedTrail ? (
-                    <TrailMapInspectOverlay
-                      trail={selectedTrail}
+                    <ExplorerMapChrome
                       probe={
                         explorerTrailProbe &&
                         Number(explorerTrailProbe.trailId) ===
@@ -6279,11 +6279,27 @@ function ExplorerScreen() {
                           ? explorerTrailProbe
                           : null
                       }
-                      onProbeChange={setExplorerTrailProbe}
-                      onChartHoverActive={handleChartProbeHoverStart}
-                      onChartHoverEnd={handleChartProbeHoverEnd}
-                      onProbeLock={setExplorerProbeLock}
                       probeLocked={explorerProbeLocked}
+                      onToggleProbeLock={(locked) => {
+                        if (locked) {
+                          if (
+                            !explorerTrailProbe ||
+                            Number(explorerTrailProbe.trailId) !==
+                              Number(selectedTrail.id)
+                          ) {
+                            userAlert(
+                              "Point sur la trace",
+                              "Survole la trace ou clique dessus pour figer un point, puis utilise « Figuer » si besoin."
+                            );
+                            return;
+                          }
+                          setExplorerProbeLock(true);
+                          return;
+                        }
+                        setExplorerProbeLock(false);
+                        setExplorerTrailProbe(null);
+                      }}
+                      onExitTrail={handleRequestExitExplorerTrail}
                     />
                   ) : null}
                 </View>
@@ -6378,8 +6394,7 @@ function ExplorerScreen() {
                 inFixedPane
               />
               {selectedTrail ? (
-                <TrailMapInspectOverlay
-                  trail={selectedTrail}
+                <ExplorerMapChrome
                   probe={
                     explorerTrailProbe &&
                     Number(explorerTrailProbe.trailId) ===
@@ -6387,11 +6402,27 @@ function ExplorerScreen() {
                       ? explorerTrailProbe
                       : null
                   }
-                  onProbeChange={setExplorerTrailProbe}
-                  onChartHoverActive={handleChartProbeHoverStart}
-                  onChartHoverEnd={handleChartProbeHoverEnd}
-                  onProbeLock={setExplorerProbeLock}
                   probeLocked={explorerProbeLocked}
+                  onToggleProbeLock={(locked) => {
+                    if (locked) {
+                      if (
+                        !explorerTrailProbe ||
+                        Number(explorerTrailProbe.trailId) !==
+                          Number(selectedTrail.id)
+                      ) {
+                        userAlert(
+                          "Point sur la trace",
+                          "Survole la trace ou clique dessus pour figer un point."
+                        );
+                        return;
+                      }
+                      setExplorerProbeLock(true);
+                      return;
+                    }
+                    setExplorerProbeLock(false);
+                    setExplorerTrailProbe(null);
+                  }}
+                  onExitTrail={handleRequestExitExplorerTrail}
                 />
               ) : null}
             </View>

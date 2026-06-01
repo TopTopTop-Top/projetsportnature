@@ -71,13 +71,14 @@ function drawTrailProbeOnMap(L, probeLayer, probe, trail, lineColor, locked) {
     fillColor: "#EA580C",
     fillOpacity: 1,
   });
-  const tipLines = [formatTrailProbeLabel(probe)];
-  const coords = formatTrailProbeCoords(probe);
-  if (coords) tipLines.push(coords);
-  marker.bindTooltip(tipLines.join("<br/>"), {
+  const km = Number(probe.distKm || 0).toFixed(1);
+  const tipText = locked
+    ? `${km} km · point figé`
+    : formatTrailProbeLabel(probe);
+  marker.bindTooltip(tipText, {
     permanent: !!locked,
     direction: "top",
-    offset: [0, -16],
+    offset: [0, -12],
     className: "ravitobox-trail-probe-tip",
   });
   if (locked) marker.openTooltip();
@@ -201,6 +202,39 @@ function attachMapPointTooltipHandlers(
       });
     }
   });
+}
+
+function findNearbyBox(map, latlng, boxes, maxPx = 30) {
+  if (!map || !latlng || !Array.isArray(boxes) || boxes.length === 0) {
+    return null;
+  }
+  let clickPoint = null;
+  try {
+    clickPoint = map.latLngToLayerPoint(latlng);
+  } catch (_e) {
+    return null;
+  }
+  let best = null;
+  let bestDistance = Infinity;
+  for (const box of boxes) {
+    const lat = Number(box?.latitude);
+    const lon = Number(box?.longitude);
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) continue;
+    try {
+      const point = map.latLngToLayerPoint([lat, lon]);
+      const distance =
+        typeof clickPoint.distanceTo === "function"
+          ? clickPoint.distanceTo(point)
+          : Math.hypot(clickPoint.x - point.x, clickPoint.y - point.y);
+      if (distance < bestDistance) {
+        bestDistance = distance;
+        best = box;
+      }
+    } catch (_e) {
+      /* noop */
+    }
+  }
+  return best && bestDistance <= maxPx ? best : null;
 }
 
 function findNearbyMapPoint(map, latlng, points, maxPx = 26) {
@@ -421,12 +455,14 @@ function ensureLeafletTileFix() {
       border: none !important;
     }
     .leaflet-tooltip.ravitobox-trail-probe-tip {
-      font-size: 12px;
-      font-weight: 600;
+      font-size: 11px;
+      font-weight: 700;
       color: #0F172A;
-      border: 1px solid #99F6E4;
-      background: rgba(255,255,255,0.96);
-      box-shadow: 0 2px 8px rgba(15,23,42,0.12);
+      border: 1px solid #FDBA74;
+      background: rgba(255, 251, 235, 0.96);
+      box-shadow: 0 2px 6px rgba(15,23,42,0.1);
+      padding: 4px 8px;
+      white-space: nowrap;
     }
     .leaflet-tooltip.ravitobox-plan-point-label {
       font-size: 11px;
@@ -936,6 +972,8 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
   activeTrailIdRef.current = selectedTrailId;
   const trailsRef = useRef(trails);
   trailsRef.current = trails;
+  const boxesRef = useRef(boxes);
+  boxesRef.current = boxes;
   const savedTrailProbesRef = useRef(savedTrailProbes);
   savedTrailProbesRef.current = savedTrailProbes;
   const trailMapPointsRef = useRef(trailMapPoints);
@@ -1092,6 +1130,25 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
       const lat = Number(ev?.latlng?.lat);
       const lng = Number(ev?.latlng?.lng);
       if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+
+      const nearbyBox = findNearbyBox(
+        map,
+        ev.latlng,
+        boxesRef.current || [],
+        32
+      );
+      if (nearbyBox) {
+        try {
+          L.DomEvent.stopPropagation(ev);
+          if (ev?.originalEvent) L.DomEvent.stop(ev.originalEvent);
+        } catch (_e) {
+          /* noop */
+        }
+        onPlanBoxHoverRef.current?.(Number(nearbyBox.id));
+        onSelectBoxRef.current?.(nearbyBox.id);
+        return;
+      }
+
       const nearbyPoint = findNearbyMapPoint(
         map,
         ev.latlng,
@@ -1108,25 +1165,41 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
         onMapPointClickRef.current?.(nearbyPoint);
         return;
       }
+
       const tid = Number(activeTrailIdRef.current);
-      if (enableTrailProbeRef.current && Number.isFinite(tid)) {
-        const activeTrail = (trailsRef.current || []).find(
-          (t) => Number(t.id) === tid
-        );
-        if (activeTrail) {
+      const activeTrail =
+        Number.isFinite(tid) &&
+        (trailsRef.current || []).find((t) => Number(t.id) === tid);
+      const onTrail =
+        activeTrail &&
+        (() => {
           const probe = probeTrailAt(activeTrail, lat, lng);
-          if (probe && probe.distToPointKm <= 2.5) {
-            try {
-              L.DomEvent.stopPropagation(ev);
-            } catch (_e) {
-              /* noop */
-            }
-            const fullProbe = { ...probe, trailId: tid, source: "map" };
-            onTrailProbeRef.current?.(fullProbe);
-            onTrailProbeLockRef.current?.(true);
-            return;
-          }
+          return probe && probe.distToPointKm <= 2.5;
+        })();
+
+      if (lockTrailProbeRef.current) {
+        if (onTrail && enableTrailProbeRef.current) {
+          const probe = probeTrailAt(activeTrail, lat, lng);
+          const fullProbe = { ...probe, trailId: tid, source: "map" };
+          onTrailProbeRef.current?.(fullProbe);
+          return;
         }
+        onTrailProbeLockRef.current?.(false);
+        onTrailProbeRef.current?.(null);
+        return;
+      }
+
+      if (enableTrailProbeRef.current && activeTrail && onTrail) {
+        try {
+          L.DomEvent.stopPropagation(ev);
+        } catch (_e) {
+          /* noop */
+        }
+        const probe = probeTrailAt(activeTrail, lat, lng);
+        const fullProbe = { ...probe, trailId: tid, source: "map" };
+        onTrailProbeRef.current?.(fullProbe);
+        onTrailProbeLockRef.current?.(true);
+        return;
       }
       if (typeof onPickLocationRef.current === "function") {
         onPickLocationRef.current?.(lat, lng);
@@ -1490,10 +1563,18 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
           const m = L.marker([lat, lng], { icon: labelIcon });
           m.on("mouseover", () => onPlanBoxHoverRef.current?.(bid));
           m.on("mouseout", () => onPlanBoxHoverRef.current?.(null));
-          m.on("click", () => {
+          m.on("click", (ev) => {
+            try {
+              L.DomEvent.stopPropagation(ev);
+              const dom = ev?.originalEvent;
+              if (dom) L.DomEvent.stop(dom);
+            } catch (_e) {
+              /* noop */
+            }
             onPlanBoxHoverRef.current?.(bid);
             onSelectBoxRef.current?.(box.id);
           });
+          m.options.zIndexOffset = isSelected || isHighlighted ? 2500 : 2200;
           const planSuffix = isPlanBox ? " · plan" : "";
           m.bindTooltip(
             `${escapeHtml(box.title || "Box")} · ${status.label}${planSuffix}`,
@@ -1680,6 +1761,17 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
             } catch (_e) {
               /* noop */
             }
+            const nearbyBox = findNearbyBox(
+              mapRef.current,
+              ev.latlng,
+              boxesRef.current || [],
+              32
+            );
+            if (nearbyBox) {
+              onPlanBoxHoverRef.current?.(Number(nearbyBox.id));
+              onSelectBoxRef.current?.(nearbyBox.id);
+              return;
+            }
             const nearbyPoint = findNearbyMapPoint(
               mapRef.current,
               ev.latlng,
@@ -1688,6 +1780,10 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
             if (nearbyPoint) {
               onMapPointHoverRef.current?.(nearbyPoint.id);
               onMapPointClickRef.current?.(nearbyPoint);
+              return;
+            }
+            if (lockTrailProbeRef.current) {
+              emitTrailProbe(ev, true);
               return;
             }
             emitTrailProbe(ev, true);
