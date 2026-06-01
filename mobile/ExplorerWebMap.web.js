@@ -420,8 +420,10 @@ function drawTrailMapPointsOnMap(
 const LEAFLET_TILE_FIX_ID = "ravitobox-leaflet-rnweb-tiles";
 const PROBE_LINE_PANE = "ravitoboxProbeLinePane";
 const PROBE_MARKER_PANE = "ravitoboxProbeMarkerPane";
+const TRAIL_HIT_PANE = "ravitoboxTrailHitPane";
+const BOX_MARKER_PANE = "ravitoboxBoxMarkerPane";
 
-function ensureProbePanes(map) {
+function ensureMapPanes(map) {
   if (!map.getPane(PROBE_LINE_PANE)) {
     const linePane = map.createPane(PROBE_LINE_PANE);
     linePane.style.zIndex = "620";
@@ -429,6 +431,14 @@ function ensureProbePanes(map) {
   if (!map.getPane(PROBE_MARKER_PANE)) {
     const markerPane = map.createPane(PROBE_MARKER_PANE);
     markerPane.style.zIndex = "690";
+  }
+  if (!map.getPane(TRAIL_HIT_PANE)) {
+    const hitPane = map.createPane(TRAIL_HIT_PANE);
+    hitPane.style.zIndex = "550";
+  }
+  if (!map.getPane(BOX_MARKER_PANE)) {
+    const boxPane = map.createPane(BOX_MARKER_PANE);
+    boxPane.style.zIndex = "750";
   }
 }
 
@@ -1032,7 +1042,7 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
       scrollWheelZoom: true,
       zoomControl: true,
     }).setView([center[0], center[1]], pickerMode ? 17 : 12);
-    ensureProbePanes(map);
+    ensureMapPanes(map);
 
     const osm = L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
       attribution:
@@ -1488,108 +1498,6 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
 
     let selectedLayer = null;
     const map = mapRef.current;
-    const shouldCluster = boxes.length > 30 && map && map.getZoom() < 14;
-    if (shouldCluster) {
-      const clusters = new Map();
-      const factor = 8;
-      boxes.forEach((box) => {
-        const lat = Number(box.latitude);
-        const lng = Number(box.longitude);
-        if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
-        const key = `${Math.round(lat * factor)}:${Math.round(lng * factor)}`;
-        const c = clusters.get(key) || {
-          latSum: 0,
-          lngSum: 0,
-          count: 0,
-        };
-        c.latSum += lat;
-        c.lngSum += lng;
-        c.count += 1;
-        clusters.set(key, c);
-      });
-      clusters.forEach((cluster) => {
-        const lat = cluster.latSum / cluster.count;
-        const lng = cluster.lngSum / cluster.count;
-        const marker = L.circleMarker([lat, lng], {
-          radius: Math.min(18, 10 + Math.log2(cluster.count + 1) * 2),
-          color: "#0F766E",
-          weight: 2,
-          fillColor: "#14B8A6",
-          fillOpacity: 0.85,
-        });
-        marker.bindTooltip(`${cluster.count} box`, { direction: "top" });
-        marker.on("click", () => {
-          map?.setView([lat, lng], Math.min((map?.getZoom?.() || 12) + 2, 18), {
-            animate: true,
-          });
-        });
-        marker.addTo(group);
-      });
-    } else {
-      boxes.forEach((box) => {
-        try {
-          const lat = Number(box.latitude);
-          const lng = Number(box.longitude);
-          if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
-          const bid = Number(box.id);
-          const isHighlighted =
-            Number.isFinite(bid) &&
-            bid === Number(highlightedPlanBoxIdRef.current);
-          const isSelected =
-            bid === Number(selectedBoxIdRef.current) ||
-            selectedBoxSet.has(bid) ||
-            isHighlighted;
-          const isPlanBox = planBoxSet.has(bid);
-          const isCompatible =
-            compatibleBoxSet.size === 0 || compatibleBoxSet.has(Number(box.id));
-          const status = boxVisualStatus(box);
-          if (isSelected) {
-            L.circleMarker([lat, lng], {
-              radius: 15,
-              color: "#0F172A",
-              weight: 2,
-              fillColor: "#99F6E4",
-              fillOpacity: 0.35,
-            }).addTo(group);
-          }
-          const labelIcon = buildBoxHouseDivIcon(L, {
-            isSelected,
-            isHighlighted,
-            isPlanBox,
-            isCompatible,
-            dimIncompatibleBoxes,
-            status,
-          });
-          const m = L.marker([lat, lng], { icon: labelIcon });
-          m.on("mouseover", () => onPlanBoxHoverRef.current?.(bid));
-          m.on("mouseout", () => onPlanBoxHoverRef.current?.(null));
-          m.on("click", (ev) => {
-            try {
-              L.DomEvent.stopPropagation(ev);
-              const dom = ev?.originalEvent;
-              if (dom) L.DomEvent.stop(dom);
-            } catch (_e) {
-              /* noop */
-            }
-            onPlanBoxHoverRef.current?.(bid);
-            onSelectBoxRef.current?.(box.id);
-          });
-          m.options.zIndexOffset = isSelected || isHighlighted ? 2500 : 2200;
-          const planSuffix = isPlanBox ? " · plan" : "";
-          m.bindTooltip(
-            `${escapeHtml(box.title || "Box")} · ${status.label}${planSuffix}`,
-            {
-              direction: "top",
-              offset: [0, -12],
-            }
-          );
-          m.addTo(group);
-          if (isSelected) selectedLayer = m;
-        } catch (_e) {
-          // Ignore a malformed host point instead of crashing the whole map.
-        }
-      });
-    }
 
     trails.forEach((trail) => {
       try {
@@ -1702,6 +1610,7 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
         line.on("click", focusTrail);
         if (isActive && enableTrailProbe) {
           const hitLine = L.polyline(positions, {
+            pane: TRAIL_HIT_PANE,
             color: "#000000",
             weight: Math.max(18, mainWeight + 14),
             opacity: 0.01,
@@ -1853,6 +1762,115 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
         // Ignore a malformed trail instead of crashing the whole map.
       }
     });
+
+    const shouldCluster = boxes.length > 30 && map && map.getZoom() < 14;
+    if (shouldCluster) {
+      const clusters = new Map();
+      const factor = 8;
+      boxes.forEach((box) => {
+        const lat = Number(box.latitude);
+        const lng = Number(box.longitude);
+        if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+        const key = `${Math.round(lat * factor)}:${Math.round(lng * factor)}`;
+        const c = clusters.get(key) || {
+          latSum: 0,
+          lngSum: 0,
+          count: 0,
+        };
+        c.latSum += lat;
+        c.lngSum += lng;
+        c.count += 1;
+        clusters.set(key, c);
+      });
+      clusters.forEach((cluster) => {
+        const lat = cluster.latSum / cluster.count;
+        const lng = cluster.lngSum / cluster.count;
+        const marker = L.circleMarker([lat, lng], {
+          pane: BOX_MARKER_PANE,
+          radius: Math.min(18, 10 + Math.log2(cluster.count + 1) * 2),
+          color: "#0F766E",
+          weight: 2,
+          fillColor: "#14B8A6",
+          fillOpacity: 0.85,
+        });
+        marker.bindTooltip(`${cluster.count} box`, { direction: "top" });
+        marker.on("click", () => {
+          map?.setView([lat, lng], Math.min((map?.getZoom?.() || 12) + 2, 18), {
+            animate: true,
+          });
+        });
+        marker.addTo(group);
+      });
+    } else {
+      boxes.forEach((box) => {
+        try {
+          const lat = Number(box.latitude);
+          const lng = Number(box.longitude);
+          if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+          const bid = Number(box.id);
+          const isHighlighted =
+            Number.isFinite(bid) &&
+            bid === Number(highlightedPlanBoxIdRef.current);
+          const isSelected =
+            bid === Number(selectedBoxIdRef.current) ||
+            selectedBoxSet.has(bid) ||
+            isHighlighted;
+          const isPlanBox = planBoxSet.has(bid);
+          const isCompatible =
+            compatibleBoxSet.size === 0 || compatibleBoxSet.has(Number(box.id));
+          const status = boxVisualStatus(box);
+          if (isSelected) {
+            L.circleMarker([lat, lng], {
+              pane: BOX_MARKER_PANE,
+              radius: 15,
+              color: "#0F172A",
+              weight: 2,
+              fillColor: "#99F6E4",
+              fillOpacity: 0.35,
+            }).addTo(group);
+          }
+          const labelIcon = buildBoxHouseDivIcon(L, {
+            isSelected,
+            isHighlighted,
+            isPlanBox,
+            isCompatible,
+            dimIncompatibleBoxes,
+            status,
+          });
+          const m = L.marker([lat, lng], {
+            icon: labelIcon,
+            pane: BOX_MARKER_PANE,
+            zIndexOffset: isSelected || isHighlighted ? 200 : 0,
+            riseOnHover: true,
+          });
+          m.on("mouseover", () => onPlanBoxHoverRef.current?.(bid));
+          m.on("mouseout", () => onPlanBoxHoverRef.current?.(null));
+          m.on("click", (ev) => {
+            try {
+              L.DomEvent.stopPropagation(ev);
+              const dom = ev?.originalEvent;
+              if (dom) L.DomEvent.stop(dom);
+            } catch (_e) {
+              /* noop */
+            }
+            onPlanBoxHoverRef.current?.(bid);
+            onSelectBoxRef.current?.(box.id);
+          });
+          const planSuffix = isPlanBox ? " · plan" : "";
+          m.bindTooltip(
+            `${escapeHtml(box.title || "Box")} · ${status.label}${planSuffix}`,
+            {
+              direction: "top",
+              offset: [0, -12],
+            }
+          );
+          m.addTo(group);
+          if (isSelected) selectedLayer = m;
+        } catch (_e) {
+          // Ignore a malformed host point instead of crashing the whole map.
+        }
+      });
+    }
 
     const p = normalizePoint(draftPoint);
     if (p) {
