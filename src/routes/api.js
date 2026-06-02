@@ -421,8 +421,8 @@ async function syncRavitoRequestToRoutePlan(requestRow, athleteUserId, input) {
     const nextSort = Number(sortRows[0]?.next_sort) || 0;
     await pool.query(
       `INSERT INTO route_plan_trail_notes (
-         route_plan_id, note, point_lat, point_lon, sort_index, ravito_request_id
-       ) VALUES ($1, $2, $3, $4, $5, $6)`,
+         route_plan_id, note, point_lat, point_lon, sort_index, ravito_request_id, map_visible
+       ) VALUES ($1, $2, $3, $4, $5, $6, 1)`,
       [
         planId,
         formatRavitoPlanTrailNote(requestRow),
@@ -643,6 +643,7 @@ const createRoutePlanTrailNoteSchema = z.object({
   pointLat: z.number().min(-90).max(90).optional(),
   pointLon: z.number().min(-180).max(180).optional(),
   sortIndex: z.number().int().min(0).optional(),
+  mapVisible: z.boolean().optional(),
 });
 const updateRoutePlanTrailNoteSchema = z
   .object({
@@ -650,6 +651,7 @@ const updateRoutePlanTrailNoteSchema = z
     pointLat: z.union([z.number().min(-90).max(90), z.null()]).optional(),
     pointLon: z.union([z.number().min(-180).max(180), z.null()]).optional(),
     sortIndex: z.number().int().min(0).optional(),
+    mapVisible: z.boolean().optional(),
   })
   .superRefine((val, ctx) => {
     if (
@@ -3607,15 +3609,18 @@ router.post("/route-plans/:id/trail-notes", requireAuth, async (req, res) => {
   );
   if (!ownRows[0])
     return res.status(404).json({ error: "Route plan not found" });
+  const mapVisible = input.mapVisible === false ? 0 : 1;
   await pool.query(
-    `INSERT INTO route_plan_trail_notes (route_plan_id, note, point_lat, point_lon, sort_index)
-     VALUES ($1, $2, $3, $4, $5)`,
+    `INSERT INTO route_plan_trail_notes (
+       route_plan_id, note, point_lat, point_lon, sort_index, map_visible
+     ) VALUES ($1, $2, $3, $4, $5, $6)`,
     [
       routePlanId,
       input.note.trim(),
       input.pointLat ?? null,
       input.pointLon ?? null,
       input.sortIndex ?? 0,
+      mapVisible,
     ]
   );
   const detail = await getRoutePlanDetailsForUser(routePlanId, req.auth.sub);
@@ -3662,6 +3667,10 @@ async function applyRoutePlanTrailNoteUpdate(req, res) {
   if (u.sortIndex !== undefined) {
     parts.push(`sort_index = $${n++}`);
     vals.push(u.sortIndex);
+  }
+  if (u.mapVisible !== undefined) {
+    parts.push(`map_visible = $${n++}`);
+    vals.push(u.mapVisible ? 1 : 0);
   }
   parts.push(`updated_at = NOW()`);
   vals.push(noteId, routePlanId);

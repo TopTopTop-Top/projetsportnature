@@ -549,6 +549,10 @@ async function migrate() {
        ON route_plan_trail_notes(ravito_request_id)
        WHERE ravito_request_id IS NOT NULL`
     );
+    await client.query(`
+      ALTER TABLE route_plan_trail_notes
+        ADD COLUMN IF NOT EXISTS map_visible SMALLINT NOT NULL DEFAULT 1
+    `);
 
     await client.query("COMMIT");
     console.log("Migration PostgreSQL OK");

@@ -3326,6 +3326,7 @@ function ExplorerScreen() {
           pointLat: lat,
           pointLon: lon,
           sortIndex: i,
+          mapVisible: entry.includeInPlan !== false,
         });
         if (ok) {
           addedNotes += 1;
@@ -3677,6 +3678,32 @@ function ExplorerScreen() {
   const refreshRoutePlanBookingLinks = useCallback(async () => {
     await actionsRef.current.refreshRoutePlanBookingLinks?.();
   }, [actionsRef]);
+
+  const togglePlanTrailNoteOnMap = useCallback(
+    async (noteId, visible) => {
+      const plan = activePlanForSelectedTrail;
+      if (!plan?.id) return;
+      await updateRoutePlanTrailNote?.(Number(plan.id), Number(noteId), {
+        mapVisible: !!visible,
+      });
+    },
+    [activePlanForSelectedTrail, updateRoutePlanTrailNote]
+  );
+
+  const removePlanTrailNote = useCallback(
+    async (noteId) => {
+      const plan = activePlanForSelectedTrail;
+      if (!plan?.id) return;
+      const ok = await deleteRoutePlanTrailNote?.(
+        Number(plan.id),
+        Number(noteId)
+      );
+      if (ok) {
+        await actionsRef.current.loadRoutePlanDetail?.(Number(plan.id));
+      }
+    },
+    [activePlanForSelectedTrail, deleteRoutePlanTrailNote, actionsRef]
+  );
 
   const [editingPlanBookingId, setEditingPlanBookingId] = useState(null);
   const [planBookingDraft, setPlanBookingDraft] = useState({
@@ -6389,6 +6416,8 @@ function ExplorerScreen() {
                   onSelectSharedPlan={openSharedPlanPreview}
                   onShowSharedPlanOnMap={showSharedPlanPreviewOnMap}
                   onFocusPlanTrailNote={focusExplorerPlanTrailNote}
+                  onTogglePlanTrailNoteMapVisible={togglePlanTrailNoteOnMap}
+                  onDeletePlanTrailNote={removePlanTrailNote}
                   highlightedMapPointId={highlightedMapPointId}
                   onHighlightMapPoint={handleMapPointHover}
                   highlightedPlanBoxId={highlightedPlanBoxId}

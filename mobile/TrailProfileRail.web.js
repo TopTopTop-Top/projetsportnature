@@ -16,6 +16,7 @@ import {
   formatTrailProbeCoords,
 } from "./trailProfile";
 import { isEntryPublishedOnTrail } from "./explorerSavedProbesStorage";
+import { isPlanTrailNoteMapVisible } from "./trailMapPoints";
 import TrailAltitudeBadge from "./TrailAltitudeBadge";
 import {
   planBoxValidationLabel,
@@ -105,6 +106,8 @@ export default function TrailProfileRail({
   onSelectSharedPlan,
   onShowSharedPlanOnMap,
   onFocusPlanTrailNote,
+  onTogglePlanTrailNoteMapVisible,
+  onDeletePlanTrailNote,
   highlightedMapPointId = null,
   onHighlightMapPoint,
   highlightedPlanBoxId = null,
@@ -483,6 +486,8 @@ export default function TrailProfileRail({
           onSetPlanVisibility={onSetPlanVisibility}
           onForkSharedPlan={onForkSharedPlan}
           onFocusPlanTrailNote={onFocusPlanTrailNote}
+          onTogglePlanTrailNoteMapVisible={onTogglePlanTrailNoteMapVisible}
+          onDeletePlanTrailNote={onDeletePlanTrailNote}
           highlightedMapPointId={highlightedMapPointId}
           onHighlightMapPoint={onHighlightMapPoint}
           highlightedPlanBoxId={highlightedPlanBoxId}
@@ -805,6 +810,8 @@ function TrailPlanHub({
   onSetPlanVisibility,
   onForkSharedPlan,
   onFocusPlanTrailNote,
+  onTogglePlanTrailNoteMapVisible,
+  onDeletePlanTrailNote,
   highlightedMapPointId = null,
   onHighlightMapPoint,
   highlightedPlanBoxId = null,
@@ -831,9 +838,9 @@ function TrailPlanHub({
     <View style={styles.planSaveBlock}>
       <Text style={styles.planSaveTitle}>Mon plan (compte RavitoBox)</Text>
       <Text style={styles.planWorkflow}>
-        Enregistre box cochées et/ou brouillons cochés « dans le plan ». La trace
-        est optionnelle. Réservations : Réserver par box. Partage du plan :
-        Communauté.
+        Enregistre box cochées et/ou brouillons « Dans mon plan ». Pour chaque
+        point déjà enregistré ci-dessous, coche « Sur la carte » pour l’afficher
+        ou le masquer (sans le supprimer). Réservations : Réserver par box.
       </Text>
 
       {isAuthed && plansForTrail.length > 0 ? (
@@ -948,37 +955,78 @@ function TrailPlanHub({
           {planTrailNotes.length > 0 ? (
             <View style={styles.planTrailNotesSection}>
               <Text style={styles.planSubLabel}>
-                Points mémorisés enregistrés ({planTrailNotes.length}) — repère indigo
-                sur la carte
+                Points enregistrés ({planTrailNotes.length}) — repère indigo si
+                « Sur la carte »
               </Text>
               {planTrailNotes.map((n, idx) => {
                 const ptId = trailMapPointId("plan", n.id, idx);
                 const hi = highlightedMapPointId === ptId;
+                const onMap = isPlanTrailNoteMapVisible(n);
+                const isRavito =
+                  n.ravito_request_id != null ||
+                  String(n.note || "").startsWith("🟣");
                 return (
-                <Pressable
-                  key={`plan-trail-note-${n.id || idx}`}
-                  nativeID={mapPointDomId(ptId)}
-                  onPress={() => onFocusPlanTrailNote?.(n, "plan", idx)}
-                  style={[
-                    styles.planTrailNoteRow,
-                    hi && styles.mapPointRowHighlight,
-                  ]}
-                  {...webHoverHandlers(
-                    () => onHighlightMapPoint?.(ptId),
-                    () => onHighlightMapPoint?.(null)
-                  )}
-                >
-                  <Text style={styles.planTrailNoteText} numberOfLines={3}>
-                    {n.note || "(sans texte)"}
-                  </Text>
-                  {n.point_lat != null && n.point_lon != null ? (
-                    <Text style={styles.planTrailNoteMeta}>
-                      {Number(n.point_lat).toFixed(4)}°,{" "}
-                      {Number(n.point_lon).toFixed(4)}° · toucher = carte
-                    </Text>
-                  ) : null}
-                </Pressable>
-              );
+                  <View
+                    key={`plan-trail-note-${n.id || idx}`}
+                    style={[
+                      styles.planTrailNoteRow,
+                      hi && styles.mapPointRowHighlight,
+                      !onMap && styles.savedCardExcluded,
+                    ]}
+                  >
+                    <View style={styles.savedStatusRow}>
+                      {isRavito ? (
+                        <Text style={styles.savedBadgeRavito}>Ravito</Text>
+                      ) : (
+                        <Text style={styles.savedBadgeDraft}>Waypoint</Text>
+                      )}
+                      <Pressable
+                        onPress={() =>
+                          onTogglePlanTrailNoteMapVisible?.(n.id, !onMap)
+                        }
+                        style={[
+                          styles.savedIncludeChip,
+                          onMap && styles.savedIncludeChipOn,
+                        ]}
+                      >
+                        <Text
+                          style={[
+                            styles.savedIncludeChipText,
+                            onMap && styles.savedIncludeChipTextOn,
+                          ]}
+                        >
+                          {onMap ? "Sur la carte" : "Hors carte"}
+                        </Text>
+                      </Pressable>
+                      {onDeletePlanTrailNote ? (
+                        <Pressable
+                          onPress={() => onDeletePlanTrailNote(n.id)}
+                          style={styles.savedRemoveBtn}
+                        >
+                          <Text style={styles.savedRemoveText}>×</Text>
+                        </Pressable>
+                      ) : null}
+                    </View>
+                    <Pressable
+                      nativeID={mapPointDomId(ptId)}
+                      onPress={() => onFocusPlanTrailNote?.(n, "plan", idx)}
+                      {...webHoverHandlers(
+                        () => onHighlightMapPoint?.(ptId),
+                        () => onHighlightMapPoint?.(null)
+                      )}
+                    >
+                      <Text style={styles.planTrailNoteText} numberOfLines={4}>
+                        {n.note || "(sans texte)"}
+                      </Text>
+                      {n.point_lat != null && n.point_lon != null ? (
+                        <Text style={styles.planTrailNoteMeta}>
+                          {Number(n.point_lat).toFixed(4)}°,{" "}
+                          {Number(n.point_lon).toFixed(4)}° · toucher = centrer
+                        </Text>
+                      ) : null}
+                    </Pressable>
+                  </View>
+                );
               })}
             </View>
           ) : null}
@@ -2462,6 +2510,12 @@ const styles = StyleSheet.create({
     fontSize: 9,
     fontWeight: "800",
     color: "#64748B",
+    textTransform: "uppercase",
+  },
+  savedBadgeRavito: {
+    fontSize: 9,
+    fontWeight: "800",
+    color: "#0F766E",
     textTransform: "uppercase",
   },
   savedIncludeChip: {

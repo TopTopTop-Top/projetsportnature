@@ -1,5 +1,11 @@
 /** Points GPS affichés sur la carte (plan, aperçu communauté). */
 
+export function isPlanTrailNoteMapVisible(note) {
+  if (!note) return false;
+  const v = note.map_visible ?? note.mapVisible;
+  return v !== 0 && v !== false;
+}
+
 export function trailMapPointId(source, noteId, index) {
   return `${source}-${noteId ?? index}`;
 }
@@ -33,9 +39,9 @@ export function buildTrailMapPoints({
   };
 
   if (plan && Number(plan.trail_id) === tid) {
-    (Array.isArray(plan.trail_notes) ? plan.trail_notes : []).forEach((n, i) =>
-      pushNote(n, i, "plan")
-    );
+    (Array.isArray(plan.trail_notes) ? plan.trail_notes : [])
+      .filter(isPlanTrailNoteMapVisible)
+      .forEach((n, i) => pushNote(n, i, "plan"));
   }
   if (sharedPreview && Number(sharedPreview.trail_id) === tid) {
     (Array.isArray(sharedPreview.trail_notes) ? sharedPreview.trail_notes : []).forEach(

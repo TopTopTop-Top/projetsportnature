@@ -20,6 +20,7 @@ import {
   trailMapPointId,
   mapPointDomId,
   planBoxDomId,
+  isPlanTrailNoteMapVisible,
 } from "./trailMapPoints";
 import {
   RelevanceBadge,
@@ -390,6 +391,8 @@ function PlanDetailPanel({
   highlightedPlanBoxId,
   onHighlightMapPoint,
   onHighlightPlanBox,
+  onTogglePlanNoteMapVisible,
+  onDeletePlanNote,
 }) {
   if (loading) {
     return (
@@ -543,30 +546,69 @@ function PlanDetailPanel({
           const body = String(n.note || "").trim();
           const isRavitoNote =
             n.ravito_request_id != null || body.startsWith("🟣");
+          const onMap = isPlanTrailNoteMapVisible(n);
           const ptId = trailMapPointId(gpsSource, n.id, idx);
           const ptHi = highlightedMapPointId === ptId;
           return (
             <View
               key={`gps-${n.id ?? idx}`}
-              nativeID={mapPointDomId(ptId)}
-              style={[styles.noteRow, ptHi && styles.noteRowHighlight]}
-              {...webHoverHandlers(
-                () => onHighlightMapPoint?.(ptId),
-                () => onHighlightMapPoint?.(null)
-              )}
+              style={[
+                styles.noteRow,
+                ptHi && styles.noteRowHighlight,
+                !onMap && styles.noteRowExcluded,
+              ]}
             >
-              <Text style={styles.noteKind}>
-                {isRavitoNote ? "Ravito (waypoint)" : `GPS ${idx + 1}`}
-              </Text>
-              <Text style={styles.noteTitle}>
-                {body || "Point sans texte"}
-              </Text>
-              {n.point_lat != null && n.point_lon != null ? (
-                <Text style={styles.noteMeta}>
-                  {Number(n.point_lat).toFixed(5)},{" "}
-                  {Number(n.point_lon).toFixed(5)}
+              <View style={styles.noteRowToolbar}>
+                <Text style={styles.noteKind}>
+                  {isRavitoNote ? "Ravito" : `GPS ${idx + 1}`}
                 </Text>
-              ) : null}
+                {onTogglePlanNoteMapVisible ? (
+                  <TouchableOpacity
+                    style={[
+                      styles.mapToggleChip,
+                      onMap && styles.mapToggleChipOn,
+                    ]}
+                    onPress={() =>
+                      onTogglePlanNoteMapVisible(n.id, !onMap)
+                    }
+                    activeOpacity={0.85}
+                  >
+                    <Text
+                      style={[
+                        styles.mapToggleChipText,
+                        onMap && styles.mapToggleChipTextOn,
+                      ]}
+                    >
+                      {onMap ? "Sur la carte" : "Hors carte"}
+                    </Text>
+                  </TouchableOpacity>
+                ) : null}
+                {onDeletePlanNote ? (
+                  <TouchableOpacity
+                    onPress={() => onDeletePlanNote(n.id)}
+                    hitSlop={8}
+                  >
+                    <Text style={styles.noteDelete}>×</Text>
+                  </TouchableOpacity>
+                ) : null}
+              </View>
+              <View
+                nativeID={mapPointDomId(ptId)}
+                {...webHoverHandlers(
+                  () => onHighlightMapPoint?.(ptId),
+                  () => onHighlightMapPoint?.(null)
+                )}
+              >
+                <Text style={styles.noteTitle}>
+                  {body || "Point sans texte"}
+                </Text>
+                {n.point_lat != null && n.point_lon != null ? (
+                  <Text style={styles.noteMeta}>
+                    {Number(n.point_lat).toFixed(5)},{" "}
+                    {Number(n.point_lon).toFixed(5)}
+                  </Text>
+                ) : null}
+              </View>
             </View>
           );
         })
@@ -1090,6 +1132,37 @@ export default function PlansScreen({ appMain = {} }) {
                 onHighlightPlanBox={handleHighlightPlanBox}
                 onVoteRelevance={votePlanRelevance}
                 onOpenExplorer={() => openOnExplorer(selectedId, selectedKind)}
+                onTogglePlanNoteMapVisible={
+                  isAuthed && detail?.id
+                    ? async (noteId, visible) => {
+                        await actionsRef.current.updateRoutePlanTrailNote?.(
+                          Number(detail.id),
+                          Number(noteId),
+                          { mapVisible: !!visible }
+                        );
+                        await loadDetail(selectedId, selectedKind);
+                      }
+                    : undefined
+                }
+                onDeletePlanNote={
+                  isAuthed && detail?.id
+                    ? async (noteId) => {
+                        const pid = Number(detail.id);
+                        try {
+                          await actionsRef.current.deleteRoutePlanTrailNote?.(
+                            pid,
+                            Number(noteId)
+                          );
+                        } catch (_e) {
+                          await actionsRef.current
+                            .loadRoutePlanDetail?.(pid)
+                            .then(() => loadDetail(selectedId, selectedKind));
+                          return;
+                        }
+                        await loadDetail(selectedId, selectedKind);
+                      }
+                    : undefined
+                }
               />
           ) : null}
         </ScrollView>
@@ -1325,6 +1398,43 @@ const styles = StyleSheet.create({
     borderColor: theme.primary,
     borderWidth: 2,
     backgroundColor: "#F0FDFA",
+  },
+  noteRowExcluded: {
+    opacity: 0.55,
+    backgroundColor: "#F8FAFC",
+  },
+  noteRowToolbar: {
+    flexDirection: "row",
+    alignItems: "center",
+    flexWrap: "wrap",
+    gap: 8,
+    marginBottom: 6,
+  },
+  mapToggleChip: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: theme.border,
+    backgroundColor: theme.bg,
+  },
+  mapToggleChipOn: {
+    borderColor: theme.primary,
+    backgroundColor: "#F0FDFA",
+  },
+  mapToggleChipText: {
+    fontSize: 11,
+    fontWeight: "600",
+    color: theme.inkMuted,
+  },
+  mapToggleChipTextOn: {
+    color: theme.primary,
+  },
+  noteDelete: {
+    fontSize: 18,
+    color: theme.inkMuted,
+    fontWeight: "600",
+    paddingHorizontal: 4,
   },
   noteTitle: { fontSize: 13, fontWeight: "700", color: theme.ink },
   noteBody: { fontSize: 12, color: theme.ink, marginTop: 4, lineHeight: 17 },
