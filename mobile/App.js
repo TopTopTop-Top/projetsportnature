@@ -11019,6 +11019,9 @@ function RavitoApp() {
   const skipInitialHostGeocodeRef = useRef(true);
   const explorerCityGeocodeSeqRef = useRef(0);
   const explorerSearchSeqRef = useRef(0);
+  const actionsRef = useRef({});
+  const explorerOpenPlanQueueRef = useRef(null);
+  const explorerBookBoxQueueRef = useRef(null);
   const [hostBoxes, setHostBoxes] = useState([]);
   /** Traces épinglées sur le box en cours d’édition (hôte). */
   const [hostBoxTrailPins, setHostBoxTrailPins] = useState([]);
@@ -14380,10 +14383,6 @@ function RavitoApp() {
       setMapExplorerRecenterNonce,
     ]
   );
-
-  const actionsRef = useRef({});
-  const explorerOpenPlanQueueRef = useRef(null);
-  const explorerBookBoxQueueRef = useRef(null);
 
   actionsRef.current = {
     loadBoxes,
