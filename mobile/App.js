@@ -67,6 +67,11 @@ import {
 import IntentGuideBanner from "./IntentGuideBanner";
 import AccountRecoveryCodeModal from "./AccountRecoveryCodeModal";
 import {
+  RavitoRequestModal,
+  RavitoAthleteRequestsSection,
+  RavitoHostRequestsSection,
+} from "./RavitoRequestsUi";
+import {
   readAuthSession,
   writeAuthSession,
   clearAuthSession,
@@ -1781,8 +1786,16 @@ function DateTimeSelector({
   );
 }
 
-function UserReviewsModal({ visible, userId, title, onClose }) {
+function UserReviewsModal({
+  visible,
+  userId,
+  title,
+  onClose,
+  authToken,
+  onFollowChange,
+}) {
   const [loading, setLoading] = useState(false);
+  const [followBusy, setFollowBusy] = useState(false);
   const [payload, setPayload] = useState(null);
 
   useEffect(() => {
@@ -1792,7 +1805,7 @@ function UserReviewsModal({ visible, userId, title, onClose }) {
     }
     let cancelled = false;
     setLoading(true);
-    apiFetch(`/users/${userId}/reviews`)
+    apiFetch(`/users/${userId}/reviews`, { token: authToken || undefined })
       .then((data) => {
         if (!cancelled) setPayload(data);
       })
@@ -1805,7 +1818,7 @@ function UserReviewsModal({ visible, userId, title, onClose }) {
     return () => {
       cancelled = true;
     };
-  }, [visible, userId]);
+  }, [visible, userId, authToken]);
 
   const displayName =
     payload?.user?.full_name || title || `Utilisateur #${userId}`;
@@ -1872,6 +1885,29 @@ function UserReviewsModal({ visible, userId, title, onClose }) {
             </ScrollView>
           )}
           <View style={styles.modalSheetFooter}>
+            {payload?.canFollow && authToken ? (
+              <PrimaryButton
+                compact
+                icon={payload.following ? "person-remove-outline" : "person-add-outline"}
+                label={payload.following ? "Ne plus suivre" : "Suivre"}
+                loading={followBusy}
+                onPress={async () => {
+                  if (!userId || followBusy) return;
+                  setFollowBusy(true);
+                  try {
+                    const next = !payload.following;
+                    await onFollowChange?.(userId, next);
+                    setPayload((prev) =>
+                      prev && !prev.error ? { ...prev, following: next } : prev
+                    );
+                  } catch (err) {
+                    userAlert("Suivi", err?.message || "Action impossible.");
+                  } finally {
+                    setFollowBusy(false);
+                  }
+                }}
+              />
+            ) : null}
             <PrimaryButton compact label="Fermer" onPress={onClose} />
           </View>
         </View>
@@ -2087,6 +2123,7 @@ function ExplorerScreen() {
     setSelectedBoxId,
     selectedBoxId,
     spotlightBoxId,
+    followingUserIdSet,
     selectedBox,
     canBook,
     canHost,
@@ -2161,6 +2198,7 @@ function ExplorerScreen() {
     setSpecialRequest,
     webMapCenter,
     openUserReviews,
+    openRavitoRequestAtPoint,
     athleteBookings,
     hostBookings,
     actionsRef,
@@ -2729,6 +2767,30 @@ function ExplorerScreen() {
       at: Date.now(),
     });
   }, []);
+  const requestRavitoAtProbe = useCallback(() => {
+    if (
+      !explorerTrailProbe ||
+      !Number.isFinite(explorerTrailProbe.lat) ||
+      !Number.isFinite(explorerTrailProbe.lng)
+    ) {
+      return;
+    }
+    openRavitoRequestAtPoint({
+      lat: explorerTrailProbe.lat,
+      lon: explorerTrailProbe.lng,
+      trailId: explorerTrailProbe.trailId,
+      distKm: explorerTrailProbe.distKm,
+      source: "probe",
+    });
+  }, [explorerTrailProbe, openRavitoRequestAtPoint]);
+  const requestRavitoAtMapTap = useCallback(() => {
+    if (!lastMapTapCoords) return;
+    openRavitoRequestAtPoint({
+      lat: lastMapTapCoords.lat,
+      lon: lastMapTapCoords.lng,
+      source: "map",
+    });
+  }, [lastMapTapCoords, openRavitoRequestAtPoint]);
   const startBookingFromExplorer = useCallback(
     (boxId) => {
       const bid = Number(boxId);
@@ -4180,6 +4242,14 @@ function ExplorerScreen() {
                   ? [
                       { id: "mine", label: "Les miennes" },
                       { id: "others", label: "Les autres" },
+                      {
+                        id: "following",
+                        label: `Abonnements${
+                          followingUserIdSet.size > 0
+                            ? ` (${followingUserIdSet.size})`
+                            : ""
+                        }`,
+                      },
                     ]
                   : []),
                 { id: "picked", label: "Sélection…" },
@@ -4204,6 +4274,13 @@ function ExplorerScreen() {
                 </TouchableOpacity>
               ))}
             </View>
+            {mapTrailsScope === "following" ? (
+              <Text style={styles.helperText}>
+                {followingUserIdSet.size === 0
+                  ? "Suis des hôtes ou créateurs via « Suivre » sur leur profil pour afficher leurs traces et box ici."
+                  : "Carte et listes limitées aux comptes suivis (traces publiques et box actives)."}
+              </Text>
+            ) : null}
             {mapTrailsScope === "picked" ? (
               <>
                 <View style={[styles.roleRow, { flexWrap: "wrap" }]}>
@@ -4672,6 +4749,15 @@ function ExplorerScreen() {
               Astuce: copie ces coordonnées dans une note de parcours pour
               positionner un repère précis.
             </Text>
+            {canBook && user ? (
+              <OutlineButton
+                compact
+                stretch
+                label="Demander un ravito ici"
+                icon="megaphone-outline"
+                onPress={requestRavitoAtMapTap}
+              />
+            ) : null}
           </View>
         ) : null}
         {selectedBox ? (
@@ -4814,6 +4900,20 @@ function ExplorerScreen() {
                       : null
                   }
                 />
+                {canBook &&
+                user &&
+                explorerTrailProbe &&
+                Number(explorerTrailProbe.trailId) ===
+                  Number(selectedTrail.id) &&
+                Number.isFinite(explorerTrailProbe.lat) ? (
+                  <OutlineButton
+                    compact
+                    stretch
+                    label="Demander un ravito sur ce point"
+                    icon="megaphone-outline"
+                    onPress={requestRavitoAtProbe}
+                  />
+                ) : null}
               </>
             )}
             <OutlineButton
@@ -6185,6 +6285,9 @@ function ExplorerScreen() {
                   }
                   onSaveActivePlanDrafts={saveActiveRoutePlanDrafts}
                   onBookBox={startBookingFromExplorer}
+                  onRequestRavito={
+                    canBook && user ? requestRavitoAtProbe : undefined
+                  }
                   onFocusBox={highlightExplorerBoxOnMap}
                   focusedBoxId={selectedBoxId}
                   planNameDraft={planNameDraft}
@@ -6587,7 +6690,11 @@ function TrailsScreen() {
   const tracesFiltered = useMemo(() => {
     const uid = user?.id != null ? Number(user.id) : null;
     let list = trails;
-    if (mapTrailsScope === "mine" && uid != null) {
+    if (mapTrailsScope === "following" && followingUserIdSet.size > 0) {
+      list = list.filter((t) =>
+        followingUserIdSet.has(Number(t.creator_user_id))
+      );
+    } else if (mapTrailsScope === "mine" && uid != null) {
       list = list.filter((t) => Number(t.creator_user_id) === uid);
     } else if (mapTrailsScope === "others" && uid != null) {
       list = list.filter((t) => Number(t.creator_user_id) !== uid);
@@ -6611,6 +6718,7 @@ function TrailsScreen() {
     mapTrailsScope,
     mapTrailPickIds,
     mapTrailDifficultyFilter,
+    followingUserIdSet,
   ]);
 
   const allSelectableTrails = useMemo(() => {
@@ -7180,6 +7288,14 @@ function TrailsScreen() {
                 ? [
                     { id: "mine", label: "Les miennes" },
                     { id: "others", label: "Les autres" },
+                    {
+                      id: "following",
+                      label: `Abonnements${
+                        followingUserIdSet.size > 0
+                          ? ` (${followingUserIdSet.size})`
+                          : ""
+                      }`,
+                    },
                   ]
                 : []),
               { id: "picked", label: "Sélection…" },
@@ -7949,6 +8065,8 @@ function HostScreen() {
     hostBoxTrailPins,
     hostRefunds,
     trails,
+    authToken,
+    ravitoRequestsRefreshNonce,
     actionsRef,
   } = useAppMain();
   const canHostLocal = user?.role === "host" || user?.role === "both";
@@ -9234,6 +9352,20 @@ function HostScreen() {
         ) : null}
         {canHostLocal ? (
           <Section
+            title="Demandes de ravito (GPS)"
+            subtitle="Athlètes qui cherchent un ravito près d’un point — propose une de tes box."
+            icon="megaphone-outline"
+          >
+            <RavitoHostRequestsSection
+              token={authToken}
+              apiFetch={apiFetch}
+              hostBoxes={hostBoxes}
+              refreshNonce={ravitoRequestsRefreshNonce}
+            />
+          </Section>
+        ) : null}
+        {canHostLocal ? (
+          <Section
             title="Queue remboursements"
             subtitle="Phase A simulée : remboursements en attente de traitement."
             icon="cash-outline"
@@ -9408,7 +9540,10 @@ function ProfileScreen() {
     myReviews,
     athleteBookings,
     notifications,
+    followingUsers,
     openUserReviews,
+    unfollowUser,
+    showFollowingOnMap,
     actionsRef,
   } = useAppMain();
   const isFocused = useIsFocused();
@@ -9490,6 +9625,52 @@ function ProfileScreen() {
               <Text style={styles.profileRoleText}>{roleLabel}</Text>
             </View>
           </View>
+        </Section>
+        <Section
+          title="Mes abonnements"
+          subtitle="Hôtes et créateurs que tu suis — filtre « Abonnements » sur la carte."
+          icon="people-outline"
+        >
+          {followingUsers.length === 0 ? (
+            <Text style={styles.emptyText}>
+              Tu ne suis personne pour l’instant. Ouvre le profil d’un hôte ou
+              créateur (avis) et appuie sur « Suivre ».
+            </Text>
+          ) : (
+            followingUsers.map((fu) => (
+              <View key={`follow-${fu.id}`} style={styles.card}>
+                <View style={styles.cardAccent} />
+                <Text style={styles.cardTitle}>{fu.full_name}</Text>
+                <Text style={styles.cardMeta}>
+                  {fu.city || "—"}
+                  {fu.role ? ` · ${ROLE_LABELS[fu.role] || fu.role}` : ""}
+                </Text>
+                <View style={[styles.roleRow, { flexWrap: "wrap", marginTop: 8 }]}>
+                  <OutlineButton
+                    compact
+                    label="Profil"
+                    icon="star-outline"
+                    onPress={() =>
+                      openUserReviews(fu.id, `${fu.full_name} — avis`)
+                    }
+                  />
+                  <OutlineButton
+                    compact
+                    label="Ne plus suivre"
+                    icon="person-remove-outline"
+                    onPress={() => unfollowUser?.(fu.id)}
+                  />
+                </View>
+              </View>
+            ))
+          )}
+          {followingUsers.length > 0 ? (
+            <PrimaryButton
+              label="Voir sur la carte (Abonnements)"
+              icon="map-outline"
+              onPress={() => showFollowingOnMap?.()}
+            />
+          ) : null}
         </Section>
         <Section
           title="Actions rapides"
@@ -9725,6 +9906,9 @@ function ReservationsScreen() {
     athleteBookings,
     notifications,
     openUserReviews,
+    authToken,
+    acceptRavitoProposal,
+    ravitoRequestsRefreshNonce,
     actionsRef,
   } = useAppMain();
   const isFocused = useIsFocused();
@@ -9852,6 +10036,21 @@ function ReservationsScreen() {
               </Text>
             </TouchableOpacity>
           </View>
+        ) : null}
+
+        {canBook && (!canHost || reservationTab === "athlete") ? (
+          <Section
+            title="Demandes de ravito (point GPS)"
+            subtitle="Publie un besoin sur la carte, reçois des propositions d’hôtes, puis réserve."
+            icon="megaphone-outline"
+          >
+            <RavitoAthleteRequestsSection
+              token={authToken}
+              apiFetch={apiFetch}
+              onAcceptProposal={acceptRavitoProposal}
+              refreshNonce={ravitoRequestsRefreshNonce}
+            />
+          </Section>
         ) : null}
 
         {notifications?.length > 0 ? (
@@ -10746,6 +10945,8 @@ function RavitoApp() {
   const [hostRefunds, setHostRefunds] = useState([]);
   const [hostBookings, setHostBookings] = useState([]);
   const [athleteBookings, setAthleteBookings] = useState([]);
+  const [followingUsers, setFollowingUsers] = useState([]);
+  const [followingBoxes, setFollowingBoxes] = useState([]);
   const [notifications, setNotifications] = useState([]);
   const [myReviewsSummary, setMyReviewsSummary] = useState({
     count: 0,
@@ -10761,6 +10962,12 @@ function RavitoApp() {
     visible: false,
     boxId: null,
   });
+  const [ravitoRequestModal, setRavitoRequestModal] = useState({
+    visible: false,
+    point: null,
+  });
+  const [ravitoRequestsRefreshNonce, setRavitoRequestsRefreshNonce] =
+    useState(0);
   const [spotlightBoxId, setSpotlightBoxId] = useState(null);
   const [bookingUnavailableSlots, setBookingUnavailableSlots] = useState([]);
   const [bookingSubmitting, setBookingSubmitting] = useState(false);
@@ -10919,11 +11126,23 @@ function RavitoApp() {
     [trails, trailLocalPatches, user?.id]
   );
 
+  const followingUserIdSet = useMemo(
+    () =>
+      new Set(
+        (followingUsers || [])
+          .map((u) => Number(u.id))
+          .filter((id) => Number.isFinite(id) && id > 0)
+      ),
+    [followingUsers]
+  );
+
   const trailsForMap = useMemo(() => {
     if (!mapShowTrails) return [];
     let t = trailsMerged;
     const uid = user?.id != null ? Number(user.id) : null;
-    if (mapTrailsScope === "mine" && uid != null && Number.isFinite(uid)) {
+    if (mapTrailsScope === "following" && followingUserIdSet.size > 0) {
+      t = t.filter((tr) => followingUserIdSet.has(Number(tr.creator_user_id)));
+    } else if (mapTrailsScope === "mine" && uid != null && Number.isFinite(uid)) {
       t = t.filter((tr) => Number(tr.creator_user_id) === uid);
     } else if (
       mapTrailsScope === "others" &&
@@ -11034,6 +11253,15 @@ function RavitoApp() {
   const boxesForMap = useMemo(() => {
     if (!mapShowBoxes) return [];
     let list = boxes;
+    if (mapTrailsScope === "following" && followingUserIdSet.size > 0) {
+      const fromFollowing =
+        Array.isArray(followingBoxes) && followingBoxes.length > 0
+          ? followingBoxes
+          : boxes;
+      list = fromFollowing.filter((b) =>
+        followingUserIdSet.has(Number(b.host_user_id))
+      );
+    }
     if (
       mapListSource === "viewport" &&
       mapViewportBounds &&
@@ -11106,6 +11334,9 @@ function RavitoApp() {
     bookingDate,
     startTime,
     endTime,
+    mapTrailsScope,
+    followingUserIdSet,
+    followingBoxes,
   ]);
 
   const boxesForExplorerList = useMemo(() => {
@@ -11514,9 +11745,12 @@ function RavitoApp() {
       setHostRefunds([]);
       setHostBookings([]);
       setAthleteBookings([]);
+      setFollowingUsers([]);
+      setFollowingBoxes([]);
       setRoutePlans([]);
       setSelectedRoutePlanId(null);
       setSelectedRoutePlanDetail(null);
+      setMapTrailsScope("all");
       setAuthMode("login");
     }
   };
@@ -11707,6 +11941,108 @@ function RavitoApp() {
       userAlert("Erreur", error.message);
     }
   };
+
+  const loadFollowingUsers = useCallback(async () => {
+    if (!token) {
+      setFollowingUsers([]);
+      setFollowingBoxes([]);
+      return [];
+    }
+    try {
+      const rows = await apiFetch("/users/me/following", { token });
+      const list = Array.isArray(rows) ? rows : [];
+      setFollowingUsers(list);
+      return list;
+    } catch (error) {
+      userAlert("Erreur", error.message);
+      return [];
+    }
+  }, [token]);
+
+  const loadFollowingBoxes = useCallback(async () => {
+    if (!token) {
+      setFollowingBoxes([]);
+      return [];
+    }
+    try {
+      const q = city.trim();
+      const suffix =
+        q.length >= 2
+          ? `?city=${encodeURIComponent(q)}&limit=120`
+          : "?limit=120";
+      const rows = await apiFetch(`/users/me/following/boxes${suffix}`, {
+        token,
+      });
+      const list = Array.isArray(rows) ? rows : [];
+      setFollowingBoxes(list);
+      return list;
+    } catch (error) {
+      userAlert("Erreur", error.message);
+      return [];
+    }
+  }, [token, city]);
+
+  const followUser = useCallback(
+    async (userId) => {
+      const id = Number(userId);
+      if (!token || !Number.isFinite(id) || id <= 0) return false;
+      await apiFetch(`/users/${id}/follow`, { method: "POST", token });
+      await loadFollowingUsers();
+      if (mapTrailsScope === "following") {
+        await loadFollowingBoxes();
+      }
+      return true;
+    },
+    [token, loadFollowingUsers, loadFollowingBoxes, mapTrailsScope]
+  );
+
+  const unfollowUser = useCallback(
+    async (userId) => {
+      const id = Number(userId);
+      if (!token || !Number.isFinite(id) || id <= 0) return false;
+      await apiFetch(`/users/${id}/follow`, { method: "DELETE", token });
+      setFollowingUsers((prev) => {
+        const next = (prev || []).filter((u) => Number(u.id) !== id);
+        if (mapTrailsScope === "following" && next.length === 0) {
+          setMapTrailsScope("all");
+        }
+        return next;
+      });
+      setFollowingBoxes((prev) =>
+        (prev || []).filter((b) => Number(b.host_user_id) !== id)
+      );
+      return true;
+    },
+    [token, mapTrailsScope]
+  );
+
+  const handleUserReviewsFollowChange = useCallback(
+    async (userId, shouldFollow) => {
+      if (shouldFollow) await followUser(userId);
+      else await unfollowUser(userId);
+    },
+    [followUser, unfollowUser]
+  );
+
+  const showFollowingOnMap = useCallback(() => {
+    setMapShowTrails(true);
+    setMapShowBoxes(true);
+    setMapTrailsScope("following");
+    setMapExplorerCameraFollowSearch(true);
+    setMapExplorerRecenterNonce((n) => n + 1);
+    mainTabNavigationRef.current?.navigate?.("Carte");
+    void loadFollowingBoxes();
+  }, [loadFollowingBoxes]);
+
+  useEffect(() => {
+    if (!sessionReady || !token) return;
+    void loadFollowingUsers();
+  }, [sessionReady, token, loadFollowingUsers]);
+
+  useEffect(() => {
+    if (mapTrailsScope !== "following" || !token) return;
+    void loadFollowingBoxes();
+  }, [mapTrailsScope, token, city, loadFollowingBoxes]);
 
   const openUserReviews = useCallback((userId, title = "Profil & avis") => {
     const id = Number(userId);
@@ -12728,6 +13064,87 @@ function RavitoApp() {
     }
     setBookingConfirm({ visible: true, boxId: bid });
   };
+
+  const openRavitoRequestAtPoint = useCallback(
+    (point) => {
+      if (!canBook) {
+        userAlert(
+          "Rôle athlète",
+          "Seuls les comptes Athlète ou Les deux peuvent demander un ravito sur un point."
+        );
+        return;
+      }
+      if (!token) {
+        userAlert("Connexion", "Connecte-toi pour publier une demande.");
+        return;
+      }
+      setRavitoRequestModal({ visible: true, point: point || null });
+    },
+    [canBook, token]
+  );
+
+  const closeRavitoRequestModal = useCallback(() => {
+    setRavitoRequestModal({ visible: false, point: null });
+  }, []);
+
+  const submitRavitoRequest = useCallback(
+    async (body) => {
+      await apiFetch("/ravito-requests", { method: "POST", token, body });
+      setRavitoRequestsRefreshNonce((n) => n + 1);
+      userAlert(
+        "Demande envoyée",
+        "Les hôtes proches seront notifiés. Consulte l’onglet Réserver pour voir les propositions."
+      );
+    },
+    [token]
+  );
+
+  const acceptRavitoProposal = useCallback(
+    async (result) => {
+      const bid = Number(result?.boxId);
+      if (!Number.isFinite(bid)) return;
+      if (result.bookingDate) {
+        setBookingDate(String(result.bookingDate).slice(0, 10));
+      }
+      if (result.startTime) {
+        setStartTime(String(result.startTime).slice(0, 5));
+      }
+      if (result.endTime) {
+        setEndTime(String(result.endTime).slice(0, 5));
+      }
+      if (result.specialRequest != null) {
+        setSpecialRequest(String(result.specialRequest || ""));
+      }
+      setRavitoRequestsRefreshNonce((n) => n + 1);
+      const box = boxes.find((b) => Number(b.id) === bid);
+      if (box) {
+        const bl = Number(box.latitude);
+        const bLng = Number(box.longitude);
+        if (Number.isFinite(bl) && Number.isFinite(bLng)) {
+          setMapLat(bl.toFixed(6));
+          setMapLon(bLng.toFixed(6));
+        }
+      }
+      setSelectedBoxId(bid);
+      setMapExplorerCameraFollowSearch(true);
+      setMapExplorerRecenterNonce((n) => n + 1);
+      mainTabNavigationRef.current?.navigate?.("Carte");
+      bookBox(bid);
+    },
+    [
+      boxes,
+      bookBox,
+      setBookingDate,
+      setStartTime,
+      setEndTime,
+      setSpecialRequest,
+      setSelectedBoxId,
+      setMapLat,
+      setMapLon,
+      setMapExplorerCameraFollowSearch,
+      setMapExplorerRecenterNonce,
+    ]
+  );
 
   const confirmBookBox = async () => {
     const boxId = Number(bookingConfirm.boxId);
@@ -13753,6 +14170,9 @@ function RavitoApp() {
         jobs.push(a.loadAthleteBookings());
       if (typeof a.loadRoutePlans === "function") jobs.push(a.loadRoutePlans());
     }
+    if (typeof a.loadFollowingUsers === "function") {
+      jobs.push(a.loadFollowingUsers());
+    }
     await Promise.allSettled(jobs);
   }, [token, canHost, canBook]);
 
@@ -13833,6 +14253,11 @@ function RavitoApp() {
     loadNotifications,
     loadMyReviews,
     openUserReviews,
+    loadFollowingUsers,
+    loadFollowingBoxes,
+    followUser,
+    unfollowUser,
+    showFollowingOnMap,
     markAllNotificationsRead,
     showBookingTimeline,
     reportAccessIncident,
@@ -13889,6 +14314,8 @@ function RavitoApp() {
     deleteAllMyTrails,
     centerMapOnTrail,
     isolateTrailOnMap,
+    openRavitoRequestAtPoint,
+    acceptRavitoProposal,
     navigateToReservations: () =>
       mainTabNavigationRef.current?.navigate?.("Reservations"),
     navigateToPlans: () =>
@@ -14055,6 +14482,15 @@ function RavitoApp() {
       webMapCenter,
       openUserReviews,
       closeUserReviews,
+      followingUsers,
+      followingUserIdSet,
+      followUser,
+      unfollowUser,
+      showFollowingOnMap,
+      authToken: token,
+      openRavitoRequestAtPoint,
+      acceptRavitoProposal,
+      ravitoRequestsRefreshNonce,
       actionsRef,
     }),
     [
@@ -14138,6 +14574,15 @@ function RavitoApp() {
       webMapCenter,
       openUserReviews,
       closeUserReviews,
+      followingUsers,
+      followingUserIdSet,
+      followUser,
+      unfollowUser,
+      showFollowingOnMap,
+      token,
+      openRavitoRequestAtPoint,
+      acceptRavitoProposal,
+      ravitoRequestsRefreshNonce,
     ]
   );
 
@@ -14241,6 +14686,8 @@ function RavitoApp() {
                       userId={userReviewsModal.userId}
                       title={userReviewsModal.title}
                       onClose={closeUserReviews}
+                      authToken={token}
+                      onFollowChange={handleUserReviewsFollowChange}
                     />
                     <BookingConfirmModal
                       visible={
@@ -14261,6 +14708,16 @@ function RavitoApp() {
                       submitting={bookingSubmitting}
                       onClose={cancelBookBoxConfirm}
                       onConfirm={confirmBookBox}
+                    />
+                    <RavitoRequestModal
+                      visible={ravitoRequestModal.visible}
+                      onClose={closeRavitoRequestModal}
+                      point={ravitoRequestModal.point}
+                      bookingDate={bookingDate}
+                      startTime={startTime}
+                      endTime={endTime}
+                      specialRequest={specialRequest}
+                      onSubmit={submitRavitoRequest}
                     />
                   </>
                 ) : null}

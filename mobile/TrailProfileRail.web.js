@@ -83,6 +83,7 @@ export default function TrailProfileRail({
   onApplyPlanToMap,
   onSaveActivePlanDrafts,
   onBookBox,
+  onRequestRavito,
   onFocusBox,
   focusedBoxId = null,
   planNameDraft = "",
@@ -369,6 +370,16 @@ export default function TrailProfileRail({
                   Brouillon local
                 </Text>
               </Pressable>
+              {onRequestRavito && Number.isFinite(probe?.lat) ? (
+                <Pressable
+                  onPress={onRequestRavito}
+                  style={[styles.actionBtn, styles.actionBtnPrimary]}
+                >
+                  <Text style={styles.actionBtnTextPrimary}>
+                    Demander un ravito
+                  </Text>
+                </Pressable>
+              ) : null}
               {isTrailCreator && probe ? (
                 <Pressable
                   onPress={onPublishTrailTip}

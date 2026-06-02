@@ -267,6 +267,114 @@ const createBookingSchema = z.object({
   specialRequest: z.string().max(2000).optional(),
 });
 
+const createRavitoRequestSchema = z.object({
+  pointLat: z.number().min(-90).max(90),
+  pointLon: z.number().min(-180).max(180),
+  trailId: z.number().int().positive().optional(),
+  distKm: z.number().min(0).optional(),
+  note: z.string().max(2000).optional(),
+  bookingDate: z.string().min(10),
+  startTime: z.string().min(4),
+  endTime: z.string().min(4),
+  specialRequest: z.string().max(2000).optional(),
+  radiusKm: z.number().min(0.5).max(30).optional(),
+});
+
+const createRavitoProposalSchema = z.object({
+  boxId: z.number().int().positive(),
+  message: z.string().max(1000).optional(),
+});
+
+function mapRavitoRequestRow(r, proposals = null) {
+  return {
+    id: r.id,
+    athleteUserId: r.athlete_user_id,
+    athleteName: r.athlete_full_name || null,
+    trailId: r.trail_id,
+    trailName: r.trail_name || null,
+    pointLat: Number(r.point_lat),
+    pointLon: Number(r.point_lon),
+    distKm: r.dist_km != null ? Number(r.dist_km) : null,
+    note: r.note || null,
+    bookingDate: r.booking_date,
+    startTime: r.start_time,
+    endTime: r.end_time,
+    specialRequest: r.special_request || null,
+    radiusKm: Number(r.radius_km),
+    status: r.status,
+    expiresAt: r.expires_at,
+    createdAt: r.created_at,
+    proposalCount:
+      r.proposal_count != null ? Number(r.proposal_count) : undefined,
+    nearestBoxKm:
+      r.nearest_box_km != null ? Number(r.nearest_box_km) : undefined,
+    proposals: proposals || undefined,
+  };
+}
+
+function mapRavitoProposalRow(r) {
+  return {
+    id: r.id,
+    requestId: r.request_id,
+    hostUserId: r.host_user_id,
+    hostName: r.host_full_name || null,
+    boxId: r.box_id,
+    boxTitle: r.box_title || null,
+    boxCity: r.box_city || null,
+    boxLat: r.box_latitude != null ? Number(r.box_latitude) : null,
+    boxLon: r.box_longitude != null ? Number(r.box_longitude) : null,
+    distanceToPointKm:
+      r.distance_km != null ? Number(r.distance_km) : null,
+    message: r.message || null,
+    status: r.status,
+    createdAt: r.created_at,
+  };
+}
+
+async function expireStaleRavitoRequests() {
+  await pool.query(
+    `UPDATE ravito_point_requests
+     SET status = 'expired', updated_at = NOW()
+     WHERE status = 'open' AND expires_at < NOW()`
+  );
+}
+
+async function loadRavitoProposalsForRequest(requestId) {
+  const { rows } = await pool.query(
+    `SELECT p.*, u.full_name AS host_full_name, b.title AS box_title, b.city AS box_city,
+            b.latitude AS box_latitude, b.longitude AS box_longitude,
+            r.point_lat, r.point_lon,
+            (6371000 * acos(LEAST(1, GREATEST(-1,
+              cos(radians(r.point_lat)) * cos(radians(b.latitude))
+                * cos(radians(b.longitude) - radians(r.point_lon))
+              + sin(radians(r.point_lat)) * sin(radians(b.latitude))
+            )))) / 1000 AS distance_km
+     FROM ravito_point_proposals p
+     JOIN ravito_point_requests r ON r.id = p.request_id
+     JOIN users u ON u.id = p.host_user_id
+     JOIN boxes b ON b.id = p.box_id
+     WHERE p.request_id = $1
+     ORDER BY p.status = 'pending' DESC, distance_km ASC NULLS LAST, p.created_at DESC`,
+    [requestId]
+  );
+  return rows.map(mapRavitoProposalRow);
+}
+
+async function notifyHostsNearRavitoRequest(request, hostIds) {
+  const ids = [...new Set(hostIds.map(Number).filter((id) => id > 0))];
+  const athleteId = Number(request.athlete_user_id);
+  for (const hostId of ids) {
+    if (hostId === athleteId) continue;
+    await createNotification({
+      recipientUserId: hostId,
+      type: "ravito_request_nearby",
+      title: "Demande de ravito sur un parcours",
+      body: `Un athlète cherche un ravito près d’un point GPS (${request.booking_date} ${request.start_time}–${request.end_time}).`,
+      data: { requestId: request.id },
+    });
+  }
+}
+
 const updateBookingSchema = z.object({
   bookingDate: z.string().min(10),
   startTime: z.string().min(4),
@@ -4080,7 +4188,87 @@ router.post("/reviews", requireAuth, async (req, res) => {
   return res.status(201).json(rows[0]);
 });
 
-router.get("/users/:id/reviews", async (req, res) => {
+router.get("/users/me/following", requireAuth, async (req, res) => {
+  const followerId = Number(req.auth.sub);
+  const { rows } = await pool.query(
+    `SELECT u.id, u.full_name, u.city, u.role, uf.created_at AS followed_at
+     FROM user_follows uf
+     JOIN users u ON u.id = uf.followee_user_id
+     WHERE uf.follower_user_id = $1
+     ORDER BY uf.created_at DESC`,
+    [followerId]
+  );
+  return res.json(rows);
+});
+
+router.get("/users/me/following/boxes", requireAuth, async (req, res) => {
+  const followerId = Number(req.auth.sub);
+  const limitRaw = parseInt(String(req.query.limit || "120"), 10);
+  const limit = Math.min(200, Math.max(1, Number.isFinite(limitRaw) ? limitRaw : 120));
+  const city = String(req.query.city || "").trim();
+  const params = [followerId];
+  let cityClause = "";
+  if (city.length >= 2) {
+    params.push(city);
+    cityClause = ` AND b.city = $${params.length}`;
+  }
+  params.push(limit);
+  const { rows } = await pool.query(
+    `SELECT b.*,
+            u.full_name AS host_full_name,
+            (SELECT COUNT(*)::int FROM reviews r WHERE r.reviewee_user_id = b.host_user_id) AS host_review_count,
+            (SELECT COALESCE(AVG(score), 0)::float FROM reviews r WHERE r.reviewee_user_id = b.host_user_id) AS host_avg_score
+     FROM boxes b
+     JOIN users u ON u.id = b.host_user_id
+     JOIN user_follows uf ON uf.followee_user_id = b.host_user_id AND uf.follower_user_id = $1
+     WHERE b.is_active = 1${cityClause}
+     ORDER BY b.created_at DESC
+     LIMIT $${params.length}`,
+    params
+  );
+  return res.json(rows);
+});
+
+router.post("/users/:id/follow", requireAuth, async (req, res) => {
+  const followeeId = Number(req.params.id);
+  const followerId = Number(req.auth.sub);
+  if (!Number.isInteger(followeeId) || followeeId <= 0) {
+    return res.status(400).json({ error: "Invalid user id" });
+  }
+  if (followeeId === followerId) {
+    return res.status(400).json({ error: "Tu ne peux pas te suivre toi-même." });
+  }
+  const { rows: userRows } = await pool.query(
+    `SELECT id FROM users WHERE id = $1`,
+    [followeeId]
+  );
+  if (!userRows[0]) {
+    return res.status(404).json({ error: "Utilisateur introuvable." });
+  }
+  await pool.query(
+    `INSERT INTO user_follows (follower_user_id, followee_user_id)
+     VALUES ($1, $2)
+     ON CONFLICT (follower_user_id, followee_user_id) DO NOTHING`,
+    [followerId, followeeId]
+  );
+  return res.status(201).json({ ok: true, followeeId });
+});
+
+router.delete("/users/:id/follow", requireAuth, async (req, res) => {
+  const followeeId = Number(req.params.id);
+  const followerId = Number(req.auth.sub);
+  if (!Number.isInteger(followeeId) || followeeId <= 0) {
+    return res.status(400).json({ error: "Invalid user id" });
+  }
+  await pool.query(
+    `DELETE FROM user_follows
+     WHERE follower_user_id = $1 AND followee_user_id = $2`,
+    [followerId, followeeId]
+  );
+  return res.json({ ok: true, followeeId });
+});
+
+router.get("/users/:id/reviews", optionalAuth, async (req, res) => {
   const userId = Number(req.params.id);
   if (!Number.isInteger(userId) || userId <= 0) {
     return res.status(400).json({ error: "Invalid user id" });
@@ -4105,10 +4293,30 @@ router.get("/users/:id/reviews", async (req, res) => {
      WHERE reviewee_user_id = $1`,
     [userId]
   );
+  let following = false;
+  const viewerId = Number(req.auth?.sub);
+  if (
+    Number.isFinite(viewerId) &&
+    viewerId > 0 &&
+    viewerId !== userId &&
+    publicUser
+  ) {
+    const { rows: followRows } = await pool.query(
+      `SELECT 1 FROM user_follows
+       WHERE follower_user_id = $1 AND followee_user_id = $2
+       LIMIT 1`,
+      [viewerId, userId]
+    );
+    following = !!followRows[0];
+  }
+
   return res.json({
     user: publicUser,
     stats: aggRows[0] || { count: 0, avg_score: 0 },
     reviews: rows,
+    following,
+    canFollow:
+      Number.isFinite(viewerId) && viewerId > 0 && viewerId !== userId,
   });
 });
 
@@ -5034,5 +5242,362 @@ router.post("/bookings/:id/incidents", requireAuth, async (req, res) => {
   });
   return res.status(201).json(rows[0]);
 });
+
+router.post("/ravito-requests", requireAuth, async (req, res) => {
+  const parsed = createRavitoRequestSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error.flatten() });
+  }
+  const input = parsed.data;
+  const athleteUserId = Number(req.auth.sub);
+  const radiusKm = input.radiusKm ?? 5;
+  const expiresAt = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000);
+
+  const { rows } = await pool.query(
+    `INSERT INTO ravito_point_requests (
+       athlete_user_id, trail_id, point_lat, point_lon, dist_km, note,
+       booking_date, start_time, end_time, special_request, radius_km, expires_at
+     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+     RETURNING *`,
+    [
+      athleteUserId,
+      input.trailId ?? null,
+      input.pointLat,
+      input.pointLon,
+      input.distKm ?? null,
+      input.note?.trim() || null,
+      input.bookingDate,
+      input.startTime,
+      input.endTime,
+      input.specialRequest?.trim() || null,
+      radiusKm,
+      expiresAt.toISOString(),
+    ]
+  );
+  const request = rows[0];
+
+  const { rows: hostRows } = await pool.query(
+    `SELECT DISTINCT b.host_user_id
+     FROM boxes b
+     WHERE b.is_active = 1
+       AND b.host_user_id <> $1
+       AND (6371000 * acos(LEAST(1, GREATEST(-1,
+         cos(radians($2)) * cos(radians(b.latitude))
+           * cos(radians(b.longitude) - radians($3))
+         + sin(radians($2)) * sin(radians(b.latitude))
+       )))) / 1000 <= $4`,
+    [athleteUserId, input.pointLat, input.pointLon, radiusKm]
+  );
+  await notifyHostsNearRavitoRequest(
+    request,
+    hostRows.map((r) => r.host_user_id)
+  );
+
+  const detail = await pool.query(
+    `SELECT r.*, u.full_name AS athlete_full_name, t.name AS trail_name,
+            (SELECT COUNT(*)::int FROM ravito_point_proposals p WHERE p.request_id = r.id AND p.status = 'pending') AS proposal_count
+     FROM ravito_point_requests r
+     JOIN users u ON u.id = r.athlete_user_id
+     LEFT JOIN trails t ON t.id = r.trail_id
+     WHERE r.id = $1`,
+    [request.id]
+  );
+  return res.status(201).json(mapRavitoRequestRow(detail.rows[0], []));
+});
+
+router.get("/ravito-requests/mine", requireAuth, async (req, res) => {
+  await expireStaleRavitoRequests();
+  const athleteUserId = Number(req.auth.sub);
+  const { rows } = await pool.query(
+    `SELECT r.*, u.full_name AS athlete_full_name, t.name AS trail_name,
+            (SELECT COUNT(*)::int FROM ravito_point_proposals p
+             WHERE p.request_id = r.id AND p.status = 'pending') AS proposal_count
+     FROM ravito_point_requests r
+     JOIN users u ON u.id = r.athlete_user_id
+     LEFT JOIN trails t ON t.id = r.trail_id
+     WHERE r.athlete_user_id = $1
+     ORDER BY r.created_at DESC
+     LIMIT 80`,
+    [athleteUserId]
+  );
+  return res.json(rows.map((r) => mapRavitoRequestRow(r)));
+});
+
+router.get("/ravito-requests/for-host", requireAuth, async (req, res) => {
+  await expireStaleRavitoRequests();
+  const hostUserId = Number(req.auth.sub);
+  const limitRaw = parseInt(String(req.query.limit || "40"), 10);
+  const limit = Math.min(60, Math.max(1, Number.isFinite(limitRaw) ? limitRaw : 40));
+
+  const { rows } = await pool.query(
+    `SELECT r.*, u.full_name AS athlete_full_name, t.name AS trail_name,
+            (SELECT COUNT(*)::int FROM ravito_point_proposals p
+             WHERE p.request_id = r.id AND p.status = 'pending') AS proposal_count,
+            (
+              SELECT MIN(
+                (6371000 * acos(LEAST(1, GREATEST(-1,
+                  cos(radians(r.point_lat)) * cos(radians(b.latitude))
+                    * cos(radians(b.longitude) - radians(r.point_lon))
+                  + sin(radians(r.point_lat)) * sin(radians(b.latitude))
+                )))) / 1000
+              )
+              FROM boxes b
+              WHERE b.host_user_id = $1 AND b.is_active = 1
+            ) AS nearest_box_km,
+            (
+              SELECT p.id FROM ravito_point_proposals p
+              WHERE p.request_id = r.id AND p.host_user_id = $1
+              LIMIT 1
+            ) AS my_proposal_id
+     FROM ravito_point_requests r
+     JOIN users u ON u.id = r.athlete_user_id
+     LEFT JOIN trails t ON t.id = r.trail_id
+     WHERE r.status = 'open'
+       AND r.expires_at > NOW()
+       AND r.athlete_user_id <> $1
+       AND EXISTS (
+         SELECT 1 FROM boxes b
+         WHERE b.host_user_id = $1 AND b.is_active = 1
+           AND (6371000 * acos(LEAST(1, GREATEST(-1,
+             cos(radians(r.point_lat)) * cos(radians(b.latitude))
+               * cos(radians(b.longitude) - radians(r.point_lon))
+             + sin(radians(r.point_lat)) * sin(radians(b.latitude))
+           )))) / 1000 <= r.radius_km
+       )
+     ORDER BY nearest_box_km ASC NULLS LAST, r.created_at DESC
+     LIMIT $2`,
+    [hostUserId, limit]
+  );
+  return res.json(
+    rows.map((r) => ({
+      ...mapRavitoRequestRow(r),
+      myProposalId: r.my_proposal_id ? Number(r.my_proposal_id) : null,
+    }))
+  );
+});
+
+router.get("/ravito-requests/:id", requireAuth, async (req, res) => {
+  await expireStaleRavitoRequests();
+  const requestId = Number(req.params.id);
+  if (!Number.isInteger(requestId) || requestId <= 0) {
+    return res.status(400).json({ error: "Invalid request id" });
+  }
+  const userId = Number(req.auth.sub);
+  const { rows } = await pool.query(
+    `SELECT r.*, u.full_name AS athlete_full_name, t.name AS trail_name,
+            (SELECT COUNT(*)::int FROM ravito_point_proposals p
+             WHERE p.request_id = r.id AND p.status = 'pending') AS proposal_count
+     FROM ravito_point_requests r
+     JOIN users u ON u.id = r.athlete_user_id
+     LEFT JOIN trails t ON t.id = r.trail_id
+     WHERE r.id = $1`,
+    [requestId]
+  );
+  const request = rows[0];
+  if (!request) {
+    return res.status(404).json({ error: "Demande introuvable." });
+  }
+  let proposals = await loadRavitoProposalsForRequest(requestId);
+  const isAthlete = Number(request.athlete_user_id) === userId;
+  const { rows: myPropRows } = await pool.query(
+    `SELECT id FROM ravito_point_proposals
+     WHERE request_id = $1 AND host_user_id = $2 LIMIT 1`,
+    [requestId, userId]
+  );
+  const { rows: hostBoxRows } = await pool.query(
+    `SELECT 1 FROM boxes WHERE host_user_id = $1 AND is_active = 1 LIMIT 1`,
+    [userId]
+  );
+  if (!isAthlete && !myPropRows[0] && !hostBoxRows[0]) {
+    return res.status(403).json({ error: "Accès refusé." });
+  }
+  if (!isAthlete) {
+    proposals = proposals.filter((p) => Number(p.hostUserId) === userId);
+  }
+  return res.json(mapRavitoRequestRow(request, proposals));
+});
+
+router.post("/ravito-requests/:id/cancel", requireAuth, async (req, res) => {
+  const requestId = Number(req.params.id);
+  if (!Number.isInteger(requestId) || requestId <= 0) {
+    return res.status(400).json({ error: "Invalid request id" });
+  }
+  const { rows } = await pool.query(
+    `UPDATE ravito_point_requests
+     SET status = 'cancelled', updated_at = NOW()
+     WHERE id = $1 AND athlete_user_id = $2 AND status = 'open'
+     RETURNING *`,
+    [requestId, req.auth.sub]
+  );
+  if (!rows[0]) {
+    return res.status(404).json({ error: "Demande introuvable ou déjà clôturée." });
+  }
+  return res.json(mapRavitoRequestRow(rows[0]));
+});
+
+router.post("/ravito-requests/:id/proposals", requireAuth, async (req, res) => {
+  const requestId = Number(req.params.id);
+  if (!Number.isInteger(requestId) || requestId <= 0) {
+    return res.status(400).json({ error: "Invalid request id" });
+  }
+  const parsed = createRavitoProposalSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error.flatten() });
+  }
+  const hostUserId = Number(req.auth.sub);
+  const input = parsed.data;
+
+  const { rows: reqRows } = await pool.query(
+    `SELECT * FROM ravito_point_requests
+     WHERE id = $1 AND status = 'open' AND expires_at > NOW()`,
+    [requestId]
+  );
+  const request = reqRows[0];
+  if (!request) {
+    return res.status(404).json({ error: "Demande fermée ou introuvable." });
+  }
+  if (Number(request.athlete_user_id) === hostUserId) {
+    return res.status(400).json({ error: "Tu ne peux pas proposer ta propre demande." });
+  }
+
+  const { rows: boxRows } = await pool.query(
+    `SELECT id, title, latitude, longitude FROM boxes
+     WHERE id = $1 AND host_user_id = $2 AND is_active = 1`,
+    [input.boxId, hostUserId]
+  );
+  if (!boxRows[0]) {
+    return res.status(404).json({ error: "Box introuvable pour ton compte hôte." });
+  }
+
+  const distKm =
+    (6371000 *
+      Math.acos(
+        Math.min(
+          1,
+          Math.max(
+            -1,
+            Math.cos((request.point_lat * Math.PI) / 180) *
+              Math.cos((boxRows[0].latitude * Math.PI) / 180) *
+              Math.cos(
+                ((boxRows[0].longitude - request.point_lon) * Math.PI) / 180
+              ) +
+              Math.sin((request.point_lat * Math.PI) / 180) *
+                Math.sin((boxRows[0].latitude * Math.PI) / 180)
+          )
+        )
+      )) /
+    1000;
+  if (distKm > Number(request.radius_km) + 0.5) {
+    return res.status(400).json({
+      error: `Cette box est à ${distKm.toFixed(1)} km du point (rayon ${request.radius_km} km).`,
+    });
+  }
+
+  try {
+    const { rows: propRows } = await pool.query(
+      `INSERT INTO ravito_point_proposals (request_id, host_user_id, box_id, message)
+       VALUES ($1, $2, $3, $4)
+       RETURNING *`,
+      [
+        requestId,
+        hostUserId,
+        input.boxId,
+        input.message?.trim() || null,
+      ]
+    );
+    await createNotification({
+      recipientUserId: request.athlete_user_id,
+      type: "ravito_proposal_received",
+      title: "Proposition de ravito",
+      body: `Un hôte propose « ${boxRows[0].title || "sa box"} » pour ta demande.`,
+      data: { requestId, proposalId: propRows[0].id, boxId: input.boxId },
+    });
+    const proposals = await loadRavitoProposalsForRequest(requestId);
+    const created = proposals.find((p) => Number(p.id) === Number(propRows[0].id));
+    return res.status(201).json(created || mapRavitoProposalRow(propRows[0]));
+  } catch (error) {
+    if (String(error?.code) === "23505") {
+      return res.status(409).json({ error: "Tu as déjà proposé cette box." });
+    }
+    throw error;
+  }
+});
+
+router.post(
+  "/ravito-requests/:id/proposals/:proposalId/accept",
+  requireAuth,
+  async (req, res) => {
+    const requestId = Number(req.params.id);
+    const proposalId = Number(req.params.proposalId);
+    if (
+      !Number.isInteger(requestId) ||
+      requestId <= 0 ||
+      !Number.isInteger(proposalId) ||
+      proposalId <= 0
+    ) {
+      return res.status(400).json({ error: "Invalid id" });
+    }
+    const athleteUserId = Number(req.auth.sub);
+
+    const { rows: reqRows } = await pool.query(
+      `SELECT * FROM ravito_point_requests
+       WHERE id = $1 AND athlete_user_id = $2 AND status = 'open'`,
+      [requestId, athleteUserId]
+    );
+    if (!reqRows[0]) {
+      return res.status(404).json({ error: "Demande introuvable." });
+    }
+
+    const { rows: propRows } = await pool.query(
+      `SELECT p.*, b.title AS box_title
+       FROM ravito_point_proposals p
+       JOIN boxes b ON b.id = p.box_id
+       WHERE p.id = $1 AND p.request_id = $2 AND p.status = 'pending'`,
+      [proposalId, requestId]
+    );
+    if (!propRows[0]) {
+      return res.status(404).json({ error: "Proposition introuvable." });
+    }
+
+    await pool.query(
+      `UPDATE ravito_point_requests
+       SET status = 'matched',
+           accepted_proposal_id = $1,
+           updated_at = NOW()
+       WHERE id = $2`,
+      [proposalId, requestId]
+    );
+    await pool.query(
+      `UPDATE ravito_point_proposals
+       SET status = 'accepted' WHERE id = $1`,
+      [proposalId]
+    );
+    await pool.query(
+      `UPDATE ravito_point_proposals
+       SET status = 'rejected'
+       WHERE request_id = $1 AND id <> $2 AND status = 'pending'`,
+      [requestId, proposalId]
+    );
+
+    await createNotification({
+      recipientUserId: propRows[0].host_user_id,
+      type: "ravito_proposal_accepted",
+      title: "Proposition acceptée",
+      body: `L’athlète a retenu « ${propRows[0].box_title || "ta box"} ». Tu peux confirmer la réservation.`,
+      data: { requestId, proposalId, boxId: propRows[0].box_id },
+    });
+
+    return res.json({
+      ok: true,
+      requestId,
+      proposalId,
+      boxId: propRows[0].box_id,
+      bookingDate: reqRows[0].booking_date,
+      startTime: reqRows[0].start_time,
+      endTime: reqRows[0].end_time,
+      specialRequest: reqRows[0].special_request,
+    });
+  }
+);
 
 module.exports = router;

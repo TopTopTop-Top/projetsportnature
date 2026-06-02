@@ -461,6 +461,76 @@ async function migrate() {
       `ALTER TABLE users ADD COLUMN IF NOT EXISTS account_recovery_code_hash TEXT`
     );
 
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS user_follows (
+        follower_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        followee_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        PRIMARY KEY (follower_user_id, followee_user_id),
+        CHECK (follower_user_id <> followee_user_id)
+      )
+    `);
+    await client.query(
+      `CREATE INDEX IF NOT EXISTS idx_user_follows_followee ON user_follows(followee_user_id, created_at DESC)`
+    );
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS ravito_point_requests (
+        id SERIAL PRIMARY KEY,
+        athlete_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        trail_id INTEGER REFERENCES trails(id) ON DELETE SET NULL,
+        point_lat DOUBLE PRECISION NOT NULL,
+        point_lon DOUBLE PRECISION NOT NULL,
+        dist_km DOUBLE PRECISION,
+        note TEXT,
+        booking_date TEXT NOT NULL,
+        start_time TEXT NOT NULL,
+        end_time TEXT NOT NULL,
+        special_request TEXT,
+        radius_km DOUBLE PRECISION NOT NULL DEFAULT 5,
+        status TEXT NOT NULL DEFAULT 'open'
+          CHECK (status IN ('open', 'matched', 'cancelled', 'expired')),
+        accepted_proposal_id INTEGER,
+        expires_at TIMESTAMPTZ NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `);
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS ravito_point_proposals (
+        id SERIAL PRIMARY KEY,
+        request_id INTEGER NOT NULL REFERENCES ravito_point_requests(id) ON DELETE CASCADE,
+        host_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        box_id INTEGER NOT NULL REFERENCES boxes(id) ON DELETE CASCADE,
+        message TEXT,
+        status TEXT NOT NULL DEFAULT 'pending'
+          CHECK (status IN ('pending', 'accepted', 'rejected', 'withdrawn')),
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        UNIQUE (request_id, box_id)
+      )
+    `);
+    await client.query(
+      `CREATE INDEX IF NOT EXISTS idx_ravito_requests_status_expires
+       ON ravito_point_requests(status, expires_at DESC)`
+    );
+    await client.query(
+      `CREATE INDEX IF NOT EXISTS idx_ravito_requests_athlete
+       ON ravito_point_requests(athlete_user_id, created_at DESC)`
+    );
+    await client.query(
+      `CREATE INDEX IF NOT EXISTS idx_ravito_proposals_request
+       ON ravito_point_proposals(request_id, status, created_at DESC)`
+    );
+    await client.query(`
+      DO $$ BEGIN
+        ALTER TABLE ravito_point_requests
+          ADD CONSTRAINT ravito_requests_accepted_proposal_fk
+          FOREIGN KEY (accepted_proposal_id)
+          REFERENCES ravito_point_proposals(id) ON DELETE SET NULL;
+      EXCEPTION WHEN duplicate_object THEN NULL;
+      END $$;
+    `);
+
     await client.query("COMMIT");
     console.log("Migration PostgreSQL OK");
   } catch (e) {
