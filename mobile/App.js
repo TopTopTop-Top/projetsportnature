@@ -4625,6 +4625,7 @@ function ExplorerScreen() {
             selectedTrailIds={mapTrailPickIds}
             selectedTrailId={selectedTrailId}
             selectedBoxId={selectedBoxId}
+            spotlightBoxId={spotlightBoxId}
             selectedBoxIds={mapPickedBoxIds}
             planBoxIds={activePlanBoxIds}
             compatibleBoxIds={nearTrailCompatibleBoxIds}
@@ -6253,6 +6254,7 @@ function ExplorerScreen() {
                     hoveredTrailId={explorerHoveredTrailId}
                     onHoverTrail={setExplorerHoveredTrailId}
                     selectedBoxId={selectedBoxId}
+                    spotlightBoxId={spotlightBoxId}
                     selectedBoxIds={mapPickedBoxIds}
                     planBoxIds={activePlanBoxIds}
                     compatibleBoxIds={nearTrailCompatibleBoxIds}
@@ -6376,6 +6378,7 @@ function ExplorerScreen() {
                 hoveredTrailId={explorerHoveredTrailId}
                 onHoverTrail={setExplorerHoveredTrailId}
                 selectedBoxId={selectedBoxId}
+                spotlightBoxId={spotlightBoxId}
                 selectedBoxIds={mapPickedBoxIds}
                 planBoxIds={activePlanBoxIds}
                 compatibleBoxIds={nearTrailCompatibleBoxIds}
@@ -10128,6 +10131,12 @@ function ReservationsScreen() {
                     ) : null}
                     <OutlineButton
                       compact
+                      label="Mettre en évidence sur la carte"
+                      icon="locate-outline"
+                      onPress={() => actionsRef.current.spotlightBookingOnMap?.(b)}
+                    />
+                    <OutlineButton
+                      compact
                       label="Voir timeline"
                       icon="time-outline"
                       onPress={() =>
@@ -10358,6 +10367,12 @@ function ReservationsScreen() {
                         />
                       </>
                     ) : null}
+                    <OutlineButton
+                      compact
+                      label="Mettre en évidence sur la carte"
+                      icon="locate-outline"
+                      onPress={() => actionsRef.current.spotlightBookingOnMap?.(b)}
+                    />
                     <OutlineButton
                       compact
                       label="Voir timeline"
@@ -10733,6 +10748,7 @@ function RavitoApp() {
     visible: false,
     boxId: null,
   });
+  const [spotlightBoxId, setSpotlightBoxId] = useState(null);
   const [bookingUnavailableSlots, setBookingUnavailableSlots] = useState([]);
   const [bookingSubmitting, setBookingSubmitting] = useState(false);
   const [mapLat, setMapLat] = useState("45.8992");
@@ -13764,6 +13780,33 @@ function RavitoApp() {
     };
   }, [token, syncLiveSessionData]);
 
+  const spotlightBookingOnMap = useCallback(
+    (booking) => {
+      const bid = Number(booking?.box_id ?? booking?.boxId);
+      if (!Number.isFinite(bid)) return;
+      const cityHint = String(booking?.box_city || "").trim();
+      if (cityHint.length >= 2) {
+        setCity(cityHint);
+      }
+      setMapListSource("city");
+      setSelectedBoxId(bid);
+      setSpotlightBoxId(bid);
+      setMapExplorerCameraFollowSearch(true);
+      setMapExplorerRecenterNonce((n) => n + 1);
+      mainTabNavigationRef.current?.navigate?.("Carte");
+      setTimeout(() => {
+        setSpotlightBoxId((prev) => (Number(prev) === bid ? null : prev));
+      }, 12000);
+    },
+    [
+      setCity,
+      setMapListSource,
+      setSelectedBoxId,
+      setMapExplorerCameraFollowSearch,
+      setMapExplorerRecenterNonce,
+    ]
+  );
+
   const actionsRef = useRef({});
   const explorerOpenPlanQueueRef = useRef(null);
   const explorerBookBoxQueueRef = useRef(null);
@@ -13839,6 +13882,7 @@ function RavitoApp() {
       mainTabNavigationRef.current?.navigate?.("Plans"),
     navigateToTrails: () =>
       mainTabNavigationRef.current?.navigate?.("Trails"),
+    spotlightBookingOnMap,
     queueOpenPlanOnMap: ({ planId, kind = "mine" } = {}) => {
       const pid = Number(planId);
       if (!Number.isFinite(pid) || pid <= 0) return;

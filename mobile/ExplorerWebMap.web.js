@@ -767,14 +767,23 @@ function buildBoxHouseDivIcon(L, opts) {
     isFocused = false,
     isPicked = false,
     isHighlighted = false,
+    isSpotlight = false,
     isPlanBox = false,
     isCompatible = true,
     dimIncompatibleBoxes = false,
     status,
   } = opts;
-  const isActive = isFocused || isPicked;
+  const isActive = isFocused || isPicked || isSpotlight;
   const accent = isPlanBox ? "#6D28D9" : "#0F766E";
-  const w = isFocused ? 30 : isPicked ? 28 : isHighlighted ? 27 : 24;
+  const w = isSpotlight
+    ? 33
+    : isFocused
+    ? 30
+    : isPicked
+    ? 28
+    : isHighlighted
+    ? 27
+    : 24;
   const opacity =
     dimIncompatibleBoxes && !isCompatible && !isHighlighted && !isActive
       ? 0.5
@@ -784,7 +793,11 @@ function buildBoxHouseDivIcon(L, opts) {
   let stroke = isPlanBox ? "#8B5CF6" : status?.stroke || "#0F766E";
   let sw = 1.4;
 
-  if (isActive) {
+  if (isSpotlight) {
+    fill = "#EA580C";
+    stroke = "#FFFFFF";
+    sw = 1.9;
+  } else if (isActive) {
     fill = accent;
     stroke = "#FFFFFF";
     sw = 1.6;
@@ -800,7 +813,9 @@ function buildBoxHouseDivIcon(L, opts) {
     stroke = "#94A3B8";
   }
 
-  const shadow = isActive
+  const shadow = isSpotlight
+    ? "filter:drop-shadow(0 2px 8px rgba(234,88,12,0.65));"
+    : isActive
     ? "filter:drop-shadow(0 2px 4px rgba(15,118,110,0.45));"
     : "filter:drop-shadow(0 1px 3px rgba(15,23,42,0.22));";
 
@@ -880,6 +895,7 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
   onMapPointClick,
   highlightedPlanBoxId = null,
   onPlanBoxHover,
+  spotlightBoxId = null,
   /** Appui long hors tracé → quitter la trace sélectionnée. */
   onRequestExitTrailSelection,
   onMapLongPress,
@@ -1006,6 +1022,8 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
   onMapPointClickRef.current = onMapPointClick;
   const highlightedPlanBoxIdRef = useRef(highlightedPlanBoxId);
   highlightedPlanBoxIdRef.current = highlightedPlanBoxId;
+  const spotlightBoxIdRef = useRef(spotlightBoxId);
+  spotlightBoxIdRef.current = spotlightBoxId;
   const onPlanBoxHoverRef = useRef(onPlanBoxHover);
   onPlanBoxHoverRef.current = onPlanBoxHover;
   const planPointMarkersRef = useRef(new Map());
@@ -1819,6 +1837,8 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
           const isHighlighted =
             Number.isFinite(bid) &&
             bid === Number(highlightedPlanBoxIdRef.current);
+          const isSpotlight =
+            Number.isFinite(bid) && bid === Number(spotlightBoxIdRef.current);
           const isFocused = bid === Number(selectedBoxIdRef.current);
           const isPicked =
             selectedBoxSet.has(bid) && !isFocused;
@@ -1827,20 +1847,40 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
             compatibleBoxSet.size === 0 || compatibleBoxSet.has(Number(box.id));
           const status = boxVisualStatus(box);
           const accent = isPlanBox ? "#7C3AED" : "#0F766E";
-          if (isFocused || isPicked) {
+          if (isFocused || isPicked || isSpotlight) {
             L.circleMarker([lat, lng], {
               pane: BOX_MARKER_PANE,
-              radius: isFocused ? 15 : 13,
-              color: accent,
-              weight: 2,
-              fillColor: accent,
-              fillOpacity: 0.14,
+              radius: isSpotlight ? 22 : isFocused ? 15 : 13,
+              color: isSpotlight ? "#EA580C" : accent,
+              weight: isSpotlight ? 3 : 2,
+              fillColor: isSpotlight ? "#FDBA74" : accent,
+              fillOpacity: isSpotlight ? 0.2 : 0.14,
+            }).addTo(group);
+            if (isSpotlight) {
+              L.circleMarker([lat, lng], {
+                pane: BOX_MARKER_PANE,
+                radius: 30,
+                color: "#FB923C",
+                weight: 2,
+                fillOpacity: 0,
+                opacity: 0.72,
+                dashArray: "6 8",
+              }).addTo(group);
+            }
+            L.circleMarker([lat, lng], {
+              pane: BOX_MARKER_PANE,
+              radius: isSpotlight ? 12 : 0,
+              color: isSpotlight ? "#FFFFFF" : accent,
+              weight: isSpotlight ? 2 : 0,
+              fillColor: isSpotlight ? "#EA580C" : accent,
+              fillOpacity: isSpotlight ? 0.95 : 0,
             }).addTo(group);
           }
           const labelIcon = buildBoxHouseDivIcon(L, {
             isFocused,
             isPicked,
             isHighlighted: isHighlighted && !isFocused && !isPicked,
+            isSpotlight,
             isPlanBox,
             isCompatible,
             dimIncompatibleBoxes,
@@ -1849,7 +1889,13 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
           const m = L.marker([lat, lng], {
             icon: labelIcon,
             pane: BOX_MARKER_PANE,
-            zIndexOffset: isFocused ? 300 : isPicked || isHighlighted ? 200 : 0,
+            zIndexOffset: isSpotlight
+              ? 450
+              : isFocused
+              ? 300
+              : isPicked || isHighlighted
+              ? 200
+              : 0,
             riseOnHover: true,
           });
           m.on("mouseover", () => onPlanBoxHoverRef.current?.(bid));
@@ -1874,7 +1920,7 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
             }
           );
           m.addTo(group);
-          if (isFocused || isPicked) selectedLayer = m;
+          if (isSpotlight || isFocused || isPicked) selectedLayer = m;
         } catch (_e) {
           // Ignore a malformed host point instead of crashing the whole map.
         }
@@ -1945,7 +1991,7 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
     } catch (_e) {
       // Keep current viewport if bounds computation fails.
     }
-  }, [boxes, trails, staticOrigin, draftPoint, pickedMapPoint, pickerMode, autoFitToData, autoFitDataKey, selectedBoxId, selectedBoxSet, selectedTrailIds, selectedTrailId, pickedTrailSet, activeTrailIdNum, effectiveHoveredTrailId, hasHoveredTrail, compatibleBoxSet, planBoxSet, proximityTrailSet, trailCorridorKm, dimIncompatibleBoxes, highlightedPlanBoxId, enableTrailProbe]);
+  }, [boxes, trails, staticOrigin, draftPoint, pickedMapPoint, pickerMode, autoFitToData, autoFitDataKey, selectedBoxId, selectedBoxSet, selectedTrailIds, selectedTrailId, pickedTrailSet, activeTrailIdNum, effectiveHoveredTrailId, hasHoveredTrail, compatibleBoxSet, planBoxSet, proximityTrailSet, trailCorridorKm, dimIncompatibleBoxes, highlightedPlanBoxId, spotlightBoxId, enableTrailProbe]);
 
   if (Platform.OS !== "web") {
     return null;
