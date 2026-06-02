@@ -2206,6 +2206,7 @@ function ExplorerScreen() {
 
   const [explorerHoveredTrailId, setExplorerHoveredTrailId] = useState(null);
   const [explorerTrailProbe, setExplorerTrailProbe] = useState(null);
+  const [lastMapTapCoords, setLastMapTapCoords] = useState(null);
   const [chartProbeHover, setChartProbeHover] = useState(false);
   const [explorerProbeLocked, setExplorerProbeLocked] = useState(false);
   const explorerProbeLockedRef = useRef(false);
@@ -2837,7 +2838,6 @@ function ExplorerScreen() {
     useState(true);
   const [planExportIncludeRejected, setPlanExportIncludeRejected] =
     useState(false);
-  const [lastMapTapCoords, setLastMapTapCoords] = useState(null);
   const explorerScrollRef = useRef(null);
   const bookingSectionYRef = useRef(0);
 
