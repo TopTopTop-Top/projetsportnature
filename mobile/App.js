@@ -2603,6 +2603,8 @@ function ExplorerScreen() {
   const highlightExplorerBoxOnMap = useCallback((boxId) => {
     const bid = Number(boxId);
     if (!Number.isFinite(bid)) return;
+    setHighlightedMapPointId(null);
+    setHighlightedPlanBoxId(bid);
     setSelectedBoxId(bid);
     setMapPickedBoxIds((prev) => {
       const list = Array.isArray(prev) ? prev : [];
@@ -2616,7 +2618,16 @@ function ExplorerScreen() {
       setMapLon(bLng.toFixed(6));
       setMapExplorerRecenterNonce((n) => n + 1);
     }
-  }, [boxes, setSelectedBoxId, setMapPickedBoxIds, setMapLat, setMapLon]);
+  }, [
+    boxes,
+    setSelectedBoxId,
+    setMapPickedBoxIds,
+    setMapLat,
+    setMapLon,
+    setMapExplorerRecenterNonce,
+    setHighlightedMapPointId,
+    setHighlightedPlanBoxId,
+  ]);
   const focusExplorerTrail = useCallback(
     (trailId) => {
       const tid = Number(trailId);
@@ -6175,6 +6186,7 @@ function ExplorerScreen() {
                   onSaveActivePlanDrafts={saveActiveRoutePlanDrafts}
                   onBookBox={startBookingFromExplorer}
                   onFocusBox={highlightExplorerBoxOnMap}
+                  focusedBoxId={selectedBoxId}
                   planNameDraft={planNameDraft}
                   onPlanNameDraftChange={setPlanNameDraft}
                   planNotesDraft={planNotesDraft}

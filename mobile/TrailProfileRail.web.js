@@ -83,6 +83,7 @@ export default function TrailProfileRail({
   onSaveActivePlanDrafts,
   onBookBox,
   onFocusBox,
+  focusedBoxId = null,
   planNameDraft = "",
   onPlanNameDraftChange,
   planNotesDraft = "",
@@ -465,6 +466,7 @@ export default function TrailProfileRail({
           onSaveActivePlanDrafts={onSaveActivePlanDrafts}
           onBookBox={onBookBox}
           onFocusBox={onFocusBox}
+          focusedBoxId={focusedBoxId}
           activePlanVisibility={activePlanVisibility}
           onSetPlanVisibility={onSetPlanVisibility}
           onForkSharedPlan={onForkSharedPlan}
@@ -786,6 +788,7 @@ function TrailPlanHub({
   onSaveActivePlanDrafts,
   onBookBox,
   onFocusBox,
+  focusedBoxId = null,
   activePlanVisibility = "private",
   onSetPlanVisibility,
   onForkSharedPlan,
@@ -979,11 +982,26 @@ function TrailPlanHub({
           <Text style={styles.planSubLabel}>
             Box cochées ({pickedBoxCount})
           </Text>
-          {pickedBoxes.map((b) => (
-            <View key={`picked-box-${b.id}`} style={styles.planBoxRow}>
+          {pickedBoxes.map((b) => {
+            const bid = Number(b.id);
+            const rowFocused =
+              Number(focusedBoxId) === bid ||
+              Number(highlightedPlanBoxId) === bid;
+            return (
+            <View
+              key={`picked-box-${b.id}`}
+              style={[
+                styles.planBoxRow,
+                rowFocused && styles.mapPointRowHighlight,
+              ]}
+            >
               <Pressable
                 style={styles.planBoxRowMain}
                 onPress={() => onFocusBox?.(b.id)}
+                {...webHoverHandlers(
+                  () => onHighlightPlanBox?.(bid),
+                  () => onHighlightPlanBox?.(null)
+                )}
               >
                 <Text style={styles.planBoxTitle} numberOfLines={1}>
                   {b.title}
@@ -1002,7 +1020,8 @@ function TrailPlanHub({
                 </Pressable>
               ) : null}
             </View>
-          ))}
+            );
+          })}
           {onUpsertPickedBoxesToPlan ? (
             <Pressable
               onPress={onUpsertPickedBoxesToPlan}

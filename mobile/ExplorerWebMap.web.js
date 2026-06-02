@@ -464,6 +464,14 @@ function ensureLeafletTileFix() {
       background: transparent !important;
       border: none !important;
     }
+    .leaflet-div-icon.ravitobox-box-house-active {
+      animation: ravitobox-box-pulse 1.35s ease-in-out infinite;
+      transform-origin: center bottom;
+    }
+    @keyframes ravitobox-box-pulse {
+      0%, 100% { transform: scale(1); }
+      50% { transform: scale(1.1); }
+    }
     .leaflet-tooltip.ravitobox-trail-probe-tip {
       font-size: 11px;
       font-weight: 700;
@@ -762,6 +770,8 @@ function buildTrailPinIcon({
   return { html, size };
 }
 
+const MAP_FOCUS_BOX_COLOR = "#0891B2";
+
 function buildBoxHouseDivIcon(L, opts) {
   const {
     isFocused = false,
@@ -773,10 +783,13 @@ function buildBoxHouseDivIcon(L, opts) {
     dimIncompatibleBoxes = false,
     status,
   } = opts;
+  const isPanelFocused = isFocused && !isSpotlight;
   const isActive = isFocused || isPicked || isSpotlight;
   const accent = isPlanBox ? "#6D28D9" : "#0F766E";
   const w = isSpotlight
     ? 33
+    : isPanelFocused
+    ? 36
     : isFocused
     ? 30
     : isPicked
@@ -797,6 +810,10 @@ function buildBoxHouseDivIcon(L, opts) {
     fill = "#EA580C";
     stroke = "#FFFFFF";
     sw = 1.9;
+  } else if (isPanelFocused) {
+    fill = MAP_FOCUS_BOX_COLOR;
+    stroke = "#FFFFFF";
+    sw = 2;
   } else if (isActive) {
     fill = accent;
     stroke = "#FFFFFF";
@@ -815,6 +832,8 @@ function buildBoxHouseDivIcon(L, opts) {
 
   const shadow = isSpotlight
     ? "filter:drop-shadow(0 2px 8px rgba(234,88,12,0.65));"
+    : isPanelFocused
+    ? "filter:drop-shadow(0 2px 10px rgba(8,145,178,0.55));"
     : isActive
     ? "filter:drop-shadow(0 2px 4px rgba(15,118,110,0.45));"
     : "filter:drop-shadow(0 1px 3px rgba(15,23,42,0.22));";
@@ -1488,7 +1507,7 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
     const next = L.latLng(center[0], center[1]);
     if (recenterNonce > 0 && recenterNonce !== lastRecenterNonceRef.current) {
       lastRecenterNonceRef.current = recenterNonce;
-      const z = pickerMode ? 17 : Math.min(Math.max(map.getZoom(), 11), 16);
+      const z = pickerMode ? 17 : Math.min(Math.max(map.getZoom(), 15), 17);
       map.setView(next, z, { animate: true });
       return;
     }
@@ -1840,6 +1859,7 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
           const isSpotlight =
             Number.isFinite(bid) && bid === Number(spotlightBoxIdRef.current);
           const isFocused = bid === Number(selectedBoxIdRef.current);
+          const isPanelFocused = isFocused && !isSpotlight;
           const isPicked =
             selectedBoxSet.has(bid) && !isFocused;
           const isPlanBox = planBoxSet.has(bid);
@@ -1847,14 +1867,48 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
             compatibleBoxSet.size === 0 || compatibleBoxSet.has(Number(box.id));
           const status = boxVisualStatus(box);
           const accent = isPlanBox ? "#7C3AED" : "#0F766E";
+          const ringAccent = isSpotlight
+            ? "#EA580C"
+            : isPanelFocused
+            ? MAP_FOCUS_BOX_COLOR
+            : accent;
+          if (isPanelFocused) {
+            L.circleMarker([lat, lng], {
+              pane: BOX_MARKER_PANE,
+              radius: 36,
+              color: MAP_FOCUS_BOX_COLOR,
+              weight: 2,
+              fillOpacity: 0,
+              opacity: 0.9,
+              dashArray: "7 9",
+            }).addTo(group);
+            L.circleMarker([lat, lng], {
+              pane: BOX_MARKER_PANE,
+              radius: 22,
+              color: MAP_FOCUS_BOX_COLOR,
+              weight: 2,
+              fillColor: MAP_FOCUS_BOX_COLOR,
+              fillOpacity: 0.24,
+            }).addTo(group);
+          } else if (isHighlighted && !isPicked && !isSpotlight) {
+            L.circleMarker([lat, lng], {
+              pane: BOX_MARKER_PANE,
+              radius: 20,
+              color: MAP_FOCUS_BOX_COLOR,
+              weight: 2,
+              fillOpacity: 0,
+              opacity: 0.75,
+              dashArray: "5 7",
+            }).addTo(group);
+          }
           if (isFocused || isPicked || isSpotlight) {
             L.circleMarker([lat, lng], {
               pane: BOX_MARKER_PANE,
-              radius: isSpotlight ? 22 : isFocused ? 15 : 13,
-              color: isSpotlight ? "#EA580C" : accent,
-              weight: isSpotlight ? 3 : 2,
-              fillColor: isSpotlight ? "#FDBA74" : accent,
-              fillOpacity: isSpotlight ? 0.2 : 0.14,
+              radius: isSpotlight ? 22 : isPanelFocused ? 14 : isFocused ? 15 : 13,
+              color: ringAccent,
+              weight: isSpotlight ? 3 : isPanelFocused ? 2.5 : 2,
+              fillColor: isSpotlight ? "#FDBA74" : ringAccent,
+              fillOpacity: isSpotlight ? 0.2 : isPanelFocused ? 0.18 : 0.14,
             }).addTo(group);
             if (isSpotlight) {
               L.circleMarker([lat, lng], {
@@ -1869,17 +1923,17 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
             }
             L.circleMarker([lat, lng], {
               pane: BOX_MARKER_PANE,
-              radius: isSpotlight ? 12 : 0,
-              color: isSpotlight ? "#FFFFFF" : accent,
-              weight: isSpotlight ? 2 : 0,
-              fillColor: isSpotlight ? "#EA580C" : accent,
-              fillOpacity: isSpotlight ? 0.95 : 0,
+              radius: isSpotlight ? 12 : isPanelFocused ? 10 : 0,
+              color: isSpotlight || isPanelFocused ? "#FFFFFF" : ringAccent,
+              weight: isSpotlight || isPanelFocused ? 2 : 0,
+              fillColor: isSpotlight ? "#EA580C" : isPanelFocused ? MAP_FOCUS_BOX_COLOR : ringAccent,
+              fillOpacity: isSpotlight || isPanelFocused ? 0.95 : 0,
             }).addTo(group);
           }
           const labelIcon = buildBoxHouseDivIcon(L, {
             isFocused,
             isPicked,
-            isHighlighted: isHighlighted && !isFocused && !isPicked,
+            isHighlighted: isHighlighted && !isSpotlight,
             isSpotlight,
             isPlanBox,
             isCompatible,
@@ -1891,6 +1945,8 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
             pane: BOX_MARKER_PANE,
             zIndexOffset: isSpotlight
               ? 450
+              : isPanelFocused
+              ? 400
               : isFocused
               ? 300
               : isPicked || isHighlighted
@@ -1920,6 +1976,13 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
             }
           );
           m.addTo(group);
+          if (isPanelFocused) {
+            try {
+              m.openTooltip();
+            } catch (_e) {
+              /* noop */
+            }
+          }
           if (isSpotlight || isFocused || isPicked) selectedLayer = m;
         } catch (_e) {
           // Ignore a malformed host point instead of crashing the whole map.
