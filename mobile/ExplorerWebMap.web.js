@@ -170,8 +170,20 @@ function drawSavedProbesOnMap(
 
 function attachMapPointHandlers(marker, pointId, { onHover, onClick, point }) {
   if (onHover) {
-    marker.on("mouseover", () => onHover(pointId));
-    marker.on("mouseout", () => onHover(null));
+    let hoverOutTimer = null;
+    marker.on("mouseover", () => {
+      if (hoverOutTimer) {
+        clearTimeout(hoverOutTimer);
+        hoverOutTimer = null;
+      }
+      onHover(pointId);
+    });
+    marker.on("mouseout", () => {
+      hoverOutTimer = setTimeout(() => {
+        hoverOutTimer = null;
+        onHover(null);
+      }, 80);
+    });
   }
   if (onClick && point) {
     marker.on("click", (ev) => {
@@ -197,8 +209,20 @@ function attachMapPointTooltipHandlers(
     if (!el || el.__ravitoboxPointHandlersAttached) return;
     el.__ravitoboxPointHandlersAttached = true;
     if (onHover) {
-      L.DomEvent.on(el, "mouseover", () => onHover(pointId));
-      L.DomEvent.on(el, "mouseout", () => onHover(null));
+      let tipHoverOutTimer = null;
+      L.DomEvent.on(el, "mouseover", () => {
+        if (tipHoverOutTimer) {
+          clearTimeout(tipHoverOutTimer);
+          tipHoverOutTimer = null;
+        }
+        onHover(pointId);
+      });
+      L.DomEvent.on(el, "mouseout", () => {
+        tipHoverOutTimer = setTimeout(() => {
+          tipHoverOutTimer = null;
+          onHover(null);
+        }, 80);
+      });
     }
     if (onClick && point) {
       L.DomEvent.on(el, "click", (domEvent) => {
@@ -367,13 +391,10 @@ function syncMapPointSelectionVisual(
       }
     }
     try {
-      const tip = marker.getTooltip?.();
-      const el = tip?.getElement?.();
+      const el = marker.getTooltip?.()?.getElement?.();
       if (el) {
         el.classList.toggle("ravitobox-map-chip--active", tier === "focus");
       }
-      if (tier === "focus") marker.openTooltip?.();
-      else marker.closeTooltip?.();
     } catch (_e) {
       /* noop */
     }
@@ -397,7 +418,6 @@ function drawTrailMapPointsOnMap(
     const marker = L.circleMarker([pt.lat, pt.lon], {
       pane: PROBE_MARKER_PANE,
       ...mapPointCircleStyle(isShared ? "shared_preview" : "plan", "idle"),
-      radius: permanentTooltips ? 10 : 8,
     });
     const tip = [
       `<strong>${index + 1}. ${escapeHtml(pt.label || "Point GPS")}</strong>`,
@@ -1032,8 +1052,41 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
   planPointLabelsPermanentRef.current = planPointLabelsPermanent;
   const highlightedMapPointIdRef = useRef(highlightedMapPointId);
   highlightedMapPointIdRef.current = highlightedMapPointId;
-  const onMapPointHoverRef = useRef(onMapPointHover);
-  onMapPointHoverRef.current = onMapPointHover;
+  const onMapPointHoverParentRef = useRef(onMapPointHover);
+  onMapPointHoverParentRef.current = onMapPointHover;
+  const lastAppliedPointHighlightRef = useRef(null);
+  const applyMapPointHighlightRef = useRef(() => {});
+  applyMapPointHighlightRef.current = (highlightedId) => {
+    if (Platform.OS !== "web") return;
+    if (lastAppliedPointHighlightRef.current === highlightedId) return;
+    lastAppliedPointHighlightRef.current = highlightedId;
+    const L = require("leaflet");
+    const haloLayer = mapPointSelectionHaloRef.current;
+    if (!haloLayer) return;
+    syncMapPointSelectionVisual(
+      L,
+      haloLayer,
+      planPointMarkersRef.current,
+      highlightedId,
+      { clearHalos: true }
+    );
+    syncMapPointSelectionVisual(
+      L,
+      haloLayer,
+      communityTipMarkersRef.current,
+      highlightedId
+    );
+    syncMapPointSelectionVisual(
+      L,
+      haloLayer,
+      draftPointMarkersRef.current,
+      highlightedId
+    );
+  };
+  const onMapPointHoverRef = useRef((id) => {
+    applyMapPointHighlightRef.current(id ?? null);
+    onMapPointHoverParentRef.current?.(id ?? null);
+  });
   const onMapPointClickRef = useRef(onMapPointClick);
   onMapPointClickRef.current = onMapPointClick;
   const highlightedPlanBoxIdRef = useRef(highlightedPlanBoxId);
@@ -1409,6 +1462,8 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
         onClick: (pt) => onMapPointClickRef.current?.(pt),
       });
     }
+    lastAppliedPointHighlightRef.current = null;
+    applyMapPointHighlightRef.current(highlightedMapPointIdRef.current ?? null);
     return undefined;
   }, [savedTrailProbes, activeTrailIdNum]);
 
@@ -1434,6 +1489,8 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
         }
       );
     }
+    lastAppliedPointHighlightRef.current = null;
+    applyMapPointHighlightRef.current(highlightedMapPointIdRef.current ?? null);
     return undefined;
   }, [communityTrailTips, activeTrailIdNum]);
 
@@ -1455,33 +1512,15 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
         permanentTooltips: Boolean(planPointLabelsPermanentRef.current),
       });
     }
+    lastAppliedPointHighlightRef.current = null;
+    applyMapPointHighlightRef.current(highlightedMapPointIdRef.current ?? null);
     return undefined;
   }, [trailMapPoints, activeTrailIdNum, planPointLabelsPermanent]);
 
   useEffect(() => {
     if (Platform.OS !== "web") return undefined;
-    const L = require("leaflet");
-    const hi = highlightedMapPointIdRef.current;
-    const haloLayer = mapPointSelectionHaloRef.current;
-    syncMapPointSelectionVisual(
-      L,
-      haloLayer,
-      planPointMarkersRef.current,
-      hi,
-      { clearHalos: true }
-    );
-    syncMapPointSelectionVisual(
-      L,
-      haloLayer,
-      communityTipMarkersRef.current,
-      hi
-    );
-    syncMapPointSelectionVisual(
-      L,
-      haloLayer,
-      draftPointMarkersRef.current,
-      hi
-    );
+    lastAppliedPointHighlightRef.current = null;
+    applyMapPointHighlightRef.current(highlightedMapPointId ?? null);
     return undefined;
   }, [highlightedMapPointId]);
 

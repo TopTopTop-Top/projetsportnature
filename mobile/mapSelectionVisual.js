@@ -50,9 +50,12 @@ export function addSelectionHalos(L, group, lat, lng, tier, pane) {
   const base = pane ? { pane } : {};
   const accent = selectionAccent(tier);
 
+  const nonInteractive = { interactive: false, bubblingMouseEvents: false };
+
   if (tier === "hover") {
     L.circleMarker(latlng, {
       ...base,
+      ...nonInteractive,
       radius: 17,
       color: accent,
       weight: 2,
@@ -64,6 +67,7 @@ export function addSelectionHalos(L, group, lat, lng, tier, pane) {
 
   L.circleMarker(latlng, {
     ...base,
+    ...nonInteractive,
     radius: 26,
     color: accent,
     weight: 1.5,
@@ -73,6 +77,7 @@ export function addSelectionHalos(L, group, lat, lng, tier, pane) {
   }).addTo(group);
   L.circleMarker(latlng, {
     ...base,
+    ...nonInteractive,
     radius: 16,
     color: MAP_SEL.white,
     weight: 2.5,
@@ -98,10 +103,8 @@ export function mapPointCircleStyle(source, tier = "idle") {
     tier === "idle"
       ? idleFill[source] || MAP_SEL.pointPlan
       : selectionAccent(tier === "spotlight" ? "spotlight" : "focus");
-  const radius =
-    tier === "focus" || tier === "spotlight" ? 11 : tier === "hover" ? 10 : 8;
   return {
-    radius,
+    radius: 10,
     color: MAP_SEL.white,
     weight: tier === "idle" ? 2 : 2.5,
     fillColor: fill,
