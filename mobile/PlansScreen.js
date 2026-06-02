@@ -27,6 +27,12 @@ import {
   formatPlanSignals,
   formatRelevanceLine,
 } from "./relevanceIndicators";
+import IntentGuideBanner from "./IntentGuideBanner";
+import {
+  planBoxHasActiveBooking,
+  formatPlanBoxSlot,
+  planBoxApprovalLabel,
+} from "./planBoxReservation";
 
 const theme = {
   primary: "#0D9488",
@@ -375,6 +381,8 @@ function PlanDetailPanel({
   loading,
   onOpenExplorer,
   isAuthed,
+  canBook = false,
+  onBookPlanBox,
   selectedKind,
   onVoteRelevance,
   voteEligibility,
@@ -440,7 +448,7 @@ function PlanDetailPanel({
       <TouchableOpacity style={styles.secondaryBtn} onPress={onOpenExplorer}>
         <Ionicons name="compass-outline" size={16} color={theme.primary} />
         <Text style={styles.secondaryBtnText}>
-          Composer / réserver sur la Carte
+          Ouvrir sur Découvrir (carte + rail)
         </Text>
       </TouchableOpacity>
       <Text style={styles.detailSection}>Box ({boxes.length})</Text>
@@ -470,6 +478,25 @@ function PlanDetailPanel({
               ) : (
                 <Text style={styles.noteEmpty}>Pas de commentaire</Text>
               )}
+              {planBoxHasActiveBooking(b) ? (
+                <Text style={styles.noteMeta}>
+                  Réservation : {formatPlanBoxSlot(b) || "—"} ·{" "}
+                  {planBoxApprovalLabel(b.latest_approval_status)}
+                </Text>
+              ) : canBook && onBookPlanBox ? (
+                <TouchableOpacity
+                  style={styles.bookBoxBtn}
+                  onPress={() => onBookPlanBox(bid)}
+                  activeOpacity={0.85}
+                >
+                  <Ionicons
+                    name="calendar-outline"
+                    size={14}
+                    color={theme.primary}
+                  />
+                  <Text style={styles.bookBoxBtnText}>Réserver cette box</Text>
+                </TouchableOpacity>
+              ) : null}
             </View>
           );
         })
@@ -529,6 +556,7 @@ export default function PlansScreen({ appMain = {} }) {
     routePlans,
     routePlanBusy,
     actionsRef,
+    canBook,
     mapLat,
     mapLon,
     staticOrigin,
@@ -761,6 +789,18 @@ export default function PlansScreen({ appMain = {} }) {
     [actionsRef]
   );
 
+  const bookPlanBox = useCallback(
+    (boxId) => {
+      const bid = Number(boxId);
+      if (!Number.isFinite(bid)) return;
+      if (selectedId != null) {
+        openOnExplorer(selectedId, selectedKind);
+      }
+      actionsRef.current.queueBookBoxOnCarte?.(bid);
+    },
+    [actionsRef, selectedId, selectedKind, openOnExplorer]
+  );
+
   const toggleVisibility = useCallback(
     async (plan) => {
       const pid = Number(plan.id);
@@ -871,11 +911,14 @@ export default function PlansScreen({ appMain = {} }) {
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={Platform.OS === "web"}
         >
-        <Text style={styles.intro}>
-          Touche un plan : carte et liste restent liées (survol box / point GPS).
-          Plans publics = les tiens et ceux de la communauté. Note ★ communauté
-          seulement après toutes les box réservées et terminées.
-        </Text>
+        <IntentGuideBanner
+          title="Composer — tes plans"
+          lines={[
+            "Prépare trace, box et points GPS ici ou sur Découvrir (même compte).",
+            "Réserver une box : bouton sur chaque box du détail, ou rail Mon plan sur la carte.",
+            "Suivi des créneaux et codes d’accès : onglet Réserver uniquement.",
+          ]}
+        />
 
           {!wideLayout ? mapPane : null}
 
@@ -1007,6 +1050,8 @@ export default function PlansScreen({ appMain = {} }) {
                 detail={detail}
                 loading={detailBusy}
                 isAuthed={isAuthed}
+                canBook={canBook}
+                onBookPlanBox={bookPlanBox}
                 selectedKind={selectedKind}
                 voteEligibility={voteEligibility}
                 highlightedMapPointId={highlightedMapPointId}
@@ -1261,6 +1306,24 @@ const styles = StyleSheet.create({
     textTransform: "uppercase",
   },
   noteEmpty: { fontSize: 11, color: theme.inkMuted, fontStyle: "italic" },
+  bookBoxBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    marginTop: 8,
+    alignSelf: "flex-start",
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: theme.primary,
+    backgroundColor: "#F0FDFA",
+  },
+  bookBoxBtnText: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: theme.primary,
+  },
   gpsLegend: {
     fontSize: 11,
     color: theme.inkMuted,

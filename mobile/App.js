@@ -64,6 +64,13 @@ import {
   syncPublishedTipIdsForTrail,
   isEntryPublishedOnTrail,
 } from "./explorerSavedProbesStorage";
+import IntentGuideBanner from "./IntentGuideBanner";
+import AccountRecoveryCodeModal from "./AccountRecoveryCodeModal";
+import {
+  readAuthSession,
+  writeAuthSession,
+  clearAuthSession,
+} from "./authSessionStorage";
 import { StatusBar } from "expo-status-bar";
 import * as DocumentPicker from "expo-document-picker";
 import {
@@ -3312,23 +3319,32 @@ function ExplorerScreen() {
   const isExplorerFocused = useIsFocused();
   useEffect(() => {
     if (!isExplorerFocused) return;
-    const req = actionsRef.current.takeQueuedOpenPlanOnMap?.();
-    if (!req?.planId) return;
-    const pid = Number(req.planId);
-    if (!Number.isFinite(pid)) return;
+    const planReq = actionsRef.current.takeQueuedOpenPlanOnMap?.();
+    const bookReq = actionsRef.current.takeQueuedBookBoxOnCarte?.();
+    if (!planReq?.planId && !bookReq?.boxId) return;
+    const pid = planReq?.planId != null ? Number(planReq.planId) : null;
     let cancelled = false;
     (async () => {
-      if (req.kind === "shared") {
-        await openSharedPlanPreview(pid);
-        if (!cancelled) showSharedPlanPreviewOnMap();
-        return;
+      if (planReq?.planId && Number.isFinite(pid)) {
+        if (planReq.kind === "shared") {
+          await openSharedPlanPreview(pid);
+          if (!cancelled) showSharedPlanPreviewOnMap();
+        } else {
+          const detail = await actionsRef.current.loadRoutePlanDetail?.(pid);
+          if (!cancelled && detail) {
+            await selectExplorerRoutePlan(pid);
+            if (!cancelled) {
+              actionsRef.current.showRoutePlanOnMap?.(detail);
+            }
+          }
+        }
       }
-      const detail = await actionsRef.current.loadRoutePlanDetail?.(pid);
-      if (cancelled || !detail) return;
-      await selectExplorerRoutePlan(pid);
-      if (!cancelled) {
-        actionsRef.current.showRoutePlanOnMap?.(detail);
-      }
+      if (cancelled || !bookReq?.boxId) return;
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          if (!cancelled) startBookingFromExplorer(bookReq.boxId);
+        });
+      });
     })();
     return () => {
       cancelled = true;
@@ -3339,6 +3355,7 @@ function ExplorerScreen() {
     openSharedPlanPreview,
     showSharedPlanPreviewOnMap,
     selectExplorerRoutePlan,
+    startBookingFromExplorer,
   ]);
 
   const upsertPickedBoxesToActivePlan = useCallback(async () => {
@@ -4313,6 +4330,20 @@ function ExplorerScreen() {
 
   const explorerScrollContent = (
     <>
+      <IntentGuideBanner
+        title="Découvrir — carte & box"
+        lines={[
+          "1. Choisis une zone, une trace ou une box sur la carte.",
+          "2. Catalogue GPX complet : bouton « Traces GPX » ci-dessous.",
+          "3. Règle le créneau dans « Créneau & demande », puis réserve.",
+          "4. Suis tes demandes dans l’onglet Réserver.",
+        ]}
+      />
+      <SecondaryButton
+        label="Catalogue traces GPX"
+        icon="navigate-outline"
+        onPress={() => actionsRef.current.navigateToTrails?.()}
+      />
       <Section
         title="Carte & hôtes"
         subtitle={
@@ -5165,7 +5196,7 @@ function ExplorerScreen() {
                               )}
                               <OutlineButton
                                 compact
-                                label="Onglet Resa (détail complet)"
+                                label="Onglet Réserver (détail complet)"
                                 icon="open-outline"
                                 onPress={openReservationsTab}
                               />
@@ -9365,6 +9396,13 @@ function ProfileScreen() {
     actionsRef,
   } = useAppMain();
   const isFocused = useIsFocused();
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [newPasswordConfirm, setNewPasswordConfirm] = useState("");
+  const [passwordChangeBusy, setPasswordChangeBusy] = useState(false);
+  const [recoveryRegenBusy, setRecoveryRegenBusy] = useState(false);
+  const [recoveryRegenPassword, setRecoveryRegenPassword] = useState("");
+  const [hasRecoveryCode, setHasRecoveryCode] = useState(null);
   const roleLabel = ROLE_LABELS[user?.role] || user?.role;
   const canEnableBoth = user?.role !== "both";
   const today = todayIsoDate();
@@ -9384,6 +9422,22 @@ function ProfileScreen() {
     actionsRef.current.loadMyReviews?.();
   }, [isFocused, actionsRef]);
 
+  useEffect(() => {
+    if (!isFocused) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const status = await actionsRef.current.fetchRecoveryCodeStatus?.();
+        if (!cancelled) setHasRecoveryCode(Boolean(status?.hasRecoveryCode));
+      } catch {
+        if (!cancelled) setHasRecoveryCode(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isFocused, actionsRef]);
+
   return (
     <SafeAreaView style={styles.screen} edges={["left", "right"]}>
       <ScrollView
@@ -9396,6 +9450,13 @@ function ProfileScreen() {
         showsVerticalScrollIndicator={Platform.OS === "web"}
         keyboardShouldPersistTaps="handled"
       >
+        <IntentGuideBanner
+          title="Compte"
+          lines={[
+            "Import GPX, rôle athlète/hôte, changement de mot de passe.",
+            "Réservations et notifications : onglet Réserver.",
+          ]}
+        />
         <Section
           title="Mon profil"
           subtitle="Compte connecté."
@@ -9444,6 +9505,138 @@ function ProfileScreen() {
                 actionsRef.current.loadNotifications?.(),
               ]);
               userAlert("Synchronisation", "Données mises à jour.");
+            }}
+          />
+          <SecondaryButton
+            label="Catalogue traces GPX"
+            icon="navigate-outline"
+            onPress={() => actionsRef.current.navigateToTrails?.()}
+          />
+        </Section>
+
+        <Section
+          title="Code de compte"
+          subtitle="Reçu à l’inscription ; uniquement si tu oublies ton mot de passe."
+          icon="shield-checkmark-outline"
+        >
+          <Text style={styles.helperText}>
+            {hasRecoveryCode === false
+              ? "Aucun code enregistré (compte ancien). Génère-en un avec ton mot de passe actuel."
+              : hasRecoveryCode === true
+              ? "Tu as un code de secours actif. Il n’est plus affiché : si tu l’as perdu, régénère-en un."
+              : "…"}
+          </Text>
+          <Text style={styles.inputLabel}>Mot de passe actuel</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="Pour générer un nouveau code"
+            placeholderTextColor={theme.inkMuted}
+            value={recoveryRegenPassword}
+            onChangeText={setRecoveryRegenPassword}
+            secureTextEntry
+            editable={!recoveryRegenBusy}
+          />
+          <PrimaryButton
+            label={
+              hasRecoveryCode
+                ? "Régénérer mon code de compte"
+                : "Créer mon code de compte"
+            }
+            icon="key-outline"
+            loading={recoveryRegenBusy}
+            onPress={async () => {
+              if (!recoveryRegenPassword) {
+                userAlert("Mot de passe", "Saisis ton mot de passe actuel.");
+                return;
+              }
+              setRecoveryRegenBusy(true);
+              try {
+                const code =
+                  await actionsRef.current.regenerateRecoveryCode?.({
+                    currentPassword: recoveryRegenPassword,
+                  });
+                setRecoveryRegenPassword("");
+                setHasRecoveryCode(true);
+                if (code) {
+                  actionsRef.current.showRecoveryCodeReveal?.(code);
+                }
+              } catch (error) {
+                userAlert("Erreur", error.message);
+              } finally {
+                setRecoveryRegenBusy(false);
+              }
+            }}
+          />
+        </Section>
+
+        <Section
+          title="Mot de passe"
+          subtitle="Change-le ici si tu es connecté et que tu connais l’ancien."
+          icon="key-outline"
+        >
+          <Text style={styles.inputLabel}>Mot de passe actuel</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="Actuel"
+            placeholderTextColor={theme.inkMuted}
+            value={currentPassword}
+            onChangeText={setCurrentPassword}
+            secureTextEntry
+            editable={!passwordChangeBusy}
+          />
+          <Text style={styles.inputLabel}>Nouveau mot de passe</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="Au moins 6 caractères"
+            placeholderTextColor={theme.inkMuted}
+            value={newPassword}
+            onChangeText={setNewPassword}
+            secureTextEntry
+            editable={!passwordChangeBusy}
+          />
+          <Text style={styles.inputLabel}>Confirmer</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="Répète le nouveau"
+            placeholderTextColor={theme.inkMuted}
+            value={newPasswordConfirm}
+            onChangeText={setNewPasswordConfirm}
+            secureTextEntry
+            editable={!passwordChangeBusy}
+          />
+          <PrimaryButton
+            label="Enregistrer le nouveau mot de passe"
+            icon="checkmark-circle-outline"
+            loading={passwordChangeBusy}
+            onPress={async () => {
+              if (newPassword.length < 6) {
+                userAlert(
+                  "Mot de passe",
+                  "Le nouveau mot de passe doit faire au moins 6 caractères."
+                );
+                return;
+              }
+              if (newPassword !== newPasswordConfirm) {
+                userAlert(
+                  "Confirmation",
+                  "Les deux nouveaux mots de passe ne correspondent pas."
+                );
+                return;
+              }
+              setPasswordChangeBusy(true);
+              try {
+                await actionsRef.current.changeMyPassword?.({
+                  currentPassword,
+                  newPassword,
+                });
+                setCurrentPassword("");
+                setNewPassword("");
+                setNewPasswordConfirm("");
+              } catch (error) {
+                userAlert("Erreur", error.message);
+              } finally {
+                setPasswordChangeBusy(false);
+              }
             }}
           />
         </Section>
@@ -9596,6 +9789,16 @@ function ReservationsScreen() {
         showsVerticalScrollIndicator={Platform.OS === "web"}
         keyboardShouldPersistTaps="handled"
       >
+        <IntentGuideBanner
+          title="Réserver — suivi des créneaux"
+          lines={[
+            "Toutes les réservations passent par le même envoi (Carte ou Composer).",
+            "Ici : statut, code d’accès, modifications et notifications.",
+            canHost
+              ? "Bascule « Reçues (hôte) » pour valider les demandes sur tes box."
+              : "Les demandes en attente d’hôte apparaissent avec le statut « pending ».",
+          ]}
+        />
         {canHost && canBook ? (
           <View style={[styles.roleRow, { marginBottom: 8 }]}>
             <TouchableOpacity
@@ -10220,12 +10423,11 @@ function MainTabs() {
   const isNarrowScreen = width < 430;
   const [webTabPickerVisible, setWebTabPickerVisible] = useState(false);
   const tabTargets = [
-    { key: "Carte", label: "Carte" },
-    { key: "Trails", label: "Traces" },
-    { key: "Plans", label: "Plans" },
+    { key: "Carte", label: "Découvrir" },
+    { key: "Plans", label: "Composer" },
     ...(canHost ? [{ key: "Host", label: "Mes box" }] : []),
-    { key: "Reservations", label: "Reservations" },
-    { key: "Profil", label: "Profil" },
+    { key: "Reservations", label: "Réserver" },
+    { key: "Profil", label: "Compte" },
   ];
   const openTabPicker = useCallback(
     (navigation) => {
@@ -10320,17 +10522,21 @@ function MainTabs() {
         <Tab.Screen
           name="Carte"
           component={ExplorerScreen}
-          options={{ title: "Carte" }}
+          options={{ title: "Découvrir", tabBarLabel: "Découvrir" }}
         />
         <Tab.Screen
           name="Trails"
           component={TrailsScreen}
-          options={{ title: "Traces", tabBarLabel: "Traces" }}
+          options={{
+            title: "Traces GPX",
+            tabBarButton: () => null,
+            tabBarItemStyle: { display: "none", width: 0, height: 0 },
+          }}
         />
         <Tab.Screen
           name="Plans"
           component={PlansScreen}
-          options={{ title: "Plans", tabBarLabel: "Plans" }}
+          options={{ title: "Composer", tabBarLabel: "Composer" }}
         />
         {canHost ? (
           <Tab.Screen
@@ -10342,12 +10548,12 @@ function MainTabs() {
         <Tab.Screen
           name="Reservations"
           component={ReservationsScreen}
-          options={{ title: "Réservations", tabBarLabel: "Resa" }}
+          options={{ title: "Réserver", tabBarLabel: "Réserver" }}
         />
         <Tab.Screen
           name="Profil"
           component={ProfileScreen}
-          options={{ title: "Profil" }}
+          options={{ title: "Compte", tabBarLabel: "Compte" }}
         />
       </Tab.Navigator>
       {Platform.OS === "web" ? (
@@ -10460,6 +10666,9 @@ function RavitoApp() {
   const [role, setRole] = useState("athlete");
   const [authMode, setAuthMode] = useState("login");
   const [authLoading, setAuthLoading] = useState(false);
+  const [resetStep, setResetStep] = useState("idle");
+  const [recoveryCodeReveal, setRecoveryCodeReveal] = useState(null);
+  const [sessionReady, setSessionReady] = useState(false);
 
   const [boxes, setBoxes] = useState([]);
   const [trails, setTrails] = useState([]);
@@ -10578,6 +10787,54 @@ function RavitoApp() {
     }
     setTrailLocalPatches(readTrailPatchesFromStorage(user.id));
   }, [user?.id]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const stored = readAuthSession();
+      if (!stored?.refreshToken) {
+        if (!cancelled) setSessionReady(true);
+        return;
+      }
+      refreshTokenRef.current = stored.refreshToken;
+      try {
+        const result = await apiFetch("/auth/refresh", {
+          method: "POST",
+          body: { refreshToken: stored.refreshToken },
+        });
+        if (cancelled) return;
+        setToken(result.token);
+        setRefreshToken(result.refreshToken);
+        setUser(stored.user);
+        writeAuthSession({
+          token: result.token,
+          refreshToken: result.refreshToken,
+          user: stored.user,
+        });
+      } catch {
+        if (!cancelled) {
+          clearAuthSession();
+          setToken(null);
+          setRefreshToken(null);
+          setUser(null);
+        }
+      } finally {
+        if (!cancelled) setSessionReady(true);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!sessionReady) return;
+    if (token && refreshToken && user) {
+      writeAuthSession({ token, refreshToken, user });
+    } else if (!token && !refreshToken) {
+      clearAuthSession();
+    }
+  }, [sessionReady, token, refreshToken, user]);
 
   useEffect(() => {
     refreshTokenRef.current = refreshToken;
@@ -11039,13 +11296,54 @@ function RavitoApp() {
       setToken(result.token);
       setRefreshToken(result.refreshToken);
       setUser(result.user);
-      userAlert("Compte créé", "Bienvenue sur RavitoBox.");
+      if (result.accountRecoveryCode) {
+        setRecoveryCodeReveal({
+          code: result.accountRecoveryCode,
+          session: {
+            token: result.token,
+            refreshToken: result.refreshToken,
+            user: result.user,
+          },
+        });
+        return;
+      }
+      setToken(result.token);
+      setRefreshToken(result.refreshToken);
+      setUser(result.user);
+      writeAuthSession({
+        token: result.token,
+        refreshToken: result.refreshToken,
+        user: result.user,
+      });
     } catch (error) {
       userAlert("Inscription impossible", error.message);
     } finally {
       setAuthLoading(false);
     }
   }, [fullName, email, password, role]);
+
+  const completeRecoveryCodeReveal = useCallback(() => {
+    const pending = recoveryCodeReveal?.session;
+    if (!pending?.token) {
+      setRecoveryCodeReveal(null);
+      return;
+    }
+    setToken(pending.token);
+    setRefreshToken(pending.refreshToken);
+    setUser(pending.user);
+    writeAuthSession({
+      token: pending.token,
+      refreshToken: pending.refreshToken,
+      user: pending.user,
+    });
+    setRecoveryCodeReveal(null);
+  }, [recoveryCodeReveal]);
+
+  const showRecoveryCodeReveal = useCallback((code) => {
+    const c = String(code || "").trim();
+    if (!c) return;
+    setRecoveryCodeReveal({ code: c, session: null });
+  }, []);
 
   const login = useCallback(async () => {
     const mail = email.trim().toLowerCase();
@@ -11066,13 +11364,87 @@ function RavitoApp() {
       setToken(result.token);
       setRefreshToken(result.refreshToken);
       setUser(result.user);
-      userAlert("Connexion", `Bonjour ${result.user.full_name} !`);
+      writeAuthSession({
+        token: result.token,
+        refreshToken: result.refreshToken,
+        user: result.user,
+      });
     } catch (error) {
       userAlert("Connexion refusée", error.message);
     } finally {
       setAuthLoading(false);
     }
   }, [email, password]);
+
+  const openPasswordReset = useCallback(() => {
+    setResetStep("confirm");
+    setPassword("");
+  }, []);
+
+  const confirmPasswordReset = useCallback(
+    async (recoveryCodeInput) => {
+      const mail = email.trim().toLowerCase();
+      const recoveryCode = String(recoveryCodeInput || "")
+        .trim()
+        .toUpperCase()
+        .replace(/\s+/g, "");
+      if (!recoveryCode || recoveryCode.length < 8) {
+        userAlert(
+          "Code de compte",
+          "Saisis le code reçu à l’inscription (ex. RB-XXXX-XXXX-XXXX)."
+        );
+        return;
+      }
+      if (!password || password.length < 6) {
+        userAlert("Mot de passe", "Choisis un nouveau mot de passe (6 caractères min.).");
+        return;
+      }
+      setAuthLoading(true);
+      try {
+        const result = await apiFetch("/auth/password-reset/confirm", {
+          method: "POST",
+          body: { email: mail, recoveryCode, newPassword: password },
+        });
+        setResetStep("idle");
+        setPassword("");
+        setAuthMode("login");
+        if (result.accountRecoveryCode) {
+          showRecoveryCodeReveal(result.accountRecoveryCode);
+        } else {
+          userAlert(
+            "Mot de passe mis à jour",
+            "Connecte-toi avec ton nouveau mot de passe."
+          );
+        }
+      } catch (error) {
+        userAlert("Erreur", error.message);
+      } finally {
+        setAuthLoading(false);
+      }
+    },
+    [email, password]
+  );
+
+  const cancelPasswordReset = useCallback(() => {
+    setResetStep("idle");
+    setPassword("");
+    setAuthMode("login");
+  }, []);
+
+  const fetchRecoveryCodeStatus = async () => {
+    if (!token) return { hasRecoveryCode: false };
+    return apiFetch("/users/me/recovery-code/status", { token });
+  };
+
+  const regenerateRecoveryCode = async ({ currentPassword }) => {
+    if (!token) return null;
+    const result = await apiFetch("/users/me/recovery-code/regenerate", {
+      method: "POST",
+      token,
+      body: { currentPassword },
+    });
+    return result.accountRecoveryCode || null;
+  };
 
   const refreshSession = async () => {
     if (!refreshToken) return;
@@ -11100,6 +11472,7 @@ function RavitoApp() {
     } catch (_error) {
       // noop
     } finally {
+      clearAuthSession();
       setToken(null);
       setRefreshToken(null);
       setUser(null);
@@ -11137,6 +11510,16 @@ function RavitoApp() {
     } catch (error) {
       userAlert("Erreur", error.message);
     }
+  };
+
+  const changeMyPassword = async ({ currentPassword, newPassword }) => {
+    if (!token) return;
+    await apiFetch("/users/me/password", {
+      method: "PATCH",
+      token,
+      body: { currentPassword, newPassword },
+    });
+    userAlert("Compte", "Mot de passe modifié.");
   };
 
   const loadBoxes = async () => {
@@ -12359,7 +12742,7 @@ function RavitoApp() {
           result.access_code && canShowBookingAccessInfo(result)
             ? `Code d’accès : ${result.access_code}`
             : result.access_code
-            ? "Code d’accès : visible à l’approche du créneau (onglet Resa)."
+            ? "Code d’accès : visible à l’approche du créneau (onglet Réserver)."
             : "";
         userAlert(
           "Réservation confirmée",
@@ -12370,7 +12753,7 @@ function RavitoApp() {
       } else {
         userAlert(
           "Demande envoyée",
-          "En attente de validation par l’hôte. Le code d’accès apparaîtra dans l’onglet Resa une fois la réservation acceptée."
+          "En attente de validation par l’hôte. Le code d’accès apparaîtra dans l’onglet Réserver une fois la réservation acceptée."
         );
       }
       await loadAthleteBookings();
@@ -12804,7 +13187,7 @@ function RavitoApp() {
       userAlert(
         decision === "accept" ? "Réservation acceptée" : "Réservation refusée",
         decision === "accept"
-          ? "L’athlète verra le statut mis à jour dans l’onglet Resa."
+          ? "L’athlète verra le statut mis à jour dans l’onglet Réserver."
           : "La demande a été annulée côté athlète."
       );
     } catch (error) {
@@ -13349,32 +13732,41 @@ function RavitoApp() {
     void syncLiveSessionData();
     const id = setInterval(() => {
       void syncLiveSessionData();
-    }, 15000);
+    }, 45000);
     return () => clearInterval(id);
   }, [token, syncLiveSessionData]);
 
   useEffect(() => {
     if (!token) return;
+    let visibilityTimer = null;
+    const scheduleSync = () => {
+      if (visibilityTimer) clearTimeout(visibilityTimer);
+      visibilityTimer = setTimeout(() => {
+        void syncLiveSessionData();
+      }, 2000);
+    };
     if (Platform.OS === "web" && typeof document !== "undefined") {
       const onVisibility = () => {
-        if (document.visibilityState === "visible") {
-          void syncLiveSessionData();
-        }
+        if (document.visibilityState === "visible") scheduleSync();
       };
       document.addEventListener("visibilitychange", onVisibility);
-      return () =>
+      return () => {
         document.removeEventListener("visibilitychange", onVisibility);
+        if (visibilityTimer) clearTimeout(visibilityTimer);
+      };
     }
     const sub = AppState.addEventListener("change", (state) => {
-      if (state === "active") {
-        void syncLiveSessionData();
-      }
+      if (state === "active") scheduleSync();
     });
-    return () => sub.remove();
+    return () => {
+      sub.remove();
+      if (visibilityTimer) clearTimeout(visibilityTimer);
+    };
   }, [token, syncLiveSessionData]);
 
   const actionsRef = useRef({});
   const explorerOpenPlanQueueRef = useRef(null);
+  const explorerBookBoxQueueRef = useRef(null);
 
   actionsRef.current = {
     loadBoxes,
@@ -13445,6 +13837,8 @@ function RavitoApp() {
       mainTabNavigationRef.current?.navigate?.("Reservations"),
     navigateToPlans: () =>
       mainTabNavigationRef.current?.navigate?.("Plans"),
+    navigateToTrails: () =>
+      mainTabNavigationRef.current?.navigate?.("Trails"),
     queueOpenPlanOnMap: ({ planId, kind = "mine" } = {}) => {
       const pid = Number(planId);
       if (!Number.isFinite(pid) || pid <= 0) return;
@@ -13459,12 +13853,27 @@ function RavitoApp() {
       explorerOpenPlanQueueRef.current = null;
       return req;
     },
+    queueBookBoxOnCarte: (boxId) => {
+      const bid = Number(boxId);
+      if (!Number.isFinite(bid)) return;
+      explorerBookBoxQueueRef.current = { boxId: bid };
+      mainTabNavigationRef.current?.navigate?.("Carte");
+    },
+    takeQueuedBookBoxOnCarte: () => {
+      const req = explorerBookBoxQueueRef.current;
+      explorerBookBoxQueueRef.current = null;
+      return req;
+    },
     loadDiscoverRoutePlans,
     setResourceRelevance,
     checkResourceRelevanceEligibility,
     refreshSession,
     logout,
     updateMyRole,
+    changeMyPassword,
+    regenerateRecoveryCode,
+    fetchRecoveryCodeStatus,
+    showRecoveryCodeReveal,
     deleteHostBoxTrailPin,
     addHostBoxTrailPin,
     patchHostBoxTrailPin,
@@ -13686,16 +14095,76 @@ function RavitoApp() {
       role,
       setRole,
       authLoading,
+      resetStep,
+      recoveryCodeReveal,
+      completeRecoveryCodeReveal,
       register,
       login,
+      openPasswordReset,
+      confirmPasswordReset,
+      cancelPasswordReset,
     }),
-    [authMode, email, password, fullName, role, authLoading, register, login]
+    [
+      authMode,
+      email,
+      password,
+      fullName,
+      role,
+      authLoading,
+      resetStep,
+      recoveryCodeReveal,
+      completeRecoveryCodeReveal,
+      register,
+      login,
+      openPasswordReset,
+      confirmPasswordReset,
+      cancelPasswordReset,
+    ]
   );
+
+  if (!sessionReady) {
+    return (
+      <GestureHandlerRootView
+        style={{
+          flex: 1,
+          justifyContent: "center",
+          alignItems: "center",
+          backgroundColor: theme.bg,
+        }}
+      >
+        <ActivityIndicator size="large" color={theme.primary} />
+        <Text style={{ marginTop: 12, color: theme.inkMuted, fontSize: 14 }}>
+          Ouverture de la session…
+        </Text>
+      </GestureHandlerRootView>
+    );
+  }
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
         <AuthUiContext.Provider value={authUiValue}>
+          <AccountRecoveryCodeModal
+            visible={Boolean(recoveryCodeReveal?.code)}
+            code={recoveryCodeReveal?.code || ""}
+            title={
+              recoveryCodeReveal?.session
+                ? "Code de compte — à conserver"
+                : "Nouveau code de compte"
+            }
+            subtitle={
+              recoveryCodeReveal?.session
+                ? "Reçu à la création de ton compte. Sans email : garde-le en lieu sûr."
+                : "Ton ancien code ne fonctionne plus. Note ce nouveau code."
+            }
+            onConfirm={() => {
+              if (recoveryCodeReveal?.session) {
+                completeRecoveryCodeReveal();
+              } else {
+                setRecoveryCodeReveal(null);
+              }
+            }}
+          />
           <NavigationContainer>
             <AppMainContext.Provider value={isAuthed ? mainContextValue : null}>
               <>
@@ -15230,21 +15699,17 @@ function AuthScreen() {
     role,
     setRole,
     authLoading,
+    resetStep,
     register,
     login,
+    openPasswordReset,
+    confirmPasswordReset,
+    cancelPasswordReset,
   } = ctx;
 
+  const [resetCodeInput, setResetCodeInput] = useState("");
   const isRegister = authMode === "register";
-
-  const forgotPasswordHint = () => {
-    userAlert(
-      "Mot de passe oublié",
-      "Il n’y a pas encore de réinitialisation automatique par email.\n\n" +
-        "Solution gratuite typique : envoyer un lien signé par email (Resend ou Brevo : " +
-        "niveaux gratuits, ou SMTP).\n\n" +
-        "Pour ce MVP, recrée un compte avec un autre email ou contacte l’administrateur du service."
-    );
-  };
+  const isResetConfirm = resetStep === "confirm";
 
   return (
     <SafeAreaView style={styles.screen} edges={["top", "left", "right"]}>
@@ -15279,6 +15744,59 @@ function AuthScreen() {
           </View>
 
           <View style={styles.panel}>
+            {isResetConfirm ? (
+              <>
+                <Text style={styles.panelHint}>
+                  Saisis l’email du compte et le code de compte reçu à
+                  l’inscription (format RB-XXXX-XXXX-XXXX). Ce code sert uniquement
+                  si tu as oublié ton mot de passe.
+                </Text>
+                <Text style={styles.inputLabel}>Email</Text>
+                <TextInput
+                  style={styles.input}
+                  value={email}
+                  onChangeText={setEmail}
+                  autoCapitalize="none"
+                  keyboardType="email-address"
+                  editable={!authLoading}
+                />
+                <Text style={styles.inputLabel}>Code de compte</Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder="RB-XXXX-XXXX-XXXX"
+                  placeholderTextColor={theme.inkMuted}
+                  value={resetCodeInput}
+                  onChangeText={setResetCodeInput}
+                  autoCapitalize="characters"
+                  autoCorrect={false}
+                  editable={!authLoading}
+                />
+                <Text style={styles.inputLabel}>Nouveau mot de passe</Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder="Au moins 6 caractères"
+                  placeholderTextColor={theme.inkMuted}
+                  value={password}
+                  onChangeText={setPassword}
+                  secureTextEntry
+                  editable={!authLoading}
+                />
+                <PrimaryButton
+                  label="Valider le nouveau mot de passe"
+                  icon="checkmark-circle-outline"
+                  onPress={() => confirmPasswordReset(resetCodeInput)}
+                  loading={authLoading}
+                />
+                <TouchableOpacity
+                  onPress={cancelPasswordReset}
+                  style={styles.forgotLinkWrap}
+                  disabled={authLoading}
+                >
+                  <Text style={styles.forgotLinkText}>Retour à la connexion</Text>
+                </TouchableOpacity>
+              </>
+            ) : (
+            <>
             <View style={styles.authSegment}>
               <TouchableOpacity
                 style={[
@@ -15434,18 +15952,24 @@ function AuthScreen() {
                   loading={authLoading}
                 />
                 <TouchableOpacity
-                  onPress={forgotPasswordHint}
+                  onPress={openPasswordReset}
                   style={[
                     styles.forgotLinkWrap,
                     Platform.OS === "web" && { cursor: "pointer" },
                   ]}
                   activeOpacity={0.7}
+                  disabled={authLoading}
                 >
                   <Text style={styles.forgotLinkText} pointerEvents="none">
                     Mot de passe oublié ?
                   </Text>
                 </TouchableOpacity>
+                <Text style={[styles.helperText, { textAlign: "center" }]}>
+                  Utilise le code de compte reçu à l’inscription (pas d’email).
+                </Text>
               </>
+            )}
+            </>
             )}
           </View>
         </View>

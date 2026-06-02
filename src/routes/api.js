@@ -283,6 +283,48 @@ const refreshSchema = z.object({
   refreshToken: z.string().min(10),
 });
 
+const passwordResetConfirmSchema = z.object({
+  email: authEmailSchema,
+  recoveryCode: z
+    .string()
+    .min(8)
+    .max(32)
+    .transform((v) => normalizeAccountRecoveryCode(v)),
+  newPassword: z.string().min(6),
+});
+
+const changePasswordSchema = z.object({
+  currentPassword: z.string().min(1),
+  newPassword: z.string().min(6),
+});
+
+const regenerateRecoveryCodeSchema = z.object({
+  currentPassword: z.string().min(1),
+});
+
+function normalizeAccountRecoveryCode(value) {
+  return String(value || "")
+    .trim()
+    .toUpperCase()
+    .replace(/\s+/g, "");
+}
+
+/** Code de secours affiché une seule fois à la création du compte (format RB-XXXX-XXXX-XXXX). */
+function generateAccountRecoveryCode() {
+  const part = () => crypto.randomBytes(2).toString("hex").toUpperCase();
+  return `RB-${part()}-${part()}-${part()}`;
+}
+
+async function assignAccountRecoveryCode(userId) {
+  const code = generateAccountRecoveryCode();
+  const hash = bcrypt.hashSync(normalizeAccountRecoveryCode(code), 10);
+  await pool.query(
+    `UPDATE users SET account_recovery_code_hash = $1 WHERE id = $2`,
+    [hash, userId]
+  );
+  return code;
+}
+
 const hostBookingDecisionSchema = z.object({
   decision: z.enum(["accept", "reject"]),
 });
@@ -1005,12 +1047,19 @@ router.post("/auth/register", async (req, res) => {
           [nextHash, email, existingWithPassword.id]
         );
         const activated = rows[0];
+        const accountRecoveryCode = await assignAccountRecoveryCode(
+          activated.id
+        );
         const session = await createSessionForUser({
           id: activated.id,
           email: activated.email,
           role: activated.role,
         });
-        return res.status(200).json({ user: activated, ...session });
+        return res.status(200).json({
+          user: activated,
+          ...session,
+          accountRecoveryCode,
+        });
       }
       return res.status(409).json({ error: "Email already exists" });
     }
@@ -1027,12 +1076,19 @@ router.post("/auth/register", async (req, res) => {
         [passwordHash, email, fullName, city ?? null, legacyUser.id]
       );
       const activated = rows[0];
+      const accountRecoveryCode = await assignAccountRecoveryCode(
+        activated.id
+      );
       const session = await createSessionForUser({
         id: activated.id,
         email: activated.email,
         role: activated.role,
       });
-      return res.status(200).json({ user: activated, ...session });
+      return res.status(200).json({
+        user: activated,
+        ...session,
+        accountRecoveryCode,
+      });
     }
     const { rows } = await pool.query(
       `INSERT INTO users (full_name, email, password_hash, role, city)
@@ -1041,12 +1097,17 @@ router.post("/auth/register", async (req, res) => {
       [fullName, email, passwordHash, role, city ?? null]
     );
     const created = rows[0];
+    const accountRecoveryCode = await assignAccountRecoveryCode(created.id);
     const session = await createSessionForUser({
       id: created.id,
       email: created.email,
       role: created.role,
     });
-    return res.status(201).json({ user: created, ...session });
+    return res.status(201).json({
+      user: created,
+      ...session,
+      accountRecoveryCode,
+    });
   } catch (error) {
     if (error.code === "23505") {
       return res.status(409).json({ error: "Email already exists" });
@@ -1144,6 +1205,54 @@ router.post("/auth/logout", async (req, res) => {
   return res.json({ ok: true });
 });
 
+/** Mot de passe oublié : code de compte transmis à l’inscription (pas d’email). */
+router.post("/auth/password-reset/confirm", async (req, res) => {
+  const parsed = passwordResetConfirmSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error.flatten() });
+  }
+  const { email, recoveryCode, newPassword } = parsed.data;
+  const { rows: userRows } = await pool.query(
+    `SELECT id, account_recovery_code_hash
+     FROM users
+     WHERE LOWER(TRIM(email)) = $1
+     ORDER BY id DESC
+     LIMIT 1`,
+    [email]
+  );
+  const user = userRows[0];
+  if (!user) {
+    return res.status(400).json({ error: "Email ou code de compte incorrect." });
+  }
+  const storedHash = user.account_recovery_code_hash;
+  if (!storedHash || String(storedHash).trim() === "") {
+    return res.status(400).json({
+      error:
+        "Ce compte n’a pas de code de secours. Connecte-toi puis génère-en un dans Compte, ou contacte l’administrateur.",
+    });
+  }
+  let codeOk = false;
+  try {
+    codeOk = bcrypt.compareSync(recoveryCode, storedHash);
+  } catch {
+    codeOk = false;
+  }
+  if (!codeOk) {
+    return res.status(400).json({ error: "Email ou code de compte incorrect." });
+  }
+  const passwordHash = bcrypt.hashSync(newPassword, 10);
+  await pool.query(`UPDATE users SET password_hash = $1 WHERE id = $2`, [
+    passwordHash,
+    user.id,
+  ]);
+  const newAccountRecoveryCode = await assignAccountRecoveryCode(user.id);
+  return res.json({
+    ok: true,
+    message: "Mot de passe mis à jour. Un nouveau code de compte t’a été attribué : note-le.",
+    accountRecoveryCode: newAccountRecoveryCode,
+  });
+});
+
 router.get("/users", requireAuth, async (_req, res) => {
   const { rows } = await pool.query(
     `SELECT id, full_name, email, role, city, created_at FROM users ORDER BY created_at DESC`
@@ -1214,6 +1323,70 @@ router.patch("/users/me/role", requireAuth, async (req, res) => {
   const user = rows[0];
   if (!user) return res.status(404).json({ error: "User not found" });
   return res.json({ user });
+});
+
+router.patch("/users/me/password", requireAuth, async (req, res) => {
+  const parsed = changePasswordSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error.flatten() });
+  }
+  const { currentPassword, newPassword } = parsed.data;
+  const { rows } = await pool.query(
+    `SELECT id, password_hash FROM users WHERE id = $1`,
+    [req.auth.sub]
+  );
+  const user = rows[0];
+  if (!user) return res.status(404).json({ error: "User not found" });
+  const check = verifyStoredPassword(currentPassword, user.password_hash);
+  if (!check.ok) {
+    return res.status(401).json({ error: "Mot de passe actuel incorrect." });
+  }
+  await pool.query(`UPDATE users SET password_hash = $1 WHERE id = $2`, [
+    bcrypt.hashSync(newPassword, 10),
+    user.id,
+  ]);
+  return res.json({ ok: true, message: "Mot de passe modifié." });
+});
+
+router.get("/users/me/recovery-code/status", requireAuth, async (req, res) => {
+  const { rows } = await pool.query(
+    `SELECT account_recovery_code_hash FROM users WHERE id = $1`,
+    [req.auth.sub]
+  );
+  const user = rows[0];
+  if (!user) return res.status(404).json({ error: "User not found" });
+  const hasRecoveryCode = Boolean(
+    user.account_recovery_code_hash &&
+      String(user.account_recovery_code_hash).trim()
+  );
+  return res.json({ hasRecoveryCode });
+});
+
+router.post("/users/me/recovery-code/regenerate", requireAuth, async (req, res) => {
+  const parsed = regenerateRecoveryCodeSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error.flatten() });
+  }
+  const { rows } = await pool.query(
+    `SELECT id, password_hash FROM users WHERE id = $1`,
+    [req.auth.sub]
+  );
+  const user = rows[0];
+  if (!user) return res.status(404).json({ error: "User not found" });
+  const check = verifyStoredPassword(
+    parsed.data.currentPassword,
+    user.password_hash
+  );
+  if (!check.ok) {
+    return res.status(401).json({ error: "Mot de passe incorrect." });
+  }
+  const accountRecoveryCode = await assignAccountRecoveryCode(user.id);
+  return res.json({
+    ok: true,
+    accountRecoveryCode,
+    message:
+      "Nouveau code de compte généré. Note-le : il ne sera plus affiché.",
+  });
 });
 
 router.post("/users/me/deactivate", requireAuth, async (req, res) => {

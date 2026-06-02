@@ -468,7 +468,7 @@ export default function TrailProfileRail({
           activePlanVisibility={activePlanVisibility}
           onSetPlanVisibility={onSetPlanVisibility}
           onForkSharedPlan={onForkSharedPlan}
-            onFocusPlanTrailNote={onFocusPlanTrailNote}
+          onFocusPlanTrailNote={onFocusPlanTrailNote}
           highlightedMapPointId={highlightedMapPointId}
           onHighlightMapPoint={onHighlightMapPoint}
           highlightedPlanBoxId={highlightedPlanBoxId}
@@ -485,7 +485,6 @@ export default function TrailProfileRail({
           onOpenReservations={onOpenReservations}
           hostPendingBookingByBoxId={hostPendingBookingByBoxId}
           onHostDecideBooking={onHostDecideBooking}
-          savedProbeCount={savedProbes.length}
         />
         ) : null}
 
@@ -1360,7 +1359,7 @@ function PlanBoxReservationCard({
           ) : null}
           {onOpenReservations ? (
             <Pressable onPress={onOpenReservations} style={styles.planBoxActionBtn}>
-              <Text style={styles.planBoxActionBtnText}>Onglet Resa</Text>
+              <Text style={styles.planBoxActionBtnText}>Mes réservations</Text>
             </Pressable>
           ) : null}
         </View>
