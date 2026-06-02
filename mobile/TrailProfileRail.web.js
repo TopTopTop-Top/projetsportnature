@@ -32,6 +32,7 @@ import {
   planBoxDomId,
 } from "./trailMapPoints";
 import { formatPlanSignals } from "./relevanceIndicators";
+import { MAP_PANEL_SELECTION, MAP_SEL } from "./mapSelectionVisual";
 
 function webHoverHandlers(onEnter, onLeave) {
   if (Platform.OS !== "web") return {};
@@ -936,8 +937,8 @@ function TrailPlanHub({
           {planTrailNotes.length > 0 ? (
             <View style={styles.planTrailNotesSection}>
               <Text style={styles.planSubLabel}>
-                Points mémorisés enregistrés ({planTrailNotes.length}) — cyan sur la
-                carte
+                Points mémorisés enregistrés ({planTrailNotes.length}) — repère indigo
+                sur la carte
               </Text>
               {planTrailNotes.map((n, idx) => {
                 const ptId = trailMapPointId("plan", n.id, idx);
@@ -2126,16 +2127,14 @@ const styles = StyleSheet.create({
     color: "#64748B",
   },
   mapPointRowHighlight: {
-    borderColor: "#0F172A",
-    borderWidth: 2,
-    backgroundColor: "#E0F2FE",
+    ...MAP_PANEL_SELECTION,
   },
   mapPointTextHighlight: {
-    backgroundColor: "#E0F2FE",
-    borderRadius: 4,
+    backgroundColor: MAP_SEL.focusSoft,
+    borderRadius: 6,
     paddingHorizontal: 4,
     fontWeight: "700",
-    color: "#0C4A6E",
+    color: MAP_SEL.ink,
   },
   planActiveMeta: {
     fontSize: 11,

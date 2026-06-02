@@ -14,6 +14,16 @@ import {
   getTrailRemainderSlice,
   probeTrailAt,
 } from "./trailProfile";
+import {
+  MAP_SEL,
+  MAP_CHIP_TOOLTIP_CLASS,
+  MAP_SELECTION_LEAFLET_CSS,
+  addSelectionHalos,
+  boxSelectionTier,
+  mapPointCircleStyle,
+  mapPointSourceFromMeta,
+  selectionAccent,
+} from "./mapSelectionVisual";
 
 function drawTrailProbeOnMap(L, probeLayer, probe, trail, lineColor, locked) {
   try {
@@ -65,10 +75,10 @@ function drawTrailProbeOnMap(L, probeLayer, probe, trail, lineColor, locked) {
   }
   const marker = L.circleMarker([probe.lat, probe.lng], {
     pane: PROBE_MARKER_PANE,
-    radius: locked ? 14 : 12,
-    color: "#FFFFFF",
-    weight: locked ? 5 : 4,
-    fillColor: "#EA580C",
+    radius: locked ? 12 : 10,
+    color: MAP_SEL.white,
+    weight: locked ? 3 : 2.5,
+    fillColor: locked ? MAP_SEL.focus : "#EA580C",
     fillOpacity: 1,
   });
   const km = Number(probe.distKm || 0).toFixed(1);
@@ -79,9 +89,12 @@ function drawTrailProbeOnMap(L, probeLayer, probe, trail, lineColor, locked) {
     permanent: !!locked,
     direction: "top",
     offset: [0, -12],
-    className: "ravitobox-trail-probe-tip",
+    className: MAP_CHIP_TOOLTIP_CLASS,
   });
-  if (locked) marker.openTooltip();
+  if (locked) {
+    marker.openTooltip();
+    addSelectionHalos(L, probeLayer, probe.lat, probe.lng, "focus", PROBE_MARKER_PANE);
+  }
   marker.addTo(probeLayer);
   try {
     marker.bringToFront?.();
@@ -105,11 +118,7 @@ function drawSavedProbesOnMap(
     const pointId = `draft-${entry.id ?? index}`;
     const marker = L.circleMarker([p.lat, p.lng], {
       pane: PROBE_MARKER_PANE,
-      radius: 9,
-      color: "#FFFFFF",
-      weight: 2.5,
-      fillColor: "#0F766E",
-      fillOpacity: 1,
+      ...mapPointCircleStyle("draft", "idle"),
     });
     const noteLine =
       entry?.notes && String(entry.notes).trim()
@@ -127,7 +136,7 @@ function drawSavedProbesOnMap(
       permanent: false,
       direction: "top",
       offset: [0, -12],
-      className: "ravitobox-trail-probe-tip",
+      className: MAP_CHIP_TOOLTIP_CLASS,
     });
     if (onHover || onClick) {
       attachMapPointHandlers(marker, pointId, {
@@ -285,11 +294,7 @@ function drawCommunityTrailTipsOnMap(
     const pointId = `tip-${tip.id ?? index}`;
     const marker = L.circleMarker([lat, lon], {
       pane: PROBE_MARKER_PANE,
-      radius: 8,
-      color: "#FFFFFF",
-      weight: 3,
-      fillColor: "#6366F1",
-      fillOpacity: 1,
+      ...mapPointCircleStyle("tip", "idle"),
     });
     const lines = [
       tip.label || `Conseil ${index + 1}`,
@@ -300,7 +305,7 @@ function drawCommunityTrailTipsOnMap(
       permanent: false,
       direction: "top",
       offset: [0, -10],
-      className: "ravitobox-trail-probe-tip",
+      className: MAP_CHIP_TOOLTIP_CLASS,
     });
     attachMapPointHandlers(marker, pointId, {
       onHover,
@@ -325,23 +330,49 @@ function drawCommunityTrailTipsOnMap(
   });
 }
 
-function updateRegisteredMapPointStyles(markerRegistry, highlightedId) {
+function syncMapPointSelectionVisual(
+  L,
+  haloLayer,
+  markerRegistry,
+  highlightedId,
+  { clearHalos = false } = {}
+) {
   if (!markerRegistry || typeof markerRegistry.forEach !== "function") return;
+  if (clearHalos && haloLayer) {
+    try {
+      haloLayer.clearLayers();
+    } catch (_e) {
+      /* noop */
+    }
+  }
   markerRegistry.forEach((entry, id) => {
     const { marker, meta } = entry;
     if (!marker?.setStyle) return;
-    const hi = highlightedId === id;
-    const isShared = meta?.source === "shared_preview";
-    const isDraft = meta?.source === "draft";
+    const tier = highlightedId === id ? "focus" : "idle";
     marker.setStyle({
-      radius: hi ? 12 : meta.baseRadius,
-      color: hi ? "#0F172A" : "#FFFFFF",
-      weight: hi ? 3.5 : meta.baseWeight,
-      fillColor: isShared ? "#F59E0B" : isDraft ? "#0F766E" : "#0891B2",
-      fillOpacity: 1,
+      pane: PROBE_MARKER_PANE,
+      ...mapPointCircleStyle(mapPointSourceFromMeta(meta), tier),
     });
+    if (tier === "focus" && haloLayer && L) {
+      const ll = marker.getLatLng?.();
+      if (ll) {
+        addSelectionHalos(
+          L,
+          haloLayer,
+          ll.lat,
+          ll.lng,
+          "focus",
+          PROBE_MARKER_PANE
+        );
+      }
+    }
     try {
-      if (hi) marker.openTooltip?.();
+      const tip = marker.getTooltip?.();
+      const el = tip?.getElement?.();
+      if (el) {
+        el.classList.toggle("ravitobox-map-chip--active", tier === "focus");
+      }
+      if (tier === "focus") marker.openTooltip?.();
       else marker.closeTooltip?.();
     } catch (_e) {
       /* noop */
@@ -365,11 +396,8 @@ function drawTrailMapPointsOnMap(
       noteText.length > 48 ? `${noteText.slice(0, 45)}…` : noteText;
     const marker = L.circleMarker([pt.lat, pt.lon], {
       pane: PROBE_MARKER_PANE,
-      radius: permanentTooltips ? 10 : 9,
-      color: "#FFFFFF",
-      weight: 2.5,
-      fillColor: isShared ? "#F59E0B" : "#0891B2",
-      fillOpacity: 1,
+      ...mapPointCircleStyle(isShared ? "shared_preview" : "plan", "idle"),
+      radius: permanentTooltips ? 10 : 8,
     });
     const tip = [
       `<strong>${index + 1}. ${escapeHtml(pt.label || "Point GPS")}</strong>`,
@@ -386,9 +414,7 @@ function drawTrailMapPointsOnMap(
       interactive: Boolean(permanentTooltips && (onHover || onClick)),
       direction: "top",
       offset: [0, permanentTooltips ? -14 : -12],
-      className: permanentTooltips
-        ? "ravitobox-plan-point-label"
-        : "ravitobox-trail-probe-tip",
+      className: MAP_CHIP_TOOLTIP_CLASS,
     });
     attachMapPointHandlers(marker, pt.id, { onHover, onClick, point: pt });
     if (permanentTooltips) {
@@ -464,36 +490,11 @@ function ensureLeafletTileFix() {
       background: transparent !important;
       border: none !important;
     }
-    .leaflet-div-icon.ravitobox-box-house-active {
-      animation: ravitobox-box-pulse 1.35s ease-in-out infinite;
-      transform-origin: center bottom;
-    }
-    @keyframes ravitobox-box-pulse {
-      0%, 100% { transform: scale(1); }
-      50% { transform: scale(1.1); }
-    }
-    .leaflet-tooltip.ravitobox-trail-probe-tip {
-      font-size: 11px;
-      font-weight: 700;
-      color: #0F172A;
-      border: 1px solid #FDBA74;
-      background: rgba(255, 251, 235, 0.96);
-      box-shadow: 0 2px 6px rgba(15,23,42,0.1);
-      padding: 4px 8px;
-      white-space: nowrap;
-    }
-    .leaflet-tooltip.ravitobox-plan-point-label {
-      font-size: 11px;
-      font-weight: 700;
-      color: #0F172A;
-      border: 1px solid #F59E0B;
-      background: rgba(255,251,235,0.97);
-      box-shadow: 0 2px 6px rgba(15,23,42,0.1);
-      max-width: 200px;
+    ${MAP_SELECTION_LEAFLET_CSS}
+    .leaflet-tooltip.ravitobox-map-chip {
+      max-width: 220px;
       white-space: normal;
-      line-height: 1.25;
-      cursor: pointer;
-      pointer-events: auto;
+      line-height: 1.3;
     }
   `;
   document.head.appendChild(s);
@@ -770,8 +771,6 @@ function buildTrailPinIcon({
   return { html, size };
 }
 
-const MAP_FOCUS_BOX_COLOR = "#0891B2";
-
 function buildBoxHouseDivIcon(L, opts) {
   const {
     isFocused = false,
@@ -784,69 +783,66 @@ function buildBoxHouseDivIcon(L, opts) {
     status,
   } = opts;
   const isPanelFocused = isFocused && !isSpotlight;
-  const isActive = isFocused || isPicked || isSpotlight;
-  const accent = isPlanBox ? "#6D28D9" : "#0F766E";
-  const w = isSpotlight
-    ? 33
-    : isPanelFocused
-    ? 36
-    : isFocused
-    ? 30
-    : isPicked
-    ? 28
-    : isHighlighted
-    ? 27
-    : 24;
+  const tier = boxSelectionTier({
+    isSpotlight,
+    isPanelFocused,
+    isHighlighted,
+  });
+  const w =
+    tier === "spotlight"
+      ? 32
+      : tier === "focus"
+      ? 30
+      : tier === "hover" || isPicked
+      ? 26
+      : 24;
   const opacity =
-    dimIncompatibleBoxes && !isCompatible && !isHighlighted && !isActive
+    dimIncompatibleBoxes && !isCompatible && tier === "idle" && !isPicked
       ? 0.5
       : 1;
 
-  let fill = "#FFFFFF";
-  let stroke = isPlanBox ? "#8B5CF6" : status?.stroke || "#0F766E";
-  let sw = 1.4;
+  let fill = MAP_SEL.white;
+  let stroke = isPlanBox ? MAP_SEL.boxPlan : status?.stroke || MAP_SEL.boxDefault;
+  let sw = 1.5;
 
-  if (isSpotlight) {
-    fill = "#EA580C";
-    stroke = "#FFFFFF";
-    sw = 1.9;
-  } else if (isPanelFocused) {
-    fill = MAP_FOCUS_BOX_COLOR;
-    stroke = "#FFFFFF";
+  if (tier === "spotlight") {
+    fill = MAP_SEL.spotlight;
+    stroke = MAP_SEL.white;
     sw = 2;
-  } else if (isActive) {
-    fill = accent;
-    stroke = "#FFFFFF";
-    sw = 1.6;
-  } else if (isHighlighted) {
-    fill = "#FFFFFF";
-    stroke = accent;
+  } else if (tier === "focus") {
+    fill = MAP_SEL.focus;
+    stroke = MAP_SEL.white;
     sw = 2;
+  } else if (tier === "hover") {
+    fill = MAP_SEL.white;
+    stroke = MAP_SEL.focus;
+    sw = 2;
+  } else if (isPicked) {
+    fill = MAP_SEL.focusMid;
+    stroke = MAP_SEL.focus;
+    sw = 1.8;
   } else if (isPlanBox) {
-    fill = "#FAF5FF";
-    stroke = "#8B5CF6";
+    fill = "#FAFAFF";
+    stroke = MAP_SEL.boxPlan;
   } else if (dimIncompatibleBoxes && !isCompatible) {
     fill = "#F8FAFC";
-    stroke = "#94A3B8";
+    stroke = MAP_SEL.muted;
   }
 
-  const shadow = isSpotlight
-    ? "filter:drop-shadow(0 2px 8px rgba(234,88,12,0.65));"
-    : isPanelFocused
-    ? "filter:drop-shadow(0 2px 10px rgba(8,145,178,0.55));"
-    : isActive
-    ? "filter:drop-shadow(0 2px 4px rgba(15,118,110,0.45));"
-    : "filter:drop-shadow(0 1px 3px rgba(15,23,42,0.22));";
+  const iconClass =
+    tier === "spotlight"
+      ? "ravitobox-box-house ravitobox-box-house-spotlight"
+      : tier === "focus" || isPicked
+      ? "ravitobox-box-house ravitobox-box-house-active"
+      : "ravitobox-box-house";
 
-  const html = `<div style="width:${w}px;height:${w}px;opacity:${opacity};${shadow}">
+  const html = `<div style="width:${w}px;height:${w}px;opacity:${opacity};">
     <svg width="${w}" height="${w}" viewBox="0 0 24 24" aria-hidden="true">
       <path d="M4 10.5L12 4l8 6.5V20a1 1 0 01-1 1h-4.5v-7h-5v7H5a1 1 0 01-1-1v-9.5z" fill="${fill}" stroke="${stroke}" stroke-width="${sw}" stroke-linejoin="round"/>
     </svg>
   </div>`;
   return L.divIcon({
-    className: isActive
-      ? "ravitobox-box-house ravitobox-box-house-active"
-      : "ravitobox-box-house",
+    className: iconClass,
     html,
     iconSize: [w, w],
     iconAnchor: [Math.round(w / 2), Math.round(w * 0.95)],
@@ -1010,6 +1006,7 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
   const savedProbeLayerRef = useRef(null);
   const communityTipsLayerRef = useRef(null);
   const planMapPointsLayerRef = useRef(null);
+  const mapPointSelectionHaloRef = useRef(null);
   const probeMarkerRef = useRef(null);
   const onRequestExitTrailSelectionRef = useRef(onRequestExitTrailSelection);
   onRequestExitTrailSelectionRef.current = onRequestExitTrailSelection;
@@ -1101,12 +1098,14 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
     const savedProbeLayer = L.featureGroup().addTo(map);
     const communityTipsLayer = L.featureGroup().addTo(map);
     const planMapPointsLayer = L.featureGroup().addTo(map);
+    const mapPointSelectionHalo = L.featureGroup().addTo(map);
     mapRef.current = map;
     overlayRef.current = overlay;
     probeLayerRef.current = probeLayer;
     savedProbeLayerRef.current = savedProbeLayer;
     communityTipsLayerRef.current = communityTipsLayer;
     planMapPointsLayerRef.current = planMapPointsLayer;
+    mapPointSelectionHaloRef.current = mapPointSelectionHalo;
     probeMarkerRef.current = null;
 
     let exitTrailTimer = null;
@@ -1284,6 +1283,7 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
       savedProbeLayerRef.current = null;
       communityTipsLayerRef.current = null;
       planMapPointsLayerRef.current = null;
+      mapPointSelectionHaloRef.current = null;
       probeMarkerRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- carte unique, centre géré ailleurs
@@ -1460,10 +1460,28 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
 
   useEffect(() => {
     if (Platform.OS !== "web") return undefined;
+    const L = require("leaflet");
     const hi = highlightedMapPointIdRef.current;
-    updateRegisteredMapPointStyles(planPointMarkersRef.current, hi);
-    updateRegisteredMapPointStyles(communityTipMarkersRef.current, hi);
-    updateRegisteredMapPointStyles(draftPointMarkersRef.current, hi);
+    const haloLayer = mapPointSelectionHaloRef.current;
+    syncMapPointSelectionVisual(
+      L,
+      haloLayer,
+      planPointMarkersRef.current,
+      hi,
+      { clearHalos: true }
+    );
+    syncMapPointSelectionVisual(
+      L,
+      haloLayer,
+      communityTipMarkersRef.current,
+      hi
+    );
+    syncMapPointSelectionVisual(
+      L,
+      haloLayer,
+      draftPointMarkersRef.current,
+      hi
+    );
     return undefined;
   }, [highlightedMapPointId]);
 
@@ -1866,69 +1884,15 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
           const isCompatible =
             compatibleBoxSet.size === 0 || compatibleBoxSet.has(Number(box.id));
           const status = boxVisualStatus(box);
-          const accent = isPlanBox ? "#7C3AED" : "#0F766E";
-          const ringAccent = isSpotlight
-            ? "#EA580C"
-            : isPanelFocused
-            ? MAP_FOCUS_BOX_COLOR
-            : accent;
-          if (isPanelFocused) {
-            L.circleMarker([lat, lng], {
-              pane: BOX_MARKER_PANE,
-              radius: 36,
-              color: MAP_FOCUS_BOX_COLOR,
-              weight: 2,
-              fillOpacity: 0,
-              opacity: 0.9,
-              dashArray: "7 9",
-            }).addTo(group);
-            L.circleMarker([lat, lng], {
-              pane: BOX_MARKER_PANE,
-              radius: 22,
-              color: MAP_FOCUS_BOX_COLOR,
-              weight: 2,
-              fillColor: MAP_FOCUS_BOX_COLOR,
-              fillOpacity: 0.24,
-            }).addTo(group);
-          } else if (isHighlighted && !isPicked && !isSpotlight) {
-            L.circleMarker([lat, lng], {
-              pane: BOX_MARKER_PANE,
-              radius: 20,
-              color: MAP_FOCUS_BOX_COLOR,
-              weight: 2,
-              fillOpacity: 0,
-              opacity: 0.75,
-              dashArray: "5 7",
-            }).addTo(group);
-          }
-          if (isFocused || isPicked || isSpotlight) {
-            L.circleMarker([lat, lng], {
-              pane: BOX_MARKER_PANE,
-              radius: isSpotlight ? 22 : isPanelFocused ? 14 : isFocused ? 15 : 13,
-              color: ringAccent,
-              weight: isSpotlight ? 3 : isPanelFocused ? 2.5 : 2,
-              fillColor: isSpotlight ? "#FDBA74" : ringAccent,
-              fillOpacity: isSpotlight ? 0.2 : isPanelFocused ? 0.18 : 0.14,
-            }).addTo(group);
-            if (isSpotlight) {
-              L.circleMarker([lat, lng], {
-                pane: BOX_MARKER_PANE,
-                radius: 30,
-                color: "#FB923C",
-                weight: 2,
-                fillOpacity: 0,
-                opacity: 0.72,
-                dashArray: "6 8",
-              }).addTo(group);
-            }
-            L.circleMarker([lat, lng], {
-              pane: BOX_MARKER_PANE,
-              radius: isSpotlight ? 12 : isPanelFocused ? 10 : 0,
-              color: isSpotlight || isPanelFocused ? "#FFFFFF" : ringAccent,
-              weight: isSpotlight || isPanelFocused ? 2 : 0,
-              fillColor: isSpotlight ? "#EA580C" : isPanelFocused ? MAP_FOCUS_BOX_COLOR : ringAccent,
-              fillOpacity: isSpotlight || isPanelFocused ? 0.95 : 0,
-            }).addTo(group);
+          const tier = boxSelectionTier({
+            isSpotlight,
+            isPanelFocused,
+            isHighlighted,
+          });
+          if (tier !== "idle") {
+            addSelectionHalos(L, group, lat, lng, tier, BOX_MARKER_PANE);
+          } else if (isPicked) {
+            addSelectionHalos(L, group, lat, lng, "hover", BOX_MARKER_PANE);
           }
           const labelIcon = buildBoxHouseDivIcon(L, {
             isFocused,
@@ -1973,12 +1937,21 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
             {
               direction: "top",
               offset: [0, -10],
+              className: MAP_CHIP_TOOLTIP_CLASS,
             }
           );
           m.addTo(group);
-          if (isPanelFocused) {
+          if (tier === "focus" || tier === "spotlight") {
             try {
               m.openTooltip();
+              const tipEl = m.getTooltip?.()?.getElement?.();
+              if (tipEl) {
+                tipEl.classList.add(
+                  tier === "spotlight"
+                    ? "ravitobox-map-chip--spotlight"
+                    : "ravitobox-map-chip--active"
+                );
+              }
             } catch (_e) {
               /* noop */
             }
