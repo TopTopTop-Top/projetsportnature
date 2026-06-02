@@ -278,6 +278,9 @@ const createRavitoRequestSchema = z.object({
   endTime: z.string().min(4),
   specialRequest: z.string().max(2000).optional(),
   radiusKm: z.number().min(0.5).max(30).optional(),
+  routePlanId: z.number().int().positive().optional(),
+  syncToPlan: z.boolean().optional(),
+  boxIds: z.array(z.number().int().positive()).max(100).optional(),
 });
 
 const createRavitoProposalSchema = z.object({
@@ -308,8 +311,137 @@ function mapRavitoRequestRow(r, proposals = null) {
       r.proposal_count != null ? Number(r.proposal_count) : undefined,
     nearestBoxKm:
       r.nearest_box_km != null ? Number(r.nearest_box_km) : undefined,
+    routePlanId:
+      r.route_plan_id != null ? Number(r.route_plan_id) : null,
     proposals: proposals || undefined,
   };
+}
+
+function formatRavitoPlanTrailNote(requestRow) {
+  const parts = ["🟣 Ravito demandé"];
+  if (requestRow.dist_km != null && Number.isFinite(Number(requestRow.dist_km))) {
+    parts.push(`${Number(requestRow.dist_km).toFixed(1)} km sur la trace`);
+  }
+  parts.push(
+    `${requestRow.booking_date} ${requestRow.start_time}–${requestRow.end_time}`
+  );
+  parts.push(`rayon ${Number(requestRow.radius_km || 5)} km`);
+  if (requestRow.status && requestRow.status !== "open") {
+    parts.push(`statut: ${requestRow.status}`);
+  }
+  if (requestRow.note && String(requestRow.note).trim()) {
+    parts.push(String(requestRow.note).trim());
+  }
+  return parts.join(" · ").slice(0, 2000);
+}
+
+async function syncRavitoRequestToRoutePlan(requestRow, athleteUserId, input) {
+  const trailId = Number(input.trailId ?? requestRow.trail_id);
+  if (!Number.isFinite(trailId) || trailId <= 0) return null;
+
+  const boxIds = Array.from(
+    new Set(
+      (Array.isArray(input.boxIds) ? input.boxIds : [])
+        .map((x) => Number(x))
+        .filter((id) => Number.isInteger(id) && id > 0)
+    )
+  );
+
+  let planId = Number(input.routePlanId);
+  if (Number.isFinite(planId) && planId > 0) {
+    const { rows: own } = await pool.query(
+      `SELECT id, trail_id FROM route_plans
+       WHERE id = $1 AND athlete_user_id = $2`,
+      [planId, athleteUserId]
+    );
+    if (!own[0] || Number(own[0].trail_id) !== trailId) planId = null;
+  } else {
+    planId = null;
+  }
+
+  if (!planId) {
+    const { rows: recent } = await pool.query(
+      `SELECT id FROM route_plans
+       WHERE athlete_user_id = $1 AND trail_id = $2
+       ORDER BY updated_at DESC, id DESC
+       LIMIT 1`,
+      [athleteUserId, trailId]
+    );
+    planId = recent[0] ? Number(recent[0].id) : null;
+  }
+
+  if (!planId) {
+    const { rows: trailRows } = await pool.query(
+      `SELECT name FROM trails WHERE id = $1`,
+      [trailId]
+    );
+    const planName = `Plan ravito · ${trailRows[0]?.name || "trace"} · ${new Date().toLocaleDateString("fr-FR")}`;
+    const { rows: created } = await pool.query(
+      `INSERT INTO route_plans (athlete_user_id, trail_id, name, updated_at)
+       VALUES ($1, $2, $3, NOW())
+       RETURNING id`,
+      [athleteUserId, trailId, planName]
+    );
+    planId = Number(created[0].id);
+  }
+
+  if (boxIds.length > 0) {
+    const { rows: validBoxRows } = await pool.query(
+      `SELECT id FROM boxes WHERE id = ANY($1::int[]) AND is_active = 1`,
+      [boxIds]
+    );
+    const validSet = new Set(validBoxRows.map((r) => Number(r.id)));
+    let sortIndex = 0;
+    for (const bid of boxIds) {
+      if (!validSet.has(bid)) continue;
+      await pool.query(
+        `INSERT INTO route_plan_boxes (route_plan_id, box_id, sort_index)
+         VALUES ($1, $2, $3)
+         ON CONFLICT (route_plan_id, box_id) DO NOTHING`,
+        [planId, bid, sortIndex]
+      );
+      sortIndex += 1;
+    }
+    await pool.query(`UPDATE route_plans SET updated_at = NOW() WHERE id = $1`, [
+      planId,
+    ]);
+  }
+
+  const { rows: noteExists } = await pool.query(
+    `SELECT id FROM route_plan_trail_notes
+     WHERE route_plan_id = $1 AND ravito_request_id = $2`,
+    [planId, requestRow.id]
+  );
+  if (!noteExists[0]) {
+    const { rows: sortRows } = await pool.query(
+      `SELECT COALESCE(MAX(sort_index), -1) + 1 AS next_sort
+       FROM route_plan_trail_notes WHERE route_plan_id = $1`,
+      [planId]
+    );
+    const nextSort = Number(sortRows[0]?.next_sort) || 0;
+    await pool.query(
+      `INSERT INTO route_plan_trail_notes (
+         route_plan_id, note, point_lat, point_lon, sort_index, ravito_request_id
+       ) VALUES ($1, $2, $3, $4, $5, $6)`,
+      [
+        planId,
+        formatRavitoPlanTrailNote(requestRow),
+        requestRow.point_lat,
+        requestRow.point_lon,
+        nextSort,
+        requestRow.id,
+      ]
+    );
+    await pool.query(`UPDATE route_plans SET updated_at = NOW() WHERE id = $1`, [
+      planId,
+    ]);
+  }
+
+  await pool.query(
+    `UPDATE ravito_point_requests SET route_plan_id = $1, updated_at = NOW() WHERE id = $2`,
+    [planId, requestRow.id]
+  );
+  return planId;
 }
 
 function mapRavitoProposalRow(r) {
@@ -2643,6 +2775,16 @@ async function getRoutePlanDetailsForUser(routePlanId, athleteUserId) {
      ORDER BY sort_index ASC, created_at ASC`,
     [routePlanId]
   );
+  const { rows: ravitoRows } = await pool.query(
+    `SELECT r.*, t.name AS trail_name,
+            (SELECT COUNT(*)::int FROM ravito_point_proposals p
+             WHERE p.request_id = r.id AND p.status = 'pending') AS proposal_count
+     FROM ravito_point_requests r
+     LEFT JOIN trails t ON t.id = r.trail_id
+     WHERE r.route_plan_id = $1 AND r.athlete_user_id = $2
+     ORDER BY r.created_at DESC`,
+    [routePlanId, athleteUserId]
+  );
 
   const boxes = boxRows.map((b) => {
     const approval = String(b.latest_approval_status || "pending");
@@ -2663,6 +2805,7 @@ async function getRoutePlanDetailsForUser(routePlanId, athleteUserId) {
     ...plan,
     boxes,
     trail_notes: trailNoteRows,
+    ravito_requests: ravitoRows.map((r) => mapRavitoRequestRow(r)),
     validated_box_count: boxes.filter(
       (b) => b.validation_status === "validated"
     ).length,
@@ -5293,6 +5436,16 @@ router.post("/ravito-requests", requireAuth, async (req, res) => {
     hostRows.map((r) => r.host_user_id)
   );
 
+  const shouldSync =
+    input.syncToPlan !== false && (input.trailId != null || request.trail_id != null);
+  if (shouldSync) {
+    try {
+      await syncRavitoRequestToRoutePlan(request, athleteUserId, input);
+    } catch (syncErr) {
+      console.error("ravito plan sync failed", syncErr);
+    }
+  }
+
   const detail = await pool.query(
     `SELECT r.*, u.full_name AS athlete_full_name, t.name AS trail_name,
             (SELECT COUNT(*)::int FROM ravito_point_proposals p WHERE p.request_id = r.id AND p.status = 'pending') AS proposal_count
@@ -5579,6 +5732,27 @@ router.post(
       [requestId, proposalId]
     );
 
+    const planId = Number(reqRows[0].route_plan_id);
+    const acceptedBoxId = Number(propRows[0].box_id);
+    if (Number.isFinite(planId) && planId > 0 && Number.isFinite(acceptedBoxId)) {
+      const { rows: sortRows } = await pool.query(
+        `SELECT COALESCE(MAX(sort_index), -1) + 1 AS next_sort
+         FROM route_plan_boxes WHERE route_plan_id = $1`,
+        [planId]
+      );
+      const nextSort = Number(sortRows[0]?.next_sort) || 0;
+      await pool.query(
+        `INSERT INTO route_plan_boxes (route_plan_id, box_id, sort_index)
+         VALUES ($1, $2, $3)
+         ON CONFLICT (route_plan_id, box_id) DO NOTHING`,
+        [planId, acceptedBoxId, nextSort]
+      );
+      await pool.query(
+        `UPDATE route_plans SET updated_at = NOW() WHERE id = $1`,
+        [planId]
+      );
+    }
+
     await createNotification({
       recipientUserId: propRows[0].host_user_id,
       type: "ravito_proposal_accepted",
@@ -5592,6 +5766,10 @@ router.post(
       requestId,
       proposalId,
       boxId: propRows[0].box_id,
+      routePlanId:
+        reqRows[0].route_plan_id != null
+          ? Number(reqRows[0].route_plan_id)
+          : null,
       bookingDate: reqRows[0].booking_date,
       startTime: reqRows[0].start_time,
       endTime: reqRows[0].end_time,

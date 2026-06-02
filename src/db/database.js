@@ -530,6 +530,25 @@ async function migrate() {
       EXCEPTION WHEN duplicate_object THEN NULL;
       END $$;
     `);
+    await client.query(`
+      ALTER TABLE ravito_point_requests
+        ADD COLUMN IF NOT EXISTS route_plan_id INTEGER
+        REFERENCES route_plans(id) ON DELETE SET NULL
+    `);
+    await client.query(`
+      ALTER TABLE route_plan_trail_notes
+        ADD COLUMN IF NOT EXISTS ravito_request_id INTEGER
+        REFERENCES ravito_point_requests(id) ON DELETE SET NULL
+    `);
+    await client.query(
+      `CREATE INDEX IF NOT EXISTS idx_ravito_requests_route_plan
+       ON ravito_point_requests(route_plan_id, created_at DESC)`
+    );
+    await client.query(
+      `CREATE INDEX IF NOT EXISTS idx_plan_trail_notes_ravito
+       ON route_plan_trail_notes(ravito_request_id)
+       WHERE ravito_request_id IS NOT NULL`
+    );
 
     await client.query("COMMIT");
     console.log("Migration PostgreSQL OK");

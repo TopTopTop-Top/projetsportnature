@@ -152,8 +152,9 @@ export function RavitoRequestModal({
           </View>
           <ScrollView style={styles.body} keyboardShouldPersistTaps="handled">
             <Text style={styles.lead}>
-              Les hôtes proches pourront proposer leur box. Tu retiens une proposition
-              puis tu réserves comme d’habitude.
+              Les hôtes proches pourront proposer leur box. Avec une trace active, le
+              point est enregistré dans ton plan (box cochées sur la carte incluses).
+              Tu retiens une proposition puis tu réserves comme d’habitude.
             </Text>
             {slotPicker ? (
               <View style={styles.slotBlock}>{slotPicker}</View>
@@ -321,6 +322,11 @@ export function RavitoAthleteRequestsSection({
             </Text>
             {r.trailName ? (
               <Text style={styles.cardMeta}>Trace : {r.trailName}</Text>
+            ) : null}
+            {r.routePlanId ? (
+              <Text style={styles.cardMeta}>
+                Lié au plan n°{r.routePlanId} (onglet Plans)
+              </Text>
             ) : null}
             <Text style={styles.cardMeta}>
               {r.proposalCount || 0} proposition(s)

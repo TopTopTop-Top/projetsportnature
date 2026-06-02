@@ -401,6 +401,9 @@ function PlanDetailPanel({
   if (!detail) return null;
   const boxes = Array.isArray(detail.boxes) ? detail.boxes : [];
   const trailNotes = Array.isArray(detail.trail_notes) ? detail.trail_notes : [];
+  const ravitoRequests = Array.isArray(detail.ravito_requests)
+    ? detail.ravito_requests
+    : [];
   const isSharedPreview = selectedKind === "discover";
   const gpsSource = planGpsSource(selectedKind);
   const isCommunityPlan = selectedKind === "discover";
@@ -501,6 +504,29 @@ function PlanDetailPanel({
           );
         })
       )}
+      {ravitoRequests.length > 0 ? (
+        <>
+          <Text style={styles.detailSection}>
+            Demandes ravito ({ravitoRequests.length})
+          </Text>
+          {ravitoRequests.map((r) => (
+            <View key={`plan-rr-${r.id}`} style={styles.noteRow}>
+              <Text style={styles.noteKind}>Ravito</Text>
+              <Text style={styles.noteTitle}>
+                {r.bookingDate} · {r.startTime}–{r.endTime}
+              </Text>
+              <Text style={styles.noteMeta}>
+                {r.status}
+                {r.proposalCount != null
+                  ? ` · ${r.proposalCount} proposition(s)`
+                  : ""}
+                {r.radiusKm != null ? ` · rayon ${r.radiusKm} km` : ""}
+              </Text>
+              {r.note ? <Text style={styles.noteBody}>{r.note}</Text> : null}
+            </View>
+          ))}
+        </>
+      ) : null}
       <Text style={styles.detailSection}>
         Points GPS ({trailNotes.length})
       </Text>
@@ -515,6 +541,8 @@ function PlanDetailPanel({
       ) : (
         trailNotes.map((n, idx) => {
           const body = String(n.note || "").trim();
+          const isRavitoNote =
+            n.ravito_request_id != null || body.startsWith("🟣");
           const ptId = trailMapPointId(gpsSource, n.id, idx);
           const ptHi = highlightedMapPointId === ptId;
           return (
@@ -527,7 +555,9 @@ function PlanDetailPanel({
                 () => onHighlightMapPoint?.(null)
               )}
             >
-              <Text style={styles.noteKind}>GPS {idx + 1}</Text>
+              <Text style={styles.noteKind}>
+                {isRavitoNote ? "Ravito (waypoint)" : `GPS ${idx + 1}`}
+              </Text>
               <Text style={styles.noteTitle}>
                 {body || "Point sans texte"}
               </Text>

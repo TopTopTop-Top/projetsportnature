@@ -2259,6 +2259,7 @@ function ExplorerScreen() {
     explorerSavedProbes,
     setExplorerProbeLock,
   ]);
+
   const removeExplorerSavedProbe = useCallback(
     async (id, trailTipsList = []) => {
       const entry = explorerSavedProbes.find((e) => e.id === id);
@@ -2477,6 +2478,83 @@ function ExplorerScreen() {
     }
     return null;
   }, [selectedRoutePlanDetail, selectedTrailId, selectedRoutePlanId]);
+
+  useEffect(() => {
+    actionsRef.current.getRavitoPlanSyncContext = () => {
+      const tid = Number(selectedTrailId);
+      if (!Number.isFinite(tid)) {
+        return { trailId: null, routePlanId: null, boxIds: [] };
+      }
+      let routePlanId = null;
+      if (
+        activePlanForSelectedTrail &&
+        Number(activePlanForSelectedTrail.trail_id) === tid
+      ) {
+        routePlanId = Number(activePlanForSelectedTrail.id);
+      } else if (
+        Number(selectedRoutePlanId) > 0 &&
+        Number(selectedRoutePlanDetail?.trail_id) === tid
+      ) {
+        routePlanId = Number(selectedRoutePlanId);
+      }
+      return {
+        trailId: tid,
+        routePlanId,
+        boxIds: safePickedBoxIds,
+      };
+    };
+    actionsRef.current.onRavitoRequestCreated = async (created, point) => {
+      const tid = Number(created?.trailId ?? point?.trailId);
+      if (!Number.isFinite(tid)) return;
+      if (
+        point?.source === "probe" &&
+        explorerTrailProbe &&
+        Number(explorerTrailProbe.trailId) === tid &&
+        Number.isFinite(explorerTrailProbe.lat)
+      ) {
+        const latKey = Number(explorerTrailProbe.lat).toFixed(5);
+        const lonKey = Number(explorerTrailProbe.lng).toFixed(5);
+        const already = explorerSavedProbes.some(
+          (e) =>
+            Number(e.trailId) === tid &&
+            Number(e.probe?.lat).toFixed(5) === latKey &&
+            Number(e.probe?.lng).toFixed(5) === lonKey
+        );
+        if (!already) {
+          const n =
+            explorerSavedProbes.filter((e) => Number(e.trailId) === tid)
+              .length + 1;
+          setExplorerSavedProbes((prev) => [
+            ...prev,
+            {
+              id: `sp-ravito-${Date.now()}`,
+              trailId: tid,
+              label: `Ravito ${n}`,
+              notes: created?.note || "",
+              includeInPlan: true,
+              savedAt: Date.now(),
+              updatedAt: Date.now(),
+              probe: { ...explorerTrailProbe },
+            },
+          ]);
+        }
+      }
+    };
+    return () => {
+      delete actionsRef.current.getRavitoPlanSyncContext;
+      delete actionsRef.current.onRavitoRequestCreated;
+    };
+  }, [
+    actionsRef,
+    selectedTrailId,
+    activePlanForSelectedTrail,
+    selectedRoutePlanId,
+    selectedRoutePlanDetail,
+    safePickedBoxIds,
+    explorerTrailProbe,
+    explorerSavedProbes,
+  ]);
+
   const activePlanOnMap = useMemo(() => {
     const detail = selectedRoutePlanDetail;
     if (!detail) return null;
@@ -2786,12 +2864,14 @@ function ExplorerScreen() {
   }, [explorerTrailProbe, openRavitoRequestAtPoint]);
   const requestRavitoAtMapTap = useCallback(() => {
     if (!lastMapTapCoords) return;
+    const tid = Number(selectedTrailId);
     openRavitoRequestAtPoint({
       lat: lastMapTapCoords.lat,
       lon: lastMapTapCoords.lng,
+      trailId: Number.isFinite(tid) ? tid : undefined,
       source: "map",
     });
-  }, [lastMapTapCoords, openRavitoRequestAtPoint]);
+  }, [lastMapTapCoords, selectedTrailId, openRavitoRequestAtPoint]);
   const startBookingFromExplorer = useCallback(
     (boxId) => {
       const bid = Number(boxId);
@@ -13078,9 +13158,28 @@ function RavitoApp() {
         userAlert("Connexion", "Connecte-toi pour publier une demande.");
         return;
       }
-      setRavitoRequestModal({ visible: true, point: point || null });
+      const ctx = actionsRef.current.getRavitoPlanSyncContext?.() || {};
+      const tid = point?.trailId ?? ctx.trailId;
+      setRavitoRequestModal({
+        visible: true,
+        point: {
+          ...(point || {}),
+          trailId: tid != null ? Number(tid) : undefined,
+          routePlanId:
+            point?.routePlanId != null
+              ? Number(point.routePlanId)
+              : ctx.routePlanId != null
+              ? Number(ctx.routePlanId)
+              : undefined,
+          boxIds: Array.isArray(point?.boxIds)
+            ? point.boxIds
+            : Array.isArray(ctx.boxIds)
+            ? ctx.boxIds
+            : [],
+        },
+      });
     },
-    [canBook, token]
+    [canBook, token, actionsRef]
   );
 
   const closeRavitoRequestModal = useCallback(() => {
@@ -13089,14 +13188,48 @@ function RavitoApp() {
 
   const submitRavitoRequest = useCallback(
     async (body) => {
-      await apiFetch("/ravito-requests", { method: "POST", token, body });
+      const point = ravitoRequestModal.point;
+      const payload = {
+        ...body,
+        syncToPlan: true,
+        trailId: body.trailId ?? point?.trailId,
+        routePlanId: point?.routePlanId,
+        boxIds: point?.boxIds,
+      };
+      const created = await apiFetch("/ravito-requests", {
+        method: "POST",
+        token,
+        body: payload,
+      });
       setRavitoRequestsRefreshNonce((n) => n + 1);
+      const planId = Number(created?.routePlanId);
+      const tid = Number(created?.trailId ?? payload.trailId);
+      if (Number.isFinite(tid) && tid > 0) {
+        setSelectedTrailId(tid);
+      }
+      if (Number.isFinite(planId) && planId > 0) {
+        setSelectedRoutePlanId(planId);
+        await loadRoutePlanDetail(planId);
+        await loadRoutePlans();
+      }
+      await actionsRef.current.onRavitoRequestCreated?.(created, point);
+      const planHint =
+        Number.isFinite(planId) && planId > 0
+          ? " Le point et les box cochées sont enregistrés dans ton plan (onglet Plans)."
+          : "";
       userAlert(
         "Demande envoyée",
-        "Les hôtes proches seront notifiés. Consulte l’onglet Réserver pour voir les propositions."
+        `Les hôtes proches seront notifiés. Consulte l’onglet Réserver pour les propositions.${planHint}`
       );
+      return created;
     },
-    [token]
+    [
+      token,
+      ravitoRequestModal.point,
+      loadRoutePlanDetail,
+      loadRoutePlans,
+      actionsRef,
+    ]
   );
 
   const acceptRavitoProposal = useCallback(
@@ -13116,6 +13249,12 @@ function RavitoApp() {
         setSpecialRequest(String(result.specialRequest || ""));
       }
       setRavitoRequestsRefreshNonce((n) => n + 1);
+      const planId = Number(result?.routePlanId);
+      if (Number.isFinite(planId) && planId > 0) {
+        setSelectedRoutePlanId(planId);
+        await loadRoutePlanDetail(planId);
+        await loadRoutePlans();
+      }
       const box = boxes.find((b) => Number(b.id) === bid);
       if (box) {
         const bl = Number(box.latitude);
@@ -13134,6 +13273,8 @@ function RavitoApp() {
     [
       boxes,
       bookBox,
+      loadRoutePlanDetail,
+      loadRoutePlans,
       setBookingDate,
       setStartTime,
       setEndTime,
