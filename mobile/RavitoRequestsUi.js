@@ -49,6 +49,8 @@ function Btn({ label, onPress, primary, loading, icon }) {
   );
 }
 
+const RADIUS_KM_OPTIONS = [2, 5, 10, 15, 20];
+
 export function RavitoRequestModal({
   visible,
   onClose,
@@ -57,6 +59,7 @@ export function RavitoRequestModal({
   startTime,
   endTime,
   specialRequest: initialSpecialRequest,
+  slotPicker,
   onSubmit,
 }) {
   const [latText, setLatText] = useState("");
@@ -98,7 +101,17 @@ export function RavitoRequestModal({
       return;
     }
     if (!bookingDate || !startTime || !endTime) {
-      setError("Choisis un créneau (date et heures) avant d’envoyer.");
+      setError("Choisis un créneau (date et plage horaire) avant d’envoyer.");
+      return;
+    }
+    const slotStart = String(startTime).slice(0, 5);
+    const slotEnd = String(endTime).slice(0, 5);
+    const toMin = (t) => {
+      const [h, m] = String(t).split(":").map(Number);
+      return (h || 0) * 60 + (m || 0);
+    };
+    if (toMin(slotEnd) <= toMin(slotStart)) {
+      setError("L’heure de fin doit être après l’heure de début.");
       return;
     }
     setSubmitting(true);
@@ -142,6 +155,9 @@ export function RavitoRequestModal({
               Les hôtes proches pourront proposer leur box. Tu retiens une proposition
               puis tu réserves comme d’habitude.
             </Text>
+            {slotPicker ? (
+              <View style={styles.slotBlock}>{slotPicker}</View>
+            ) : null}
             <Text style={styles.label}>Latitude / longitude</Text>
             <View style={styles.coordRow}>
               <TextInput
@@ -164,13 +180,24 @@ export function RavitoRequestModal({
             ) : point?.source === "map" ? (
               <Text style={styles.hint}>Point choisi sur la carte</Text>
             ) : null}
-            <Text style={styles.label}>Rayon (km)</Text>
-            <TextInput
-              style={styles.input}
-              value={radiusKm}
-              onChangeText={setRadiusKm}
-              keyboardType="decimal-pad"
-            />
+            <Text style={styles.label}>Rayon de recherche (km)</Text>
+            <View style={styles.chipRow}>
+              {RADIUS_KM_OPTIONS.map((km) => {
+                const on = String(radiusKm) === String(km);
+                return (
+                  <TouchableOpacity
+                    key={`rkm-${km}`}
+                    style={[styles.chip, on && styles.chipOn]}
+                    onPress={() => setRadiusKm(String(km))}
+                    activeOpacity={0.85}
+                  >
+                    <Text style={[styles.chipText, on && styles.chipTextOn]}>
+                      {km} km
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
             <Text style={styles.label}>Besoin sur place</Text>
             <TextInput
               style={[styles.input, styles.area]}
@@ -179,16 +206,14 @@ export function RavitoRequestModal({
               multiline
               placeholder="Eau, abri…"
             />
-            <Text style={styles.label}>Message créneau</Text>
+            <Text style={styles.label}>Message pour l’hôte (optionnel)</Text>
             <TextInput
               style={[styles.input, styles.area]}
               value={specialRequest}
               onChangeText={setSpecialRequest}
               multiline
+              placeholder="Groupe, allergies, matériel…"
             />
-            <Text style={styles.slot}>
-              {bookingDate} · {startTime} → {endTime}
-            </Text>
             {error ? <Text style={styles.err}>{error}</Text> : null}
           </ScrollView>
           <View style={styles.footer}>
@@ -490,7 +515,20 @@ const styles = StyleSheet.create({
   title: { fontSize: 17, fontWeight: "700", color: theme.ink },
   body: { maxHeight: 400 },
   lead: { fontSize: 13, color: theme.inkMuted, lineHeight: 18, marginBottom: 10 },
+  slotBlock: { marginBottom: 4 },
   label: { fontSize: 12, fontWeight: "700", color: theme.inkMuted, marginTop: 8 },
+  chipRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 8 },
+  chip: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: theme.border,
+    backgroundColor: theme.bg,
+  },
+  chipOn: { borderColor: theme.primary, backgroundColor: "#F0FDFA" },
+  chipText: { fontSize: 13, fontWeight: "600", color: theme.inkMuted },
+  chipTextOn: { color: theme.primary },
   coordRow: { flexDirection: "row", gap: 8 },
   coordInput: { flex: 1 },
   input: {

@@ -14717,6 +14717,16 @@ function RavitoApp() {
                       startTime={startTime}
                       endTime={endTime}
                       specialRequest={specialRequest}
+                      slotPicker={
+                        <DateTimeSelector
+                          dateValue={bookingDate}
+                          onDateChange={setBookingDate}
+                          startValue={startTime}
+                          onStartChange={setStartTime}
+                          endValue={endTime}
+                          onEndChange={setEndTime}
+                        />
+                      }
                       onSubmit={submitRavitoRequest}
                     />
                   </>
