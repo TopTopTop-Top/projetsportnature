@@ -2333,6 +2333,7 @@ function ExplorerScreen() {
 
   const [highlightedMapPointId, setHighlightedMapPointId] = useState(null);
   const [highlightedPlanBoxId, setHighlightedPlanBoxId] = useState(null);
+  const [explorerWorkspaceTab, setExplorerWorkspaceTab] = useState("composer");
 
   const handleMapPointHover = useCallback((pointId) => {
     setHighlightedMapPointId(pointId || null);
@@ -2361,6 +2362,10 @@ function ExplorerScreen() {
         trailMapPointId(source, note?.id, noteIndex)
       );
       setHighlightedPlanBoxId(null);
+      setMapLat(lat.toFixed(6));
+      setMapLon(lon.toFixed(6));
+      setMapExplorerCameraFollowSearch(true);
+      setMapExplorerRecenterNonce((n) => n + 1);
       const trail = trails.find((t) => Number(t.id) === tid);
       if (!trail) return;
       const p = probeTrailAt(trail, lat, lon);
@@ -2369,7 +2374,15 @@ function ExplorerScreen() {
         setExplorerProbeLock(true);
       }
     },
-    [selectedTrailId, trails, setExplorerProbeLock]
+    [
+      selectedTrailId,
+      trails,
+      setExplorerProbeLock,
+      setMapLat,
+      setMapLon,
+      setMapExplorerCameraFollowSearch,
+      setMapExplorerRecenterNonce,
+    ]
   );
 
   const handleTrailMapPointClick = useCallback(
@@ -2955,14 +2968,28 @@ function ExplorerScreen() {
   const [sharedPlanPreview, setSharedPlanPreview] = useState(null);
   const [sharedPlanPreviewBusy, setSharedPlanPreviewBusy] = useState(false);
 
-  const trailMapPoints = useMemo(
+  const trailMapPoints = useMemo(() => {
+    if (explorerWorkspaceTab !== "plan") return [];
+    return buildTrailMapPoints({
+      trailId: selectedTrailId,
+      plan: activePlanForSelectedTrail,
+      sharedPreview: null,
+    });
+  }, [
+    explorerWorkspaceTab,
+    selectedTrailId,
+    activePlanForSelectedTrail,
+  ]);
+  const communityTipsForMap = useMemo(
+    () => (explorerWorkspaceTab === "community" ? trailTips : []),
+    [explorerWorkspaceTab, trailTips]
+  );
+  const savedProbesForMap = useMemo(
     () =>
-      buildTrailMapPoints({
-        trailId: selectedTrailId,
-        plan: activePlanForSelectedTrail,
-        sharedPreview: sharedPlanPreview,
-      }),
-    [selectedTrailId, activePlanForSelectedTrail, sharedPlanPreview]
+      explorerWorkspaceTab === "composer"
+        ? savedProbesForSelectedTrail
+        : [],
+    [explorerWorkspaceTab, savedProbesForSelectedTrail]
   );
 
   useEffect(() => {
@@ -6448,6 +6475,7 @@ function ExplorerScreen() {
                     activePlanForSelectedTrail?.visibility || "private"
                   }
                   onSetPlanVisibility={setActivePlanVisibility}
+                  onWorkspaceTabChange={setExplorerWorkspaceTab}
                 />
               </View>
             ) : null}
@@ -6501,9 +6529,10 @@ function ExplorerScreen() {
                         ? explorerTrailProbe
                         : null
                     }
-                    savedTrailProbes={savedProbesForSelectedTrail}
-                    communityTrailTips={trailTips}
+                    savedTrailProbes={savedProbesForMap}
+                    communityTrailTips={communityTipsForMap}
                     trailMapPoints={trailMapPoints}
+                    mapPointHoverEnabled={false}
                     highlightedMapPointId={highlightedMapPointId}
                     onMapPointHover={handleMapPointHover}
                     onMapPointClick={handleTrailMapPointClick}
@@ -6528,7 +6557,7 @@ function ExplorerScreen() {
                     staticOrigin={API_STATIC_ORIGIN}
                     inFixedPane
                   />
-                  {selectedTrail ? (
+                  {selectedTrail && explorerProbeLocked ? (
                     <ExplorerMapChrome
                       probe={
                         explorerTrailProbe &&
@@ -6625,9 +6654,10 @@ function ExplorerScreen() {
                     ? explorerTrailProbe
                     : null
                 }
-                savedTrailProbes={savedProbesForSelectedTrail}
-                communityTrailTips={trailTips}
+                savedTrailProbes={savedProbesForMap}
+                communityTrailTips={communityTipsForMap}
                 trailMapPoints={trailMapPoints}
+                mapPointHoverEnabled={false}
                 highlightedMapPointId={highlightedMapPointId}
                 onMapPointHover={handleMapPointHover}
                 onMapPointClick={handleTrailMapPointClick}
@@ -6652,7 +6682,7 @@ function ExplorerScreen() {
                 staticOrigin={API_STATIC_ORIGIN}
                 inFixedPane
               />
-              {selectedTrail ? (
+              {selectedTrail && explorerProbeLocked ? (
                 <ExplorerMapChrome
                   probe={
                     explorerTrailProbe &&

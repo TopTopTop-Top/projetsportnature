@@ -48,11 +48,6 @@ const theme = {
 
 const TABBAR_SCROLL_PADDING = Platform.OS === "web" ? 120 : 48;
 
-function webHoverHandlers(onEnter, onLeave) {
-  if (Platform.OS !== "web") return {};
-  return { onMouseEnter: onEnter, onMouseLeave: onLeave };
-}
-
 function scrollToDomId(domId) {
   if (Platform.OS !== "web" || typeof document === "undefined" || !domId) {
     return;
@@ -144,6 +139,9 @@ function PlanPreviewMap({
   fullHeight = false,
   highlightedMapPointId = null,
   highlightedPlanBoxId = null,
+  mapFocusLat = null,
+  mapFocusLon = null,
+  mapFocusNonce = 0,
   onMapPointHover,
   onMapPointClick,
   onPlanBoxHover,
@@ -160,10 +158,16 @@ function PlanPreviewMap({
     [boxes]
   );
   const trailsOnMap = useMemo(() => (trail ? [trail] : []), [trail]);
-  const center = useMemo(
+  const defaultCenter = useMemo(
     () => computePlanMapCenter(detail, trails, mapLat, mapLon),
     [detail, trails, mapLat, mapLon]
   );
+  const center = useMemo(() => {
+    const fl = Number(mapFocusLat);
+    const fn = Number(mapFocusLon);
+    if (Number.isFinite(fl) && Number.isFinite(fn)) return [fl, fn];
+    return defaultCenter;
+  }, [defaultCenter, mapFocusLat, mapFocusLon]);
   const trailMapPoints = useMemo(
     () =>
       buildTrailMapPoints({
@@ -173,7 +177,8 @@ function PlanPreviewMap({
       }),
     [detail, trailId, selectedKind]
   );
-  const recenterNonce = Number(detail?.id) || 0;
+  const recenterNonce =
+    mapFocusNonce > 0 ? mapFocusNonce : Number(detail?.id) || 0;
   const mapHeight = fullHeight ? undefined : Platform.OS === "web" ? 300 : 220;
 
   const common = {
@@ -187,7 +192,7 @@ function PlanPreviewMap({
     selectedBoxId: boxIds[0] ?? null,
     autoFitToData: true,
     autoFitDataKey: `plan-${selectedKind || "mine"}-${detail?.id ?? "new"}`,
-    followExternalCenter: false,
+    followExternalCenter: mapFocusNonce > 0,
     recenterNonce,
     onSelectBox: (boxId) => {
       const bid = Number(boxId);
@@ -212,7 +217,7 @@ function PlanPreviewMap({
         <ExplorerWebMap
           {...common}
           trailMapPoints={trailMapPoints}
-          planPointLabelsPermanent
+          mapPointHoverEnabled={false}
           highlightedMapPointId={highlightedMapPointId}
           highlightedPlanBoxId={highlightedPlanBoxId}
           onMapPointHover={onMapPointHover}
@@ -391,6 +396,7 @@ function PlanDetailPanel({
   highlightedPlanBoxId,
   onHighlightMapPoint,
   onHighlightPlanBox,
+  onFocusMapCoords,
   onTogglePlanNoteMapVisible,
   onDeletePlanNote,
 }) {
@@ -465,14 +471,15 @@ function PlanDetailPanel({
           const bid = Number(b.id);
           const boxHi = Number(highlightedPlanBoxId) === bid;
           return (
-            <View
+            <TouchableOpacity
               key={`db-${b.id}`}
               nativeID={planBoxDomId(bid)}
+              activeOpacity={0.85}
               style={[styles.noteRow, boxHi && styles.noteRowHighlight]}
-              {...webHoverHandlers(
-                () => onHighlightPlanBox?.(bid),
-                () => onHighlightPlanBox?.(null)
-              )}
+              onPress={() => {
+                onHighlightPlanBox?.(bid);
+                onFocusMapCoords?.(b.latitude, b.longitude);
+              }}
             >
               <Text style={styles.noteKind}>Box</Text>
               <Text style={styles.noteTitle}>
@@ -503,7 +510,7 @@ function PlanDetailPanel({
                   <Text style={styles.bookBoxBtnText}>Réserver cette box</Text>
                 </TouchableOpacity>
               ) : null}
-            </View>
+            </TouchableOpacity>
           );
         })
       )}
@@ -568,9 +575,10 @@ function PlanDetailPanel({
                       styles.mapToggleChip,
                       onMap && styles.mapToggleChipOn,
                     ]}
-                    onPress={() =>
-                      onTogglePlanNoteMapVisible(n.id, !onMap)
-                    }
+                    onPress={(e) => {
+                      e?.stopPropagation?.();
+                      onTogglePlanNoteMapVisible(n.id, !onMap);
+                    }}
                     activeOpacity={0.85}
                   >
                     <Text
@@ -585,19 +593,23 @@ function PlanDetailPanel({
                 ) : null}
                 {onDeletePlanNote ? (
                   <TouchableOpacity
-                    onPress={() => onDeletePlanNote(n.id)}
+                    onPress={(e) => {
+                      e?.stopPropagation?.();
+                      onDeletePlanNote(n.id);
+                    }}
                     hitSlop={8}
                   >
                     <Text style={styles.noteDelete}>×</Text>
                   </TouchableOpacity>
                 ) : null}
               </View>
-              <View
+              <TouchableOpacity
                 nativeID={mapPointDomId(ptId)}
-                {...webHoverHandlers(
-                  () => onHighlightMapPoint?.(ptId),
-                  () => onHighlightMapPoint?.(null)
-                )}
+                activeOpacity={0.85}
+                onPress={() => {
+                  onHighlightMapPoint?.(ptId);
+                  onFocusMapCoords?.(n.point_lat, n.point_lon);
+                }}
               >
                 <Text style={styles.noteTitle}>
                   {body || "Point sans texte"}
@@ -608,7 +620,7 @@ function PlanDetailPanel({
                     {Number(n.point_lon).toFixed(5)}
                   </Text>
                 ) : null}
-              </View>
+              </TouchableOpacity>
             </View>
           );
         })
@@ -647,6 +659,11 @@ export default function PlansScreen({ appMain = {} }) {
   const [voteEligibility, setVoteEligibility] = useState(null);
   const [highlightedMapPointId, setHighlightedMapPointId] = useState(null);
   const [highlightedPlanBoxId, setHighlightedPlanBoxId] = useState(null);
+  const [mapFocus, setMapFocus] = useState({
+    lat: null,
+    lon: null,
+    nonce: 0,
+  });
 
   const isAuthed = Boolean(user);
   const wideLayout = width >= 900;
@@ -666,27 +683,43 @@ export default function PlansScreen({ appMain = {} }) {
     setHighlightedMapPointId(null);
   }, []);
 
-  const handleMapPointClick = useCallback((pt) => {
-    if (!pt?.id) return;
-    setHighlightedMapPointId(pt.id);
-    setHighlightedPlanBoxId(null);
-    scrollToDomId(mapPointDomId(pt.id));
+  const focusMapOnCoords = useCallback((lat, lon) => {
+    const la = Number(lat);
+    const lo = Number(lon);
+    if (!Number.isFinite(la) || !Number.isFinite(lo)) return;
+    setMapFocus({ lat: la, lon: lo, nonce: Date.now() });
   }, []);
+
+  const handleMapPointClick = useCallback(
+    (pt) => {
+      if (!pt?.id) return;
+      setHighlightedMapPointId(pt.id);
+      setHighlightedPlanBoxId(null);
+      focusMapOnCoords(pt.lat, pt.lon);
+      scrollToDomId(mapPointDomId(pt.id));
+    },
+    [focusMapOnCoords]
+  );
 
   const handleHighlightMapPoint = useCallback((pointId) => {
     setHighlightedMapPointId(pointId || null);
     if (pointId) setHighlightedPlanBoxId(null);
   }, []);
 
-  const handleHighlightPlanBox = useCallback((boxId) => {
-    if (boxId == null) {
-      setHighlightedPlanBoxId(null);
-      return;
-    }
-    const bid = Number(boxId);
-    setHighlightedPlanBoxId(Number.isFinite(bid) ? bid : null);
-    setHighlightedMapPointId(null);
-  }, []);
+  const handleHighlightPlanBox = useCallback(
+    (boxId) => {
+      if (boxId == null) {
+        setHighlightedPlanBoxId(null);
+        return;
+      }
+      const bid = Number(boxId);
+      setHighlightedPlanBoxId(Number.isFinite(bid) ? bid : null);
+      setHighlightedMapPointId(null);
+      const b = (detail?.boxes || []).find((x) => Number(x.id) === bid);
+      if (b) focusMapOnCoords(b.latitude, b.longitude);
+    },
+    [detail, focusMapOnCoords]
+  );
 
   const refreshMine = useCallback(async () => {
     if (!isAuthed) return;
@@ -950,6 +983,9 @@ export default function PlansScreen({ appMain = {} }) {
           fullHeight={wideLayout}
           highlightedMapPointId={highlightedMapPointId}
           highlightedPlanBoxId={highlightedPlanBoxId}
+          mapFocusLat={mapFocus.lat}
+          mapFocusLon={mapFocus.lon}
+          mapFocusNonce={mapFocus.nonce}
           onMapPointHover={handleMapPointHover}
           onMapPointClick={handleMapPointClick}
           onPlanBoxHover={handlePlanBoxHover}
@@ -1130,6 +1166,7 @@ export default function PlansScreen({ appMain = {} }) {
                 highlightedPlanBoxId={highlightedPlanBoxId}
                 onHighlightMapPoint={handleHighlightMapPoint}
                 onHighlightPlanBox={handleHighlightPlanBox}
+                onFocusMapCoords={focusMapOnCoords}
                 onVoteRelevance={votePlanRelevance}
                 onOpenExplorer={() => openOnExplorer(selectedId, selectedKind)}
                 onTogglePlanNoteMapVisible={

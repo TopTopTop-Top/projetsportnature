@@ -924,6 +924,8 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
   trailMapPoints = [],
   /** Étiquettes visibles en permanence sur les points plan (onglet Plans). */
   planPointLabelsPermanent = false,
+  /** Survol carte → surbrillance (désactivé = clic uniquement). */
+  mapPointHoverEnabled = true,
   /** Id du point survolé (panneau ↔ carte). */
   highlightedMapPointId = null,
   onMapPointHover,
@@ -1084,6 +1086,7 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
     );
   };
   const onMapPointHoverRef = useRef((id) => {
+    if (!mapPointHoverEnabledRef.current && id != null) return;
     applyMapPointHighlightRef.current(id ?? null);
     onMapPointHoverParentRef.current?.(id ?? null);
   });
@@ -1458,7 +1461,9 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
       );
       drawSavedProbesOnMap(L, savedLayer, saved, {
         markerRegistry: draftPointMarkersRef.current,
-        onHover: (id) => onMapPointHoverRef.current?.(id),
+        onHover: mapPointHoverEnabledRef.current
+          ? (id) => onMapPointHoverRef.current?.(id)
+          : undefined,
         onClick: (pt) => onMapPointClickRef.current?.(pt),
       });
     }
@@ -1484,7 +1489,9 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
         communityTrailTipsRef.current || [],
         {
           markerRegistry: communityTipMarkersRef.current,
-          onHover: (id) => onMapPointHoverRef.current?.(id),
+          onHover: mapPointHoverEnabledRef.current
+            ? (id) => onMapPointHoverRef.current?.(id)
+            : undefined,
           onClick: (pt) => onMapPointClickRef.current?.(pt),
         }
       );
@@ -1507,7 +1514,9 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
     if (activeTrailIdNum != null) {
       drawTrailMapPointsOnMap(L, layer, trailMapPointsRef.current || [], {
         markerRegistry: planPointMarkersRef.current,
-        onHover: (id) => onMapPointHoverRef.current?.(id),
+        onHover: mapPointHoverEnabledRef.current
+          ? (id) => onMapPointHoverRef.current?.(id)
+          : undefined,
         onClick: (pt) => onMapPointClickRef.current?.(pt),
         permanentTooltips: Boolean(planPointLabelsPermanentRef.current),
       });

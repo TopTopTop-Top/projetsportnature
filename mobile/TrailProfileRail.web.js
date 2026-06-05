@@ -134,8 +134,12 @@ export default function TrailProfileRail({
   onToggleTrailPublic,
   activePlanVisibility = "private",
   onSetPlanVisibility,
+  onWorkspaceTabChange,
 }) {
   const [workspaceTab, setWorkspaceTab] = useState("composer");
+  useEffect(() => {
+    onWorkspaceTabChange?.(workspaceTab);
+  }, [workspaceTab, onWorkspaceTabChange]);
   useEffect(() => {
     if (Platform.OS !== "web") return;
     const scrollTo = (domId) => {
@@ -264,7 +268,7 @@ export default function TrailProfileRail({
 
         <View style={styles.tabBar}>
           {[
-            { id: "composer", label: "Composer" },
+            { id: "composer", label: "Brouillon" },
             { id: "plan", label: "Mon plan" },
             { id: "community", label: "Communauté" },
           ].map((t) => (
@@ -400,16 +404,16 @@ export default function TrailProfileRail({
           </View>
         ) : (
           <Text style={styles.hint}>
-            Survole la carte ou la courbe · clic pour figer
+            Clique sur la carte ou la courbe pour positionner · reclic pour figer
           </Text>
         )}
 
         <View style={styles.composerHintBox}>
-          <Text style={styles.composerHintTitle}>Rappel</Text>
+          <Text style={styles.composerHintTitle}>Brouillon local</Text>
           <Text style={styles.composerHintText}>
-            Tu peux réserver des box sans trace : quitte la trace ou enregistre un
-            plan avec box seules (Mon plan). Coche les points à inclure dans ton
-            plan avec la case sur chaque brouillon.
+            Ici tu notes des points sur la trace (orange sur la carte). Pour
+            modifier box, GPS et réservations enregistrés → onglet Mon plan.
+            Coche « Dans mon plan » sur chaque brouillon à inclure.
           </Text>
         </View>
 
@@ -1057,11 +1061,10 @@ function TrailPlanHub({
             >
               <Pressable
                 style={styles.planBoxRowMain}
-                onPress={() => onFocusBox?.(b.id)}
-                {...webHoverHandlers(
-                  () => onHighlightPlanBox?.(bid),
-                  () => onHighlightPlanBox?.(null)
-                )}
+                onPress={() => {
+                  onHighlightPlanBox?.(bid);
+                  onFocusBox?.(b.id);
+                }}
               >
                 <Text style={styles.planBoxTitle} numberOfLines={1}>
                   {b.title}
@@ -1241,9 +1244,14 @@ function PlanBoxReservationCard({
         },
         highlighted && styles.mapPointRowHighlight,
       ]}
-      {...webHoverHandlers(onHighlightBox, onUnhighlightBox)}
     >
-      <Pressable onPress={onFocusBox} style={styles.planBoxRowMain}>
+      <Pressable
+        onPress={() => {
+          onHighlightBox?.();
+          onFocusBox?.();
+        }}
+        style={styles.planBoxRowMain}
+      >
         <Text style={styles.planBoxTitle} numberOfLines={1}>
           {box.title || "Box"}
         </Text>

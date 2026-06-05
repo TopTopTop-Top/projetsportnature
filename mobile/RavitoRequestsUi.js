@@ -152,9 +152,9 @@ export function RavitoRequestModal({
           </View>
           <ScrollView style={styles.body} keyboardShouldPersistTaps="handled">
             <Text style={styles.lead}>
-              Les hôtes proches pourront proposer leur box. Avec une trace active, le
-              point est enregistré dans ton plan (box cochées sur la carte incluses).
-              Tu retiens une proposition puis tu réserves comme d’habitude.
+              Les hôtes proches pourront proposer un ravito sur place (accueil,
+              eau, transfert…). Avec une trace active, le point est enregistré dans
+              ton plan. Tu retiens une proposition puis tu réserves la box si besoin.
             </Text>
             {slotPicker ? (
               <View style={styles.slotBlock}>{slotPicker}</View>
@@ -399,6 +399,13 @@ export function RavitoHostRequestsSection({
 
   const submitProposal = async () => {
     if (!proposeFor || !boxId) return;
+    if (!message.trim()) {
+      Alert.alert(
+        "Message requis",
+        "Décris ce que tu proposes sur place (accueil, eau, transfert…). L’athlète peut réserver une box seul : ton message explique ton service."
+      );
+      return;
+    }
     setSubmitting(true);
     try {
       await apiFetch(`/ravito-requests/${proposeFor}/proposals`, {
@@ -444,10 +451,10 @@ export function RavitoHostRequestsSection({
           </Text>
           {r.note ? <Text style={styles.cardMeta}>{r.note}</Text> : null}
           {r.myProposalId ? (
-            <Text style={styles.hint}>Tu as déjà proposé une box.</Text>
+            <Text style={styles.hint}>Tu as déjà répondu à cette demande.</Text>
           ) : (
             <Btn
-              label="Proposer ma box"
+              label="Proposer mon ravito"
               primary
               onPress={() => {
                 setProposeFor(r.id);
@@ -462,7 +469,12 @@ export function RavitoHostRequestsSection({
       <Modal visible={proposeFor != null} transparent animationType="fade">
         <View style={styles.backdrop}>
           <View style={styles.sheet}>
-            <Text style={styles.title}>Proposer une box</Text>
+            <Text style={styles.title}>Proposer ton ravito</Text>
+            <Text style={styles.lead}>
+              Point de rendez-vous (ta box la plus proche) + ce que tu offres sur
+              place. Ce n’est pas une réservation automatique : l’athlète choisit
+              ta proposition puis réserve si besoin.
+            </Text>
             {(hostBoxes || []).map((b) => (
               <TouchableOpacity
                 key={`hb-${b.id}`}
@@ -481,7 +493,7 @@ export function RavitoHostRequestsSection({
               value={message}
               onChangeText={setMessage}
               multiline
-              placeholder="Message (optionnel)"
+              placeholder="Ex. accueil à ce point, eau chaude, transfert bagages jusqu’à ma box à 2 km…"
             />
             <View style={styles.footer}>
               <Btn label="Annuler" onPress={() => setProposeFor(null)} />
