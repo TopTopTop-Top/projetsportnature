@@ -1,24 +1,25 @@
 /**
  * Langage visuel commun — sélection carte (waypoints, box, survol panneau).
- * Anneaux doux, indigo focus, pas de pointillés ni pulse « flashy ».
+ * Aligné sur le thème outdoor (teal forêt), anneaux doux, pas de flash.
  */
+import { theme } from "./theme";
 
 export const MAP_SEL = {
-  focus: "#6366F1",
-  focusSoft: "rgba(99, 102, 241, 0.14)",
-  focusMid: "rgba(99, 102, 241, 0.28)",
-  spotlight: "#F97316",
-  spotlightSoft: "rgba(249, 115, 22, 0.14)",
-  spotlightMid: "rgba(249, 115, 22, 0.26)",
-  white: "#FFFFFF",
-  ink: "#1E293B",
-  muted: "#94A3B8",
+  focus: theme.focus,
+  focusSoft: theme.focusSoft,
+  focusMid: "rgba(13, 115, 119, 0.28)",
+  spotlight: theme.accent,
+  spotlightSoft: "rgba(194, 65, 12, 0.14)",
+  spotlightMid: "rgba(194, 65, 12, 0.26)",
+  white: theme.white,
+  ink: theme.ink,
+  muted: theme.inkMuted,
   pointPlan: "#64748B",
-  pointDraft: "#0D9488",
+  pointDraft: theme.primary,
   pointShared: "#B45309",
-  pointTip: "#7C3AED",
-  boxPlan: "#7C3AED",
-  boxDefault: "#0F766E",
+  pointTip: "#0F766E",
+  boxPlan: "#0F766E",
+  boxDefault: "#0D7377",
 };
 
 /** @typedef {'idle' | 'hover' | 'focus' | 'spotlight'} MapSelectionTier */
@@ -151,21 +152,21 @@ export const MAP_SELECTION_LEAFLET_CSS = `
     background: rgba(255, 255, 255, 0.94);
     backdrop-filter: blur(10px);
     -webkit-backdrop-filter: blur(10px);
-    box-shadow: 0 4px 18px rgba(15, 23, 42, 0.1), 0 0 0 1px rgba(99, 102, 241, 0.12);
+    box-shadow: 0 4px 18px rgba(15, 23, 42, 0.1), 0 0 0 1px rgba(13, 115, 119, 0.16);
     border-radius: 10px;
     padding: 6px 11px;
     white-space: nowrap;
   }
   .leaflet-tooltip.ravitobox-map-chip--active {
-    box-shadow: 0 6px 22px rgba(99, 102, 241, 0.22), 0 0 0 2px ${MAP_SEL.focus};
+    box-shadow: 0 6px 22px rgba(13, 115, 119, 0.22), 0 0 0 2px ${MAP_SEL.focus};
   }
   .leaflet-tooltip.ravitobox-map-chip--spotlight {
-    box-shadow: 0 6px 22px rgba(249, 115, 22, 0.2), 0 0 0 2px ${MAP_SEL.spotlight};
+    box-shadow: 0 6px 22px rgba(194, 65, 12, 0.2), 0 0 0 2px ${MAP_SEL.spotlight};
   }
   .leaflet-div-icon.ravitobox-box-house-active {
-    filter: drop-shadow(0 4px 14px rgba(99, 102, 241, 0.38));
+    filter: drop-shadow(0 4px 14px rgba(13, 115, 119, 0.38));
   }
   .leaflet-div-icon.ravitobox-box-house-spotlight {
-    filter: drop-shadow(0 4px 14px rgba(249, 115, 22, 0.4));
+    filter: drop-shadow(0 4px 14px rgba(194, 65, 12, 0.4));
   }
 `;

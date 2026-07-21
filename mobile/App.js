@@ -65,6 +65,8 @@ import {
   isEntryPublishedOnTrail,
 } from "./explorerSavedProbesStorage";
 import IntentGuideBanner from "./IntentGuideBanner";
+import ExplorerFocusSheet from "./ExplorerFocusSheet";
+import theme from "./theme";
 import AccountRecoveryCodeModal from "./AccountRecoveryCodeModal";
 import {
   RavitoRequestModal,
@@ -359,27 +361,7 @@ function trailTouchesBounds(trail, bounds) {
   return false;
 }
 
-const theme = {
-  bg: "#EEF4F0",
-  surface: "#FFFFFF",
-  surfaceMuted: "#F7FAF8",
-  ink: "#0C1B16",
-  inkMuted: "#5C6F66",
-  border: "#D4E0D8",
-  borderSoft: "#E8EFE9",
-  hero: "#062D26",
-  heroAccent: "#14B8A6",
-  primary: "#0F766E",
-  primaryPressed: "#0D5F59",
-  secondaryInk: "#1E293B",
-  chipBg: "#F0FDF9",
-  chipBorder: "#99F6E4",
-  infoBg: "#ECFDF5",
-  infoBorder: "#A7F3D0",
-  warnBg: "#FFFBEB",
-  warnBorder: "#FDE68A",
-  shadow: "rgba(6, 45, 38, 0.12)",
-};
+/* theme importé depuis ./theme (design outdoor unifié) */
 
 const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
@@ -1329,7 +1311,7 @@ function OutlineButton({
         <Ionicons
           name={icon}
           size={compact ? 16 : 17}
-          color={danger ? "#B91C1C" : theme.secondaryInk}
+          color={danger ? theme.danger || "#B91C1C" : theme.primary}
           style={styles.buttonIconLeft}
           pointerEvents="none"
         />
@@ -2726,13 +2708,8 @@ function ExplorerScreen() {
     (boxId) => {
       const bid = Number(boxId);
       if (!Number.isFinite(bid)) return;
+      // Focus seul — ne touche pas au panier « plan ».
       setSelectedBoxId(bid);
-      // Le "focus carte" doit aussi refléter la sélection multi-éléments
-      // (sinon les badges "Sélectionnée" affichent incohérence).
-      setMapPickedBoxIds((prev) => {
-        const base = Array.isArray(prev) ? prev : [];
-        return base.includes(bid) ? base : [...base, bid];
-      });
       const box =
         boxes.find((b) => Number(b.id) === bid) ||
         boxesOnMap.find((b) => Number(b.id) === bid);
@@ -2750,7 +2727,6 @@ function ExplorerScreen() {
       boxes,
       boxesOnMap,
       setSelectedBoxId,
-      setMapPickedBoxIds,
       setMapLat,
       setMapLon,
       setMapExplorerRecenterNonce,
@@ -2763,10 +2739,6 @@ function ExplorerScreen() {
     setHighlightedMapPointId(null);
     setHighlightedPlanBoxId(bid);
     setSelectedBoxId(bid);
-    setMapPickedBoxIds((prev) => {
-      const list = Array.isArray(prev) ? prev : [];
-      return list.includes(bid) ? list : [...list, bid];
-    });
     const box = boxes.find((b) => Number(b.id) === bid);
     const bl = Number(box?.latitude);
     const bLng = Number(box?.longitude);
@@ -2778,7 +2750,6 @@ function ExplorerScreen() {
   }, [
     boxes,
     setSelectedBoxId,
-    setMapPickedBoxIds,
     setMapLat,
     setMapLon,
     setMapExplorerRecenterNonce,
@@ -2789,18 +2760,13 @@ function ExplorerScreen() {
     (trailId) => {
       const tid = Number(trailId);
       if (!Number.isFinite(tid)) return;
-      // Short tap on map should only focus a trail.
+      // Short tap = focus seul (pas d’ajout au plan).
       setSelectedTrailId(tid);
-      // Garder la trace dans la sélection (sans toggle off).
-      setMapTrailPickIds((prev) => {
-        const base = Array.isArray(prev) ? prev : [];
-        return base.includes(tid) ? base : [...base, tid];
-      });
       setExplorerTrailProbe(null);
       setExplorerProbeLock(false);
       setChartProbeHover(false);
     },
-    [setSelectedTrailId, setMapTrailPickIds]
+    [setSelectedTrailId]
   );
   const handleRequestExitExplorerTrail = useCallback(async () => {
     if (selectedTrailId == null) return;
@@ -2926,6 +2892,7 @@ function ExplorerScreen() {
       setSelectedBoxId(bid);
       setMapExplorerCameraFollowSearch(true);
       setMapExplorerRecenterNonce((n) => n + 1);
+      // Funnel unique : box → créneau (pas d’envoi immédiat).
       const scrollToBookingSection = () => {
         if (bookingSectionYRef.current > 0) {
           explorerScrollRef.current?.scrollTo?.({
@@ -2935,10 +2902,7 @@ function ExplorerScreen() {
         }
       };
       requestAnimationFrame(() => {
-        requestAnimationFrame(() => {
-          scrollToBookingSection();
-          actionsRef.current.bookBox?.(bid);
-        });
+        requestAnimationFrame(scrollToBookingSection);
       });
     },
     [
@@ -2948,8 +2912,19 @@ function ExplorerScreen() {
       setMapLon,
       setMapExplorerCameraFollowSearch,
       setMapExplorerRecenterNonce,
-      actionsRef,
     ]
+  );
+  const confirmBookingFromExplorer = useCallback(
+    (boxId) => {
+      const bid = Number(boxId ?? selectedBoxId);
+      if (!Number.isFinite(bid)) {
+        userAlert("Réservation", "Choisis d’abord une box sur la carte ou la liste.");
+        return;
+      }
+      setSelectedBoxId(bid);
+      actionsRef.current.bookBox?.(bid);
+    },
+    [selectedBoxId, setSelectedBoxId, actionsRef]
   );
   const { width: viewportWidth } = useWindowDimensions();
   const [showBoxFilters, setShowBoxFilters] = useState(false);
@@ -3412,7 +3387,7 @@ function ExplorerScreen() {
     if (boxIds.length === 0 && probes.length === 0) {
       userAlert(
         "Plan",
-        "Coche au moins une box et/ou ajoute un point inclus dans ton plan (onglet Composer). Tu peux enregistrer un plan box seul sans trace."
+        "Coche au moins une box et/ou ajoute un point inclus dans ton plan (onglet Planifier / Mon plan). Tu peux enregistrer un plan box seul sans trace."
       );
       return;
     }
@@ -3916,10 +3891,113 @@ function ExplorerScreen() {
 
   const explorerBoxFiltersChildren = (
           <>
+            <Text style={styles.fieldLabel}>Zone de recherche</Text>
+            <View style={[styles.roleRow, { flexWrap: "wrap" }]}>
+              <TouchableOpacity
+                style={[
+                  styles.roleChip,
+                  mapListSource === "viewport" && styles.roleChipActive,
+                ]}
+                onPress={() => {
+                  setMapExplorerCameraFollowSearch(true);
+                  setMapListSource("viewport");
+                }}
+                activeOpacity={0.85}
+              >
+                <Text
+                  style={[
+                    styles.roleChipText,
+                    mapListSource === "viewport" && styles.roleChipTextActive,
+                  ]}
+                >
+                  Zone visible
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[
+                  styles.roleChip,
+                  mapListSource === "city" && styles.roleChipActive,
+                ]}
+                onPress={() => {
+                  setMapExplorerCameraFollowSearch(true);
+                  setMapListSource("city");
+                }}
+                activeOpacity={0.85}
+              >
+                <Text
+                  style={[
+                    styles.roleChipText,
+                    mapListSource === "city" && styles.roleChipTextActive,
+                  ]}
+                >
+                  Par ville
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[
+                  styles.roleChip,
+                  mapListSource === "nearby" && styles.roleChipActive,
+                ]}
+                onPress={() => {
+                  setMapExplorerCameraFollowSearch(true);
+                  setMapListSource("nearby");
+                }}
+                activeOpacity={0.85}
+              >
+                <Text
+                  style={[
+                    styles.roleChipText,
+                    mapListSource === "nearby" && styles.roleChipTextActive,
+                  ]}
+                >
+                  Par GPS
+                </Text>
+              </TouchableOpacity>
+            </View>
+            {mapListSource === "city" ? (
+              <TextInput
+                style={styles.input}
+                placeholder="Ville (ex. Annecy)"
+                placeholderTextColor={theme.inkMuted}
+                value={city}
+                onChangeText={(v) => {
+                  setCity(v);
+                  setMapExplorerCameraFollowSearch(true);
+                  setMapListSource("city");
+                }}
+              />
+            ) : null}
+            {mapListSource === "nearby" ? (
+              <>
+                <TextInput
+                  style={styles.input}
+                  placeholder="Latitude"
+                  placeholderTextColor={theme.inkMuted}
+                  value={mapLat}
+                  onChangeText={(v) => {
+                    setMapLat(v);
+                    setMapExplorerCameraFollowSearch(true);
+                    setMapListSource("nearby");
+                  }}
+                  keyboardType="decimal-pad"
+                />
+                <TextInput
+                  style={styles.input}
+                  placeholder="Longitude"
+                  placeholderTextColor={theme.inkMuted}
+                  value={mapLon}
+                  onChangeText={(v) => {
+                    setMapLon(v);
+                    setMapExplorerCameraFollowSearch(true);
+                    setMapListSource("nearby");
+                  }}
+                  keyboardType="decimal-pad"
+                />
+              </>
+            ) : null}
             <Text style={styles.fieldLabel}>Affichage des box</Text>
             <Text style={styles.helperText}>
-              Précision automatique par zoom : la liste et la carte ne gardent
-              que les box dans la zone visible.
+              La liste suit la zone choisie (carte, ville ou GPS).
             </Text>
             <View style={styles.roleRow}>
               <TouchableOpacity
@@ -4581,137 +4659,44 @@ function ExplorerScreen() {
   const explorerScrollContent = (
     <>
       <IntentGuideBanner
-        title="Découvrir — carte & box"
+        guideId="decouvrir"
+        title="Découvrir"
         lines={[
-          "1. Choisis une zone, une trace ou une box sur la carte.",
-          "2. Catalogue GPX complet : bouton « Traces GPX » ci-dessous.",
-          "3. Règle le créneau dans « Créneau & demande », puis réserve.",
-          "4. Suis tes demandes dans l’onglet Réserver.",
+          "Carte → focus une box ou une trace. Long-press ou « Ajouter au plan » pour composer.",
+          "Réserver : box → créneau ci-dessous → confirmer. Suivi dans Réserver.",
         ]}
       />
-      <SecondaryButton
+      <OutlineButton
+        compact
+        stretch
         label="Catalogue traces GPX"
         icon="navigate-outline"
         onPress={() => actionsRef.current.navigateToTrails?.()}
       />
       <Section
-        title="Carte & hôtes"
-        subtitle={
-          canHost && !canBook
-            ? "Vue hôte : les athlètes réservent depuis leur compte."
-            : "Repère les box, les tracés GPX importés, et les hôtes les plus proches."
-        }
+        title="Carte"
+        subtitle="Explore les box et traces. Touche Filtrer pour la zone ou la ville."
         icon="map-outline"
       >
-        <Text style={styles.fieldLabel}>Charger la liste des box</Text>
-        <Text style={styles.helperText}>
-          Choisis la source : la liste se met à jour automatiquement après ta
-          saisie (pas besoin de bouton « charger »).
-        </Text>
-        <View style={[styles.roleRow, { flexWrap: "wrap" }]}>
+        <View style={styles.explorerMapSearchRow}>
           <TouchableOpacity
-            style={[
-              styles.roleChip,
-              mapListSource === "viewport" && styles.roleChipActive,
-            ]}
-            onPress={() => {
-              setMapExplorerCameraFollowSearch(true);
-              setMapListSource("viewport");
-            }}
+            style={styles.explorerFilterCTA}
+            onPress={() => setShowBoxFilters(true)}
             activeOpacity={0.85}
           >
-            <Text
-              style={[
-                styles.roleChipText,
-                mapListSource === "viewport" && styles.roleChipTextActive,
-              ]}
-            >
-              Zone visible
+            <Ionicons name="options-outline" size={20} color="#fff" />
+            <Text style={styles.explorerFilterCTAText}>
+              {mapListSource === "city"
+                ? "Zone : ville"
+                : mapListSource === "nearby"
+                ? "Zone : GPS"
+                : "Zone visible"}
             </Text>
           </TouchableOpacity>
-          <TouchableOpacity
-            style={[
-              styles.roleChip,
-              mapListSource === "city" && styles.roleChipActive,
-            ]}
-            onPress={() => {
-              setMapExplorerCameraFollowSearch(true);
-              setMapListSource("city");
-            }}
-            activeOpacity={0.85}
-          >
-            <Text
-              style={[
-                styles.roleChipText,
-                mapListSource === "city" && styles.roleChipTextActive,
-              ]}
-            >
-              Par ville
-            </Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[
-              styles.roleChip,
-              mapListSource === "nearby" && styles.roleChipActive,
-            ]}
-            onPress={() => {
-              setMapExplorerCameraFollowSearch(true);
-              setMapListSource("nearby");
-            }}
-            activeOpacity={0.85}
-          >
-            <Text
-              style={[
-                styles.roleChipText,
-                mapListSource === "nearby" && styles.roleChipTextActive,
-              ]}
-            >
-              Par GPS (lat / lon)
-            </Text>
-          </TouchableOpacity>
-        </View>
-        {mapListSource === "viewport" ? (
-          <Text style={styles.helperText}>
-            Déplace ou zoome la carte : la liste et les marqueurs suivent la
-            zone affichée à l’écran (mise à jour automatique).
-          </Text>
-        ) : null}
-        {mapListSource === "nearby" ? (
-          <>
-            <Text style={styles.inputLabel}>
-              Coordonnées GPS du centre carte
-            </Text>
+          {mapListSource === "city" ? (
             <TextInput
-              style={styles.input}
-              placeholder="Latitude (ex. 45.8992)"
-              placeholderTextColor={theme.inkMuted}
-              value={mapLat}
-              onChangeText={(v) => {
-                setMapLat(v);
-                setMapExplorerCameraFollowSearch(true);
-                setMapListSource("nearby");
-              }}
-              keyboardType="decimal-pad"
-            />
-            <TextInput
-              style={styles.input}
-              placeholder="Longitude (ex. 6.1294)"
-              placeholderTextColor={theme.inkMuted}
-              value={mapLon}
-              onChangeText={(v) => {
-                setMapLon(v);
-                setMapExplorerCameraFollowSearch(true);
-                setMapListSource("nearby");
-              }}
-              keyboardType="decimal-pad"
-            />
-          </>
-        ) : mapListSource === "city" ? (
-          <>
-            <Text style={styles.inputLabel}>Ville</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="Ex. Annecy"
+              style={[styles.input, { flex: 1, marginTop: 0, marginBottom: 0 }]}
+              placeholder="Ville (ex. Annecy)"
               placeholderTextColor={theme.inkMuted}
               value={city}
               onChangeText={(v) => {
@@ -4720,8 +4705,8 @@ function ExplorerScreen() {
                 setMapListSource("city");
               }}
             />
-          </>
-        ) : null}
+          ) : null}
+        </View>
         <View style={styles.statBanner}>
           <View style={styles.statBannerIcon}>
             <Ionicons name="cube-outline" size={22} color={theme.primary} />
@@ -4729,75 +4714,21 @@ function ExplorerScreen() {
           <View style={{ flex: 1 }}>
             <Text style={styles.statBannerTitle}>
               {boxes.length === 0
-                ? "Aucune box dans cette recherche"
-                : `${boxes.length} box affichée${boxes.length > 1 ? "s" : ""}`}
+                ? "Aucune box dans cette zone"
+                : `${boxes.length} box · ${
+                    mapTrailPickIds.length
+                  } trace${mapTrailPickIds.length > 1 ? "s" : ""} au plan`}
             </Text>
             <Text style={styles.statBannerText}>
-              {mapListSource === "city"
-                ? `Recherche par ville (automatique). ${
-                    webSplit
-                      ? "Carte : OSM · marqueurs = box ; lignes = traces."
-                      : "Carte native : marqueurs et tracés."
-                  }`
-                : mapListSource === "viewport"
-                ? `Zone visible sur la carte (automatique). ${
-                    webSplit
-                      ? "Carte : OSM · marqueurs = box ; lignes = traces."
-                      : "Carte native : marqueurs et tracés."
-                  }`
-                : `Box les plus proches du point lat/lon (automatique). ${
-                    webSplit
-                      ? "Carte : OSM · marqueurs = box ; lignes = traces."
-                      : "Carte native : marqueurs et tracés."
-                  }`}
+              Focus = regarder · Plan = long-press ou bouton « Ajouter »
             </Text>
           </View>
         </View>
-        <View style={styles.explorerSearchMeta}>
-          <Text style={styles.explorerSearchMetaText}>
-            Dernière liste :{" "}
-            {explorerListSourceLabelFr(mapExplorerLastSearchSource)} ·{" "}
-            {mapExplorerLastSearchAt != null
-              ? new Date(mapExplorerLastSearchAt).toLocaleTimeString("fr-FR", {
-                  hour: "2-digit",
-                  minute: "2-digit",
-                  second: "2-digit",
-                })
-              : "—"}
-          </Text>
-          {!mapExplorerCameraFollowSearch ? (
-            <>
-              <Text style={styles.explorerSearchMetaHint}>
-                Vue carte découplée (tu as déplacé la carte). La liste continue
-                de se mettre à jour ; touche « Recentrer » pour aligner la carte
-                sur la recherche.
-              </Text>
-              <OutlineButton
-                compact
-                stretch
-                label="Recentrer sur les résultats"
-                icon="locate-outline"
-                onPress={() =>
-                  actionsRef.current.recenterExplorerMapOnResults?.()
-                }
-              />
-            </>
-          ) : null}
-        </View>
-        <Text style={styles.helperText}>
-          Filtres et sélections déplacés dans « Liste des box » et « Liste des
-          traces » pour éviter de se perdre. Ici, tu gardes uniquement la source
-          de recherche et la carte.
-        </Text>
         <View style={styles.explorerSelectionSummary}>
           <Text style={styles.explorerSelectionSummaryText}>
-            Sélection active : {safePickedBoxIds.length} box ·{" "}
+            Plan en cours : {safePickedBoxIds.length} box ·{" "}
             {mapTrailPickIds.length} trace
             {mapTrailPickIds.length > 1 ? "s" : ""}
-          </Text>
-          <Text style={styles.explorerSelectionSummaryHint}>
-            Appui court carte = focus. Appui long = sélection. Verrou sélection
-            actif automatiquement dès qu'au moins 1 élément est sélectionné.
           </Text>
         </View>
         {activePlanOnMap ? (
@@ -5011,8 +4942,8 @@ function ExplorerScreen() {
                 </Text>
                 <PrimaryButton
                   compact
-                  label="Réserver cette box"
-                  icon="calendar-outline"
+                  label="Choisir le créneau"
+                  icon="time-outline"
                   onPress={() => startBookingFromExplorer(selectedBox.id)}
                 />
                 <OutlineButton
@@ -5131,7 +5062,7 @@ function ExplorerScreen() {
               <View style={[styles.infoBanner, { marginTop: 8 }]}>
                 <Text style={styles.infoBannerText}>
                   Composition du parcours (trace, box, points, partage) : colonne
-                  centrale — onglets Composer · Mon plan · Communauté.
+                  centrale — Brouillon · Mon plan · Communauté.
                 </Text>
               </View>
             ) : null}
@@ -5782,6 +5713,29 @@ function ExplorerScreen() {
               onChangeText={setSpecialRequest}
               multiline
             />
+            {selectedBox ? (
+              <View style={styles.bookingConfirmCard}>
+                <Text style={styles.bookingConfirmTitle}>
+                  1. Box · 2. Créneau · 3. Confirmer
+                </Text>
+                <Text style={styles.bookingConfirmMeta}>
+                  {selectedBox.title} · {selectedBox.city}
+                </Text>
+                <PrimaryButton
+                  label="Confirmer la réservation"
+                  icon="checkmark-circle-outline"
+                  onPress={() => confirmBookingFromExplorer(selectedBox.id)}
+                />
+                <Text style={styles.helperText}>
+                  Après envoi, suis le statut dans l’onglet Réserver.
+                </Text>
+              </View>
+            ) : (
+              <Text style={styles.helperText}>
+                Choisis une box sur la carte ou la liste, règle le créneau, puis
+                confirme ici.
+              </Text>
+            )}
           </Section>
         </>
       ) : null}
@@ -5903,7 +5857,7 @@ function ExplorerScreen() {
                           ? "translateY(-1px)"
                           : "translateY(0px)",
                         boxShadow: safePickedBoxIds.includes(Number(item.id))
-                          ? "0 6px 12px rgba(20, 184, 166, 0.22)"
+                          ? "0 6px 12px rgba(13, 115, 119, 0.22)"
                           : "none",
                       }
                     : null,
@@ -5918,8 +5872,8 @@ function ExplorerScreen() {
                   ]}
                 >
                   {safePickedBoxIds.includes(Number(item.id))
-                    ? "Sélectionnée"
-                    : "Non sélectionnée"}
+                    ? "Dans le plan"
+                    : "Hors plan"}
                 </Text>
               </View>
               {activePlanOnMap ? (
@@ -6027,8 +5981,8 @@ function ExplorerScreen() {
                 stretch
                 label={
                   safePickedBoxIds.includes(Number(item.id))
-                    ? "Retirer de la sélection"
-                    : "Ajouter à la sélection"
+                    ? "Retirer du plan"
+                    : "Ajouter au plan"
                 }
                 icon={
                   safePickedBoxIds.includes(Number(item.id))
@@ -6043,21 +5997,20 @@ function ExplorerScreen() {
               {canBook ? (
                 <PrimaryButton
                   compact
-                  label="Réserver"
-                  icon="calendar-outline"
+                  label="Choisir le créneau"
+                  icon="time-outline"
                   onPress={() => startBookingFromExplorer(item.id)}
                 />
               ) : null}
             </TouchableOpacity>
           )}
         />
-        {explorerCompactFilters ? (
-          <Modal
-            visible={showBoxFilters}
-            transparent
-            animationType="slide"
-            onRequestClose={() => setShowBoxFilters(false)}
-          >
+        <Modal
+          visible={showBoxFilters}
+          transparent
+          animationType="slide"
+          onRequestClose={() => setShowBoxFilters(false)}
+        >
             <View style={styles.explorerFilterModalBackdrop}>
               <TouchableOpacity
                 style={styles.explorerFilterModalDismiss}
@@ -6068,9 +6021,9 @@ function ExplorerScreen() {
                 <View style={styles.dateTimeGrabber} />
                 <View style={styles.dateTimeSheetHeader}>
                   <View style={{ flex: 1, paddingRight: 8 }}>
-                    <Text style={styles.modalSheetTitle}>Filtres des box</Text>
+                    <Text style={styles.modalSheetTitle}>Zone & filtres box</Text>
                     <Text style={styles.dateTimeSheetSubtitle}>
-                      Carte, critères, proximité des traces et tri.
+                      Zone, critères, proximité et tri.
                     </Text>
                   </View>
                   <TouchableOpacity
@@ -6102,8 +6055,7 @@ function ExplorerScreen() {
                 </View>
               </View>
             </View>
-          </Modal>
-        ) : null}
+        </Modal>
       </Section>
 
       <Section
@@ -6285,7 +6237,7 @@ function ExplorerScreen() {
                               ? "translateY(-1px)"
                               : "translateY(0px)",
                             boxShadow: isPicked
-                              ? "0 6px 12px rgba(20, 184, 166, 0.22)"
+                              ? "0 6px 12px rgba(13, 115, 119, 0.22)"
                               : "none",
                           }
                         : null,
@@ -6299,7 +6251,7 @@ function ExplorerScreen() {
                           : styles.selectionPillTextIdle,
                       ]}
                     >
-                      {isPicked ? "Sélectionnée" : "Non sélectionnée"}
+                      {isPicked ? "Dans le plan" : "Hors plan"}
                     </Text>
                   </View>
                   <Text style={styles.cardMeta}>
@@ -6355,8 +6307,8 @@ function ExplorerScreen() {
                     stretch
                     label={
                       isPicked
-                        ? "Retirer de la sélection"
-                        : "Ajouter à la sélection"
+                        ? "Retirer du plan"
+                        : "Ajouter au plan"
                     }
                     icon={
                       isPicked ? "remove-circle-outline" : "add-circle-outline"
@@ -6814,6 +6766,81 @@ function ExplorerScreen() {
       >
         {explorerScrollContent}
       </ScrollView>
+      {!webSplit ? (
+        <ExplorerFocusSheet
+          visible={Boolean(selectedBox || selectedTrail)}
+          kind={selectedBox ? "box" : "trail"}
+          title={
+            selectedBox
+              ? selectedBox.title
+              : selectedTrail
+              ? selectedTrail.name
+              : ""
+          }
+          subtitle={
+            selectedBox
+              ? `${selectedBox.city || ""} · ${(
+                  Number(selectedBox.price_cents || 0) / 100
+                ).toFixed(2)} €`
+              : selectedTrail
+              ? `${selectedTrail.territory || ""} · ${
+                  selectedTrail.distance_km || "?"
+                } km`
+              : ""
+          }
+          metaLines={
+            selectedBox
+              ? [
+                  boxWaterLabel(selectedBox),
+                  formatHostRatingShort(selectedBox) ||
+                    "Hôte sans avis réservation",
+                ].filter(Boolean)
+              : selectedTrail
+              ? [
+                  `${DIFFICULTY_LABELS[selectedTrail.difficulty] || selectedTrail.difficulty}`,
+                  formatTrailElevationSummary(selectedTrail),
+                ].filter(Boolean)
+              : []
+          }
+          picked={
+            selectedBox
+              ? safePickedBoxIds.includes(Number(selectedBox.id))
+              : selectedTrail
+              ? mapTrailPickIds.includes(Number(selectedTrail.id))
+              : false
+          }
+          canBook={canBook}
+          onClose={() => {
+            if (selectedBox) setSelectedBoxId(null);
+            else if (selectedTrail) handleRequestExitExplorerTrail();
+          }}
+          onTogglePick={() => {
+            if (selectedBox) toggleExplorerPickedBox(Number(selectedBox.id));
+            else if (selectedTrail)
+              toggleExplorerPickedTrail(Number(selectedTrail.id));
+          }}
+          onBook={
+            selectedBox
+              ? () => startBookingFromExplorer(selectedBox.id)
+              : undefined
+          }
+          onSavePlan={
+            selectedTrail
+              ? () => {
+                  setExplorerWorkspaceTab("plan");
+                  saveExplorerRoutePlan();
+                }
+              : undefined
+          }
+          onCenterMap={
+            selectedBox
+              ? () => focusExplorerBox(selectedBox.id)
+              : selectedTrail
+              ? () => actionsRef.current.centerMapOnTrail?.(selectedTrail.id)
+              : undefined
+          }
+        />
+      ) : null}
     </SafeAreaView>
   );
 }
@@ -9819,10 +9846,11 @@ function ProfileScreen() {
         keyboardShouldPersistTaps="handled"
       >
         <IntentGuideBanner
+          guideId="compte"
           title="Compte"
           lines={[
-            "Import GPX, rôle athlète/hôte, changement de mot de passe.",
-            "Réservations et notifications : onglet Réserver.",
+            "Import GPX, rôle athlète/hôte, mot de passe.",
+            "Réservations : onglet Réserver.",
           ]}
         />
         <Section
@@ -10207,13 +10235,14 @@ function ReservationsScreen() {
         keyboardShouldPersistTaps="handled"
       >
         <IntentGuideBanner
-          title="Réserver — suivi des créneaux"
+          guideId="reserver"
+          title="Réserver — suivi"
           lines={[
-            "Toutes les réservations passent par le même envoi (Carte ou Composer).",
-            "Ici : statut, code d’accès, modifications et notifications.",
+            "Funnel unique : Découvrir → créneau → confirmer → suivi ici.",
+            "Statut, code d’accès, modifications et notifications.",
             canHost
               ? "Bascule « Reçues (hôte) » pour valider les demandes sur tes box."
-              : "Les demandes en attente d’hôte apparaissent avec le statut « pending ».",
+              : "Les demandes en attente apparaissent avec le statut « pending ».",
           ]}
         />
         {canHost && canBook ? (
@@ -10868,7 +10897,8 @@ function MainTabs() {
   const [webTabPickerVisible, setWebTabPickerVisible] = useState(false);
   const tabTargets = [
     { key: "Carte", label: "Découvrir" },
-    { key: "Plans", label: "Composer" },
+    { key: "Plans", label: "Planifier" },
+    { key: "Trails", label: "Traces GPX" },
     ...(canHost ? [{ key: "Host", label: "Mes box" }] : []),
     { key: "Reservations", label: "Réserver" },
     { key: "Profil", label: "Compte" },
@@ -10980,7 +11010,7 @@ function MainTabs() {
         <Tab.Screen
           name="Plans"
           component={PlansScreen}
-          options={{ title: "Composer", tabBarLabel: "Composer" }}
+          options={{ title: "Planifier", tabBarLabel: "Planifier" }}
         />
         {canHost ? (
           <Tab.Screen
@@ -13278,7 +13308,7 @@ function RavitoApp() {
     if (blocking.length > 0) {
       userAlert(
         "Créneau à corriger",
-        `${blocking.join("\n")}\n\nAjuste la date et les heures dans « Créneau & demande » (panneau gauche), puis réappuie sur Réserver.`
+        `${blocking.join("\n")}\n\nAjuste la date et les heures dans « Créneau & demande », puis confirme la réservation.`
       );
       return;
     }
@@ -16003,7 +16033,7 @@ const styles = StyleSheet.create({
   },
   primaryButton: {
     backgroundColor: theme.primary,
-    borderRadius: 14,
+    borderRadius: theme.radius?.md || 14,
     paddingVertical: 14,
     paddingHorizontal: 16,
     flexDirection: "row",
@@ -16012,34 +16042,41 @@ const styles = StyleSheet.create({
     marginBottom: 10,
     marginTop: 8,
     minHeight: 50,
+    shadowColor: theme.shadow,
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.16,
+    shadowRadius: 8,
+    elevation: 2,
   },
   primaryButtonCompact: {
     paddingVertical: 11,
     paddingHorizontal: 14,
-    minHeight: 44,
-    borderRadius: 12,
+    minHeight: 46,
+    borderRadius: theme.radius?.md || 12,
     marginTop: 6,
   },
   primaryButtonText: {
     color: "#fff",
     fontWeight: "700",
     fontSize: 16,
+    letterSpacing: 0.2,
   },
   secondaryButton: {
-    backgroundColor: theme.secondaryInk,
-    borderRadius: 14,
+    backgroundColor: theme.secondary || theme.secondaryInk,
+    borderRadius: theme.radius?.md || 14,
     paddingVertical: 14,
     paddingHorizontal: 16,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     marginBottom: 10,
+    minHeight: 50,
   },
   secondaryButtonCompact: {
     paddingVertical: 11,
     paddingHorizontal: 14,
-    minHeight: 44,
-    borderRadius: 12,
+    minHeight: 46,
+    borderRadius: theme.radius?.md || 12,
     marginBottom: 8,
   },
   secondaryButtonText: {
@@ -16048,35 +16085,37 @@ const styles = StyleSheet.create({
     fontSize: 16,
   },
   outlineButton: {
-    borderWidth: 1,
-    borderColor: theme.border,
-    borderRadius: 11,
-    paddingVertical: 10,
+    borderWidth: 1.5,
+    borderColor: theme.chipBorder,
+    borderRadius: theme.radius?.md || 14,
+    paddingVertical: 11,
     paddingHorizontal: 14,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     marginBottom: 8,
     marginTop: 4,
-    backgroundColor: theme.surface,
+    backgroundColor: theme.primarySoft || theme.chipBg,
     alignSelf: "flex-start",
+    minHeight: 44,
   },
   outlineButtonStretch: {
     alignSelf: "stretch",
   },
   outlineButtonCompact: {
-    paddingVertical: 7,
-    paddingHorizontal: 11,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
     marginTop: 2,
     marginBottom: 6,
+    minHeight: 40,
   },
   outlineButtonDanger: {
     borderColor: "#FECACA",
-    backgroundColor: "#FFFBFB",
+    backgroundColor: theme.dangerSoft || "#FFFBFB",
   },
   outlineButtonText: {
-    color: theme.secondaryInk,
-    fontWeight: "600",
+    color: theme.primary,
+    fontWeight: "700",
     fontSize: 14,
   },
   outlineButtonTextCompact: {
@@ -16240,14 +16279,42 @@ const styles = StyleSheet.create({
     overflow: "hidden",
   },
   cardFocusState: {
-    borderColor: theme.primary,
+    borderColor: theme.focus || theme.primary,
     borderWidth: 2,
-    backgroundColor: "#EEF2FF",
+    backgroundColor: theme.focusSoft || theme.primarySoft || "#E6F5F4",
   },
   cardPickedState: {
-    borderColor: "#5EEAD4",
+    borderColor: theme.picked || theme.primary,
     borderWidth: 1.5,
-    backgroundColor: "#F0FDFA",
+    backgroundColor: theme.pickedSoft || "#ECFDF5",
+  },
+  explorerMapSearchRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    marginBottom: 10,
+    flexWrap: "wrap",
+  },
+  bookingConfirmCard: {
+    marginTop: 12,
+    padding: 14,
+    borderRadius: theme.radius?.md || 14,
+    borderWidth: 1,
+    borderColor: theme.infoBorder,
+    backgroundColor: theme.infoBg,
+  },
+  bookingConfirmTitle: {
+    fontSize: 13,
+    fontWeight: "800",
+    color: theme.primary,
+    marginBottom: 4,
+    letterSpacing: 0.2,
+  },
+  bookingConfirmMeta: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: theme.ink,
+    marginBottom: 8,
   },
   cardAccent: {
     position: "absolute",

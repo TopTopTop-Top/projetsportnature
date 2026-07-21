@@ -34,17 +34,7 @@ import {
   formatPlanBoxSlot,
   planBoxApprovalLabel,
 } from "./planBoxReservation";
-
-const theme = {
-  primary: "#0D9488",
-  hero: "#062D26",
-  ink: "#0F172A",
-  inkMuted: "#64748B",
-  border: "#E2E8F0",
-  surface: "#FFFFFF",
-  surfaceMuted: "#F8FAFC",
-  bg: "#F1F5F9",
-};
+import theme from "./theme";
 
 const TABBAR_SCROLL_PADDING = Platform.OS === "web" ? 120 : 48;
 
@@ -1020,11 +1010,12 @@ export default function PlansScreen({ appMain = {} }) {
           showsVerticalScrollIndicator={Platform.OS === "web"}
         >
         <IntentGuideBanner
-          title="Composer — tes plans"
+          guideId="planifier"
+          title="Planifier — tes parcours"
           lines={[
-            "Prépare trace, box et points GPS ici ou sur Découvrir (même compte).",
-            "Réserver une box : bouton sur chaque box du détail, ou rail Mon plan sur la carte.",
-            "Suivi des créneaux et codes d’accès : onglet Réserver uniquement.",
+            "1. Prépare trace + box ici ou depuis Découvrir.",
+            "2. Pour réserver : choisis une box → créneau → confirme.",
+            "3. Suivi des créneaux : onglet Réserver.",
           ]}
         />
 

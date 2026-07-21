@@ -81,13 +81,13 @@ const styles = StyleSheet.create({
   },
   bar: {
     maxWidth: 340,
-    backgroundColor: "rgba(255, 255, 255, 0.94)",
-    borderRadius: 12,
+    backgroundColor: "rgba(255, 255, 255, 0.96)",
+    borderRadius: 14,
     borderWidth: 1,
-    borderColor: "rgba(15, 118, 110, 0.25)",
+    borderColor: "rgba(13, 115, 119, 0.28)",
     paddingHorizontal: 10,
     paddingVertical: 8,
-    shadowColor: "#0F172A",
+    shadowColor: "#0A2E26",
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.12,
     shadowRadius: 8,
@@ -95,7 +95,7 @@ const styles = StyleSheet.create({
   status: {
     fontSize: 12,
     fontWeight: "700",
-    color: "#0F766E",
+    color: "#0D7377",
     marginBottom: 6,
   },
   actions: {
@@ -105,7 +105,7 @@ const styles = StyleSheet.create({
     justifyContent: "flex-end",
   },
   btn: {
-    borderRadius: 8,
+    borderRadius: 10,
     paddingHorizontal: 10,
     paddingVertical: 6,
   },
@@ -113,7 +113,7 @@ const styles = StyleSheet.create({
     opacity: 0.85,
   },
   btnPrimary: {
-    backgroundColor: "#0F766E",
+    backgroundColor: "#0D7377",
   },
   btnPrimaryText: {
     color: "#fff",
@@ -121,17 +121,17 @@ const styles = StyleSheet.create({
     fontWeight: "700",
   },
   btnGhost: {
-    backgroundColor: "#F0FDF9",
+    backgroundColor: "#E6F5F4",
     borderWidth: 1,
-    borderColor: "#99F6E4",
+    borderColor: "#99D5D2",
   },
   btnGhostText: {
-    color: "#0F766E",
+    color: "#0D7377",
     fontSize: 12,
     fontWeight: "700",
   },
   btnDanger: {
-    backgroundColor: "#FFF7ED",
+    backgroundColor: "#FFF4ED",
     borderWidth: 1,
     borderColor: "#FDBA74",
   },
