@@ -2727,12 +2727,20 @@ function ExplorerScreen() {
       const bid = Number(boxId);
       if (!Number.isFinite(bid)) return;
       setSelectedBoxId(bid);
+      // Le "focus carte" doit aussi refléter la sélection multi-éléments
+      // (sinon les badges "Sélectionnée" affichent incohérence).
+      setMapPickedBoxIds((prev) => {
+        const base = Array.isArray(prev) ? prev : [];
+        return base.includes(bid) ? base : [...base, bid];
+      });
       const box =
         boxes.find((b) => Number(b.id) === bid) ||
         boxesOnMap.find((b) => Number(b.id) === bid);
       const lat = Number(box?.latitude);
       const lng = Number(box?.longitude);
-      if (Number.isFinite(lat) && Number.isFinite(lng)) {
+      // Si une trace est déjà en focus, on évite de "sauter" la caméra vers
+      // la box : ça perturbe le contexte carte + rail trace.
+      if (selectedTrailId == null && Number.isFinite(lat) && Number.isFinite(lng)) {
         setMapLat(lat.toFixed(6));
         setMapLon(lng.toFixed(6));
         setMapExplorerRecenterNonce((n) => n + 1);
@@ -2742,9 +2750,11 @@ function ExplorerScreen() {
       boxes,
       boxesOnMap,
       setSelectedBoxId,
+      setMapPickedBoxIds,
       setMapLat,
       setMapLon,
       setMapExplorerRecenterNonce,
+      selectedTrailId,
     ]
   );
   const highlightExplorerBoxOnMap = useCallback((boxId) => {
@@ -2781,11 +2791,16 @@ function ExplorerScreen() {
       if (!Number.isFinite(tid)) return;
       // Short tap on map should only focus a trail.
       setSelectedTrailId(tid);
+      // Garder la trace dans la sélection (sans toggle off).
+      setMapTrailPickIds((prev) => {
+        const base = Array.isArray(prev) ? prev : [];
+        return base.includes(tid) ? base : [...base, tid];
+      });
       setExplorerTrailProbe(null);
       setExplorerProbeLock(false);
       setChartProbeHover(false);
     },
-    [setSelectedTrailId]
+    [setSelectedTrailId, setMapTrailPickIds]
   );
   const handleRequestExitExplorerTrail = useCallback(async () => {
     if (selectedTrailId == null) return;
