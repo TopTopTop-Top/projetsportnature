@@ -2726,9 +2726,26 @@ function ExplorerScreen() {
     (boxId) => {
       const bid = Number(boxId);
       if (!Number.isFinite(bid)) return;
-      toggleExplorerPickedBox(bid);
+      setSelectedBoxId(bid);
+      const box =
+        boxes.find((b) => Number(b.id) === bid) ||
+        boxesOnMap.find((b) => Number(b.id) === bid);
+      const lat = Number(box?.latitude);
+      const lng = Number(box?.longitude);
+      if (Number.isFinite(lat) && Number.isFinite(lng)) {
+        setMapLat(lat.toFixed(6));
+        setMapLon(lng.toFixed(6));
+        setMapExplorerRecenterNonce((n) => n + 1);
+      }
     },
-    [toggleExplorerPickedBox]
+    [
+      boxes,
+      boxesOnMap,
+      setSelectedBoxId,
+      setMapLat,
+      setMapLon,
+      setMapExplorerRecenterNonce,
+    ]
   );
   const highlightExplorerBoxOnMap = useCallback((boxId) => {
     const bid = Number(boxId);
@@ -2762,18 +2779,13 @@ function ExplorerScreen() {
     (trailId) => {
       const tid = Number(trailId);
       if (!Number.isFinite(tid)) return;
-      // Short tap on map should focus/keep a trail, not toggle it off.
+      // Short tap on map should only focus a trail.
       setSelectedTrailId(tid);
       setExplorerTrailProbe(null);
       setExplorerProbeLock(false);
       setChartProbeHover(false);
-      setMapTrailPickIds((prev) =>
-        Array.isArray(prev) && prev.includes(tid)
-          ? prev
-          : [...(prev || []), tid]
-      );
     },
-    [setSelectedTrailId, setMapTrailPickIds]
+    [setSelectedTrailId]
   );
   const handleRequestExitExplorerTrail = useCallback(async () => {
     if (selectedTrailId == null) return;
@@ -4872,6 +4884,35 @@ function ExplorerScreen() {
             pickedMapPoint={lastMapTapCoords || undefined}
           />
         ) : null}
+        {selectedBox || selectedTrail ? (
+          <View style={styles.explorerActiveSelectionBar}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.explorerActiveSelectionKicker}>
+                {selectedBox ? "Box en focus" : "Trace en focus"}
+              </Text>
+              <Text style={styles.explorerActiveSelectionTitle} numberOfLines={1}>
+                {selectedBox
+                  ? `${selectedBox.title || "Box"} · ${
+                      selectedBox.city || "Ville inconnue"
+                    }`
+                  : `${selectedTrail?.name || "Trace"} · ${
+                      selectedTrail?.territory || "Territoire inconnu"
+                    }`}
+              </Text>
+            </View>
+            <TouchableOpacity
+              style={styles.explorerActiveSelectionCloseBtn}
+              onPress={() => {
+                if (selectedBox) setSelectedBoxId(null);
+                if (selectedTrail) handleRequestExitExplorerTrail();
+              }}
+              activeOpacity={0.85}
+            >
+              <Ionicons name="close" size={16} color={theme.primary} />
+              <Text style={styles.explorerActiveSelectionCloseText}>Fermer</Text>
+            </TouchableOpacity>
+          </View>
+        ) : null}
         {lastMapTapCoords ? (
           <View style={styles.mapCoordCard}>
             <Text style={styles.mapCoordTitle}>Coordonnées sélectionnées</Text>
@@ -5800,19 +5841,29 @@ function ExplorerScreen() {
             ) : null
           }
           renderItem={({ item }) => (
-            <View
+            <TouchableOpacity
+              activeOpacity={0.92}
+              onPress={() => focusExplorerBox(item.id)}
+              accessibilityRole="button"
               style={[
                 styles.card,
                 Number(selectedBoxId) === Number(item.id)
-                  ? {
-                      borderColor: theme.primary,
-                      borderWidth: 2,
-                      backgroundColor: "#F0FDFA",
-                    }
+                  ? styles.cardFocusState
+                  : safePickedBoxIds.includes(Number(item.id))
+                  ? styles.cardPickedState
                   : null,
               ]}
             >
-              <View style={styles.cardAccent} />
+              <View
+                style={[
+                  styles.cardAccent,
+                  Number(selectedBoxId) === Number(item.id)
+                    ? styles.cardAccentFocus
+                    : safePickedBoxIds.includes(Number(item.id))
+                    ? styles.cardAccentPicked
+                    : null,
+                ]}
+              />
               <Text style={styles.cardTitle}>{item.title}</Text>
               {Number(selectedBoxId) === Number(item.id) ? (
                 <Text
@@ -5954,7 +6005,7 @@ function ExplorerScreen() {
                 label="Voir sur la carte"
                 icon="location-outline"
                 stretch
-                onPress={() => setSelectedBoxId(item.id)}
+                onPress={() => focusExplorerBox(item.id)}
               />
               <OutlineButton
                 compact
@@ -5982,7 +6033,7 @@ function ExplorerScreen() {
                   onPress={() => startBookingFromExplorer(item.id)}
                 />
               ) : null}
-            </View>
+            </TouchableOpacity>
           )}
         />
         {explorerCompactFilters ? (
@@ -6158,16 +6209,21 @@ function ExplorerScreen() {
                 user && Number(trail.creator_user_id) === Number(user.id);
               const tid = Number(trail.id);
               const isPicked = mapTrailPickIds.includes(tid);
+              const isFocused = Number(selectedTrailId) === tid;
               return (
-                <View
+                <TouchableOpacity
+                  activeOpacity={0.92}
+                  onPress={() => {
+                    focusExplorerTrail(tid);
+                    actionsRef.current.centerMapOnTrail(tid);
+                  }}
+                  accessibilityRole="button"
                   style={[
                     styles.card,
-                    isPicked || Number(selectedTrailId) === tid
-                      ? {
-                          borderColor: theme.primary,
-                          borderWidth: 2,
-                          backgroundColor: "#F0FDFA",
-                        }
+                    isFocused
+                      ? styles.cardFocusState
+                      : isPicked
+                      ? styles.cardPickedState
                       : null,
                   ]}
                   {...(Platform.OS === "web"
@@ -6177,9 +6233,18 @@ function ExplorerScreen() {
                       }
                     : {})}
                 >
-                  <View style={styles.cardAccent} />
+                  <View
+                    style={[
+                      styles.cardAccent,
+                      isFocused
+                        ? styles.cardAccentFocus
+                        : isPicked
+                        ? styles.cardAccentPicked
+                        : null,
+                    ]}
+                  />
                   <Text style={styles.cardTitle}>{trail.name}</Text>
-                  {Number(selectedTrailId) === tid ? (
+                  {isFocused ? (
                     <Text
                       style={[
                         styles.cardAvailability,
@@ -6257,9 +6322,7 @@ function ExplorerScreen() {
                     label="Voir sur la carte"
                     icon="location-outline"
                     stretch
-                    onPress={() =>
-                      actionsRef.current.centerMapOnTrail(trail.id)
-                    }
+                    onPress={() => actionsRef.current.centerMapOnTrail(tid)}
                   />
                   <Text style={styles.helperText}>
                     Recentre la carte sur le tracé (centre approximatif du GPX).
@@ -6285,7 +6348,7 @@ function ExplorerScreen() {
                     }
                     onPress={() => toggleExplorerPickedTrail(tid)}
                   />
-                </View>
+                </TouchableOpacity>
               );
             }}
             ListEmptyComponent={
@@ -16161,6 +16224,16 @@ const styles = StyleSheet.create({
     marginBottom: 12,
     overflow: "hidden",
   },
+  cardFocusState: {
+    borderColor: theme.primary,
+    borderWidth: 2,
+    backgroundColor: "#EEF2FF",
+  },
+  cardPickedState: {
+    borderColor: "#5EEAD4",
+    borderWidth: 1.5,
+    backgroundColor: "#F0FDFA",
+  },
   cardAccent: {
     position: "absolute",
     left: 0,
@@ -16170,6 +16243,14 @@ const styles = StyleSheet.create({
     backgroundColor: theme.primary,
     borderTopLeftRadius: 16,
     borderBottomLeftRadius: 16,
+  },
+  cardAccentFocus: {
+    width: 5,
+    backgroundColor: theme.primary,
+  },
+  cardAccentPicked: {
+    width: 5,
+    backgroundColor: "#0F766E",
   },
   hostBoxActionsRow: {
     flexDirection: "row",
@@ -16283,6 +16364,47 @@ const styles = StyleSheet.create({
   },
   selectionPillTextIdle: {
     color: theme.inkMuted,
+  },
+  explorerActiveSelectionBar: {
+    marginTop: 8,
+    borderWidth: 1,
+    borderColor: "rgba(99, 102, 241, 0.32)",
+    backgroundColor: "rgba(99, 102, 241, 0.10)",
+    borderRadius: 14,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
+  explorerActiveSelectionKicker: {
+    fontSize: 11,
+    fontWeight: "800",
+    color: theme.primary,
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+    marginBottom: 2,
+  },
+  explorerActiveSelectionTitle: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: theme.ink,
+  },
+  explorerActiveSelectionCloseBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    borderWidth: 1,
+    borderColor: "rgba(99, 102, 241, 0.35)",
+    borderRadius: 999,
+    backgroundColor: "#FFFFFF",
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  explorerActiveSelectionCloseText: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: theme.primary,
   },
   emptyText: {
     color: theme.inkMuted,
