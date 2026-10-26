@@ -3940,8 +3940,9 @@ router.post("/bookings", requireAuth, async (req, res) => {
   const input = parsed.data;
   const athleteUserId = req.auth.sub;
   const { rows: boxRows } = await pool.query(
-    `SELECT id, price_cents, access_code, access_method, access_instructions,
-            access_display_before_min, access_display_after_min, availability_schedule_json
+    `SELECT id, title, city, price_cents, access_code, access_method, access_instructions,
+            access_display_before_min, access_display_after_min, availability_schedule_json,
+            has_water, capacity_liters, criteria_json, criteria_note, availability_note
      FROM boxes WHERE id = $1 AND is_active = 1`,
     [input.boxId]
   );
@@ -4018,7 +4019,16 @@ router.post("/bookings", requireAuth, async (req, res) => {
       specialRequest: created.special_request,
     },
   });
-  const payload = { ...created };
+  const payload = {
+    ...created,
+    box_title: box.title || null,
+    box_city: box.city || null,
+    box_has_water: box.has_water,
+    box_capacity_liters: box.capacity_liters,
+    box_criteria_json: box.criteria_json,
+    box_criteria_note: box.criteria_note,
+    box_availability_note: box.availability_note,
+  };
   if (String(payload.approval_status || "pending") !== "accepted") {
     delete payload.access_code;
   }
@@ -4031,6 +4041,11 @@ router.get("/host/bookings", requireAuth, async (req, res) => {
       b.*,
       bx.title AS box_title,
       bx.city AS box_city,
+      bx.has_water AS box_has_water,
+      bx.capacity_liters AS box_capacity_liters,
+      bx.criteria_json AS box_criteria_json,
+      bx.criteria_note AS box_criteria_note,
+      bx.availability_note AS box_availability_note,
       bx.access_method,
       bx.access_instructions,
       bx.access_display_before_min,
@@ -4237,6 +4252,11 @@ router.get("/bookings", requireAuth, async (req, res) => {
   const { rows } = await pool.query(
     `SELECT b.*, bx.title AS box_title, bx.city AS box_city,
             bx.host_user_id,
+            bx.has_water AS box_has_water,
+            bx.capacity_liters AS box_capacity_liters,
+            bx.criteria_json AS box_criteria_json,
+            bx.criteria_note AS box_criteria_note,
+            bx.availability_note AS box_availability_note,
             bx.access_method, bx.access_instructions,
             bx.access_display_before_min, bx.access_display_after_min,
             uh.full_name AS host_full_name,

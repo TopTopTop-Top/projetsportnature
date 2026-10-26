@@ -457,6 +457,37 @@ function parseBoxCriteria(box) {
   }
 }
 
+/** Résumé lisible de l’offre d’une box (eau, snacks, notes hôte). */
+function formatBoxOfferLines(box) {
+  if (!box) return [];
+  const lines = [];
+  const liters = box.capacity_liters;
+  lines.push(
+    `Eau : ${boxWaterLabel(box)}${
+      liters != null && liters !== "" ? ` · ${liters} L` : ""
+    }`
+  );
+  const crit = parseBoxCriteria(box);
+  if (crit.length > 0) {
+    lines.push(`Services / nourriture : ${crit.join(" · ")}`);
+  }
+  const note = String(box.criteria_note || "").trim();
+  if (note) lines.push(`Précisions hôte : ${note}`);
+  const avail = String(box.availability_note || "").trim();
+  if (avail) lines.push(`Disponibilités : ${avail}`);
+  return lines;
+}
+
+const BOOKING_NEED_CHIPS = [
+  "Eau",
+  "Snacks sucrés",
+  "Snacks salés",
+  "Option vegan",
+  "Sans gluten",
+  "Douche",
+  "Abri",
+];
+
 function parseBookingChangeRequest(booking) {
   try {
     const raw = booking?.change_request_json;
@@ -1957,6 +1988,18 @@ function BookingConfirmModal({
                 {formatHostRatingLine(box)}
               </Text>
             </View>
+            <Text style={styles.bookingRecapTitle}>Ce que propose la box</Text>
+            {formatBoxOfferLines(box).length > 0 ? (
+              formatBoxOfferLines(box).map((line, i) => (
+                <Text key={`offer-${i}`} style={styles.cardDetailLine}>
+                  • {line}
+                </Text>
+              ))
+            ) : (
+              <Text style={styles.cardAvailability}>
+                Aucun critère détaillé renseigné par l’hôte.
+              </Text>
+            )}
             <Text style={styles.cardMeta}>
               Date : {formatDateLongFr(bookingDate)} · {startTime} → {endTime}
             </Text>
@@ -5704,7 +5747,71 @@ function ExplorerScreen() {
                 heure de fin après l’heure de début.
               </Text>
             ) : null}
-            <Text style={styles.inputLabel}>Demande spéciale (optionnel)</Text>
+            {selectedBox ? (
+              <View style={[styles.infoBanner, { marginBottom: 10 }]}>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.infoBannerTitle}>
+                    Offre de « {selectedBox.title} »
+                  </Text>
+                  {formatBoxOfferLines(selectedBox).map((line, i) => (
+                    <Text key={`sel-offer-${i}`} style={styles.infoBannerText}>
+                      • {line}
+                    </Text>
+                  ))}
+                </View>
+              </View>
+            ) : null}
+            <Text style={styles.inputLabel}>
+              Ce dont tu as besoin (eau, nourriture…)
+            </Text>
+            <Text style={styles.helperText}>
+              Touche les pastilles pour préciser ta demande à l’hôte.
+            </Text>
+            <View style={[styles.roleRow, { flexWrap: "wrap", marginBottom: 8 }]}>
+              {BOOKING_NEED_CHIPS.map((chip) => {
+                const active = String(specialRequest || "")
+                  .toLowerCase()
+                  .includes(String(chip).toLowerCase());
+                return (
+                  <TouchableOpacity
+                    key={`need-${chip}`}
+                    style={[
+                      styles.roleChip,
+                      active && styles.roleChipActive,
+                    ]}
+                    onPress={() => {
+                      setSpecialRequest((prev) => {
+                        const cur = String(prev || "").trim();
+                        if (
+                          cur.toLowerCase().includes(String(chip).toLowerCase())
+                        ) {
+                          return cur
+                            .split(/[,;·]+/)
+                            .map((p) => p.trim())
+                            .filter(
+                              (p) =>
+                                p &&
+                                p.toLowerCase() !== String(chip).toLowerCase()
+                            )
+                            .join(", ");
+                        }
+                        return cur ? `${cur}, ${chip}` : chip;
+                      });
+                    }}
+                    activeOpacity={0.85}
+                  >
+                    <Text
+                      style={[
+                        styles.roleChipText,
+                        active && styles.roleChipTextActive,
+                      ]}
+                    >
+                      {chip}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
             <TextInput
               style={[styles.input, styles.textArea]}
               placeholder="Ex. groupe de 4, sans gluten, besoin d’eau en bouteille…"
@@ -5721,13 +5828,16 @@ function ExplorerScreen() {
                 <Text style={styles.bookingConfirmMeta}>
                   {selectedBox.title} · {selectedBox.city}
                 </Text>
+                <Text style={styles.helperText}>
+                  Demande : {bookingSpecialRequestLabel(specialRequest)}
+                </Text>
                 <PrimaryButton
                   label="Confirmer la réservation"
                   icon="checkmark-circle-outline"
                   onPress={() => confirmBookingFromExplorer(selectedBox.id)}
                 />
                 <Text style={styles.helperText}>
-                  Après envoi, suis le statut dans l’onglet Réserver.
+                  Après envoi, tu verras le reçu dans l’onglet Réserver.
                 </Text>
               </View>
             ) : (
@@ -10548,11 +10658,24 @@ function ReservationsScreen() {
                       Paiement: {b.payment_status || "simulated_unpaid"} ·
                       remboursement: {b.refund_status || "none"}
                     </Text>
-                    {b.special_request ? (
-                      <Text style={styles.cardAvailability}>
-                        Demande: {b.special_request}
+                    <Text style={styles.cardAvailability}>
+                      Demande athlète :{" "}
+                      {bookingSpecialRequestLabel(b.special_request)}
+                    </Text>
+                    {formatBoxOfferLines({
+                      has_water: b.box_has_water,
+                      capacity_liters: b.box_capacity_liters,
+                      criteria_json: b.box_criteria_json,
+                      criteria_note: b.box_criteria_note,
+                      availability_note: b.box_availability_note,
+                    }).map((line, i) => (
+                      <Text
+                        key={`host-offer-${b.id}-${i}`}
+                        style={styles.cardAvailability}
+                      >
+                        {line}
                       </Text>
-                    ) : null}
+                    ))}
                     {changeDraft ? (
                       <Text style={styles.cardAvailability}>
                         {bookingChangePreviewText(b, changeDraft)}
@@ -10760,6 +10883,23 @@ function ReservationsScreen() {
                         ? ` · code ${b.access_code}`
                         : ""}
                     </Text>
+                    <Text style={styles.cardDetailLine}>
+                      Ma demande : {bookingSpecialRequestLabel(b.special_request)}
+                    </Text>
+                    {formatBoxOfferLines({
+                      has_water: b.box_has_water,
+                      capacity_liters: b.box_capacity_liters,
+                      criteria_json: b.box_criteria_json,
+                      criteria_note: b.box_criteria_note,
+                      availability_note: b.box_availability_note,
+                    }).map((line, i) => (
+                      <Text
+                        key={`ath-offer-${b.id}-${i}`}
+                        style={styles.cardAvailability}
+                      >
+                        {line}
+                      </Text>
+                    ))}
                     {b.status !== "cancelled" ? (
                       <OutlineButton
                         compact
@@ -10787,11 +10927,6 @@ function ReservationsScreen() {
                         {approval !== "accepted"
                           ? "Le code d’accès apparaîtra après validation par l’hôte."
                           : "Les informations d’accès sont masquées hors fenêtre autorisée (avant/après le créneau)."}
-                      </Text>
-                    ) : null}
-                    {b.special_request ? (
-                      <Text style={styles.cardAvailability}>
-                        Demande : {b.special_request}
                       </Text>
                     ) : null}
                     {changeDraft ? (
@@ -13494,27 +13629,30 @@ function RavitoApp() {
       });
       setBookingConfirm({ visible: false, boxId: null });
       const approval = String(result.approval_status || "pending");
-      if (approval === "accepted") {
-        const accessHint =
-          result.access_code && canShowBookingAccessInfo(result)
+      const offerLines = formatBoxOfferLines(box);
+      const receiptLines = [
+        `Box : ${box.title || `#${boxId}`}${box.city ? ` · ${box.city}` : ""}`,
+        `Créneau : ${formatDateLongFr(bookingDate)} · ${startTime} → ${endTime}`,
+        `Demande : ${bookingSpecialRequestLabel(
+          result.special_request || specialRequest
+        )}`,
+        offerLines.length
+          ? `Offre box : ${offerLines.join(" | ")}`
+          : null,
+        approval === "accepted"
+          ? result.access_code && canShowBookingAccessInfo(result)
             ? `Code d’accès : ${result.access_code}`
-            : result.access_code
-            ? "Code d’accès : visible à l’approche du créneau (onglet Réserver)."
-            : "";
-        userAlert(
-          "Réservation confirmée",
-          [accessHint, result.special_request ? `Demande : ${result.special_request}` : ""]
-            .filter(Boolean)
-            .join("\n")
-        );
-      } else {
-        userAlert(
-          "Demande envoyée",
-          "En attente de validation par l’hôte. Le code d’accès apparaîtra dans l’onglet Réserver une fois la réservation acceptée."
-        );
-      }
+            : "Code d’accès : visible à l’approche du créneau."
+          : "Statut : en attente de validation par l’hôte.",
+        "Tu peux retrouver ce reçu dans l’onglet Réserver.",
+      ].filter(Boolean);
+      userAlert(
+        approval === "accepted" ? "Réservation confirmée" : "Demande envoyée",
+        receiptLines.join("\n")
+      );
       await loadAthleteBookings();
       await refreshRoutePlanBookingLinks();
+      mainTabNavigationRef.current?.navigate?.("Reservations");
     } catch (error) {
       userAlert("Erreur", error.message);
     } finally {
