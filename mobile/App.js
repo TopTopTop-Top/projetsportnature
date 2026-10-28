@@ -9706,8 +9706,8 @@ function HostScreen() {
         ) : null}
         {canHostLocal ? (
           <Section
-            title="Demandes de ravito (GPS)"
-            subtitle="Athlètes qui cherchent un ravito près d’un point — propose une de tes box."
+            title="Aider un coureur (ravito)"
+            subtitle="Propose une box OU un ravito mobile (tu te déplaces au point GPS, sans box)."
             icon="megaphone-outline"
           >
             <RavitoHostRequestsSection
@@ -9715,6 +9715,9 @@ function HostScreen() {
               apiFetch={apiFetch}
               hostBoxes={hostBoxes}
               refreshNonce={ravitoRequestsRefreshNonce}
+              volunteerLat={hostLat}
+              volunteerLon={hostLon}
+              allowMobileWithoutBox
             />
           </Section>
         ) : null}
@@ -10259,6 +10262,9 @@ function ReservationsScreen() {
     canBook,
     hostBookings,
     athleteBookings,
+    hostBoxes,
+    mapLat,
+    mapLon,
     notifications,
     openUserReviews,
     authToken,
@@ -10397,7 +10403,7 @@ function ReservationsScreen() {
         {canBook && (!canHost || reservationTab === "athlete") ? (
           <Section
             title="Demandes de ravito (point GPS)"
-            subtitle="Publie un besoin sur la carte, reçois des propositions d’hôtes, puis réserve."
+            subtitle="Publie un besoin sur la carte, reçois des propositions (box ou ravito mobile), puis réserve."
             icon="megaphone-outline"
           >
             <RavitoAthleteRequestsSection
@@ -10405,6 +10411,25 @@ function ReservationsScreen() {
               apiFetch={apiFetch}
               onAcceptProposal={acceptRavitoProposal}
               refreshNonce={ravitoRequestsRefreshNonce}
+            />
+          </Section>
+        ) : null}
+
+        {(canBook || canHost) &&
+        (!canHost || reservationTab === "athlete" || reservationTab === "host") ? (
+          <Section
+            title="Ravito mobile — aider sans box"
+            subtitle="Tu peux ravitailler un coureur au point GPS même sans box fixe."
+            icon="bicycle-outline"
+          >
+            <RavitoHostRequestsSection
+              token={authToken}
+              apiFetch={apiFetch}
+              hostBoxes={hostBoxes || []}
+              refreshNonce={ravitoRequestsRefreshNonce}
+              volunteerLat={mapLat}
+              volunteerLon={mapLon}
+              allowMobileWithoutBox
             />
           </Section>
         ) : null}
@@ -10662,6 +10687,20 @@ function ReservationsScreen() {
                       Demande athlète :{" "}
                       {bookingSpecialRequestLabel(b.special_request)}
                     </Text>
+                    {b.en_route_at ? (
+                      <View style={[styles.infoBanner, { marginBottom: 8 }]}>
+                        <Text style={styles.infoBannerTitle}>
+                          Athlète en approche (~{b.en_route_eta_min || 10} min)
+                        </Text>
+                        <Text style={styles.infoBannerText}>
+                          Prévenu à{" "}
+                          {new Date(b.en_route_at).toLocaleTimeString("fr-FR", {
+                            hour: "2-digit",
+                            minute: "2-digit",
+                          })}
+                        </Text>
+                      </View>
+                    ) : null}
                     {formatBoxOfferLines({
                       has_water: b.box_has_water,
                       capacity_liters: b.box_capacity_liters,
@@ -10900,6 +10939,27 @@ function ReservationsScreen() {
                         {line}
                       </Text>
                     ))}
+                    {b.en_route_at ? (
+                      <Text style={[styles.cardAvailability, { color: theme.primary }]}>
+                        Préavis envoyé : ~{b.en_route_eta_min || 10} min (
+                        {new Date(b.en_route_at).toLocaleTimeString("fr-FR", {
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        })}
+                        )
+                      </Text>
+                    ) : null}
+                    {b.status !== "cancelled" &&
+                    approval !== "rejected" ? (
+                      <PrimaryButton
+                        compact
+                        label="Je suis à ~10 min"
+                        icon="navigate-outline"
+                        onPress={() =>
+                          actionsRef.current.notifyBookingEnRoute?.(b.id, 10)
+                        }
+                      />
+                    ) : null}
                     {b.status !== "cancelled" ? (
                       <OutlineButton
                         compact
@@ -12476,6 +12536,27 @@ function RavitoApp() {
     }
   };
 
+  const notifyBookingEnRoute = async (bookingId, etaMinutes = 10) => {
+    if (!token) return;
+    const bid = Number(bookingId);
+    if (!Number.isFinite(bid)) return;
+    try {
+      await apiFetch(`/bookings/${bid}/en-route`, {
+        method: "POST",
+        token,
+        body: { etaMinutes: Number(etaMinutes) || 10 },
+      });
+      userAlert(
+        "Préavis envoyé",
+        `L’hôte a été prévenu : tu es à ~${Number(etaMinutes) || 10} min.`
+      );
+      await loadAthleteBookings();
+      await loadNotifications();
+    } catch (error) {
+      userAlert("Erreur", error.message);
+    }
+  };
+
   const reportAccessIncident = async ({ bookingId, kind, details }) => {
     if (!token) return;
     const bid = Number(bookingId);
@@ -13540,7 +13621,7 @@ function RavitoApp() {
   const acceptRavitoProposal = useCallback(
     async (result) => {
       const bid = Number(result?.boxId);
-      if (!Number.isFinite(bid)) return;
+      const mobile = result?.mobileRavito === true || !Number.isFinite(bid);
       if (result.bookingDate) {
         setBookingDate(String(result.bookingDate).slice(0, 10));
       }
@@ -13559,6 +13640,14 @@ function RavitoApp() {
         setSelectedRoutePlanId(planId);
         await loadRoutePlanDetail(planId);
         await loadRoutePlans();
+      }
+      if (mobile) {
+        userAlert(
+          "Ravito mobile accepté",
+          "RDV au point GPS au créneau convenu. L’aidant a été notifié. Tu peux le prévenir avec « Je suis à ~10 min » si tu as aussi une réservation box, ou via le chat/notes du plan."
+        );
+        mainTabNavigationRef.current?.navigate?.("Reservations");
+        return;
       }
       const box = boxes.find((b) => Number(b.id) === bid);
       if (box) {
@@ -14705,6 +14794,7 @@ function RavitoApp() {
     showFollowingOnMap,
     markAllNotificationsRead,
     showBookingTimeline,
+    notifyBookingEnRoute,
     reportAccessIncident,
     markRefundDone,
     submitReview,

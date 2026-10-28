@@ -554,6 +554,28 @@ async function migrate() {
         ADD COLUMN IF NOT EXISTS map_visible SMALLINT NOT NULL DEFAULT 1
     `);
 
+    // Ravito mobile (proposition sans box fixe) + ETA « en approche »
+    await client.query(`
+      ALTER TABLE ravito_point_proposals
+        ALTER COLUMN box_id DROP NOT NULL
+    `);
+    await client.query(`
+      ALTER TABLE ravito_point_proposals
+        DROP CONSTRAINT IF EXISTS ravito_point_proposals_request_id_box_id_key
+    `);
+    await client.query(`
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_ravito_proposals_request_host
+      ON ravito_point_proposals(request_id, host_user_id)
+    `);
+    await client.query(`
+      ALTER TABLE bookings
+        ADD COLUMN IF NOT EXISTS en_route_at TIMESTAMPTZ
+    `);
+    await client.query(`
+      ALTER TABLE bookings
+        ADD COLUMN IF NOT EXISTS en_route_eta_min INTEGER
+    `);
+
     await client.query("COMMIT");
     console.log("Migration PostgreSQL OK");
   } catch (e) {

@@ -336,9 +336,14 @@ export function RavitoAthleteRequestsSection({
             <View style={styles.propList}>
               {detail.proposals.map((p) => (
                 <View key={`p-${p.id}`} style={styles.propCard}>
-                  <Text style={styles.propTitle}>{p.boxTitle}</Text>
+                  <Text style={styles.propTitle}>
+                    {p.mobileRavito || p.boxId == null
+                      ? "Ravito mobile (sans box)"
+                      : p.boxTitle}
+                  </Text>
                   <Text style={styles.cardMeta}>
-                    {p.hostName} · {p.boxCity}
+                    {p.hostName}
+                    {p.boxCity ? ` · ${p.boxCity}` : ""}
                     {p.distanceToPointKm != null
                       ? ` · ${p.distanceToPointKm.toFixed(1)} km du point`
                       : ""}
@@ -348,7 +353,11 @@ export function RavitoAthleteRequestsSection({
                   ) : null}
                   {r.status === "open" && p.status === "pending" ? (
                     <Btn
-                      label="Choisir et réserver"
+                      label={
+                        p.mobileRavito || p.boxId == null
+                          ? "Accepter ce ravito mobile"
+                          : "Choisir et réserver"
+                      }
                       primary
                       loading={busyId === p.id}
                       onPress={() => accept(r.id, p.id)}
@@ -372,11 +381,15 @@ export function RavitoHostRequestsSection({
   apiFetch,
   hostBoxes,
   refreshNonce = 0,
+  volunteerLat = null,
+  volunteerLon = null,
+  allowMobileWithoutBox = true,
 }) {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(false);
   const [proposeFor, setProposeFor] = useState(null);
   const [boxId, setBoxId] = useState(null);
+  const [mobileMode, setMobileMode] = useState(false);
   const [message, setMessage] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
@@ -384,25 +397,46 @@ export function RavitoHostRequestsSection({
     if (!token) return;
     setLoading(true);
     try {
-      const list = await apiFetch("/ravito-requests/for-host", { token });
+      const qs = [];
+      const lat = Number(volunteerLat);
+      const lon = Number(volunteerLon);
+      if (Number.isFinite(lat) && Number.isFinite(lon)) {
+        qs.push(`lat=${encodeURIComponent(lat)}`);
+        qs.push(`lon=${encodeURIComponent(lon)}`);
+        qs.push("radiusKm=8");
+      }
+      const path =
+        qs.length > 0
+          ? `/ravito-requests/for-host?${qs.join("&")}`
+          : "/ravito-requests/for-host";
+      const list = await apiFetch(path, { token });
       setRows(Array.isArray(list) ? list : []);
     } catch {
       setRows([]);
     } finally {
       setLoading(false);
     }
-  }, [token, apiFetch]);
+  }, [token, apiFetch, volunteerLat, volunteerLon]);
 
   useEffect(() => {
     load();
   }, [load, refreshNonce]);
 
   const submitProposal = async () => {
-    if (!proposeFor || !boxId) return;
-    if (!message.trim()) {
+    if (!proposeFor) return;
+    const useMobile =
+      mobileMode || !boxId || !(hostBoxes && hostBoxes.length);
+    if (useMobile && !message.trim()) {
       Alert.alert(
         "Message requis",
-        "Décris ce que tu proposes sur place (accueil, eau, transfert…). L’athlète peut réserver une box seul : ton message explique ton service."
+        "Pour un ravito mobile (sans box), décris ce que tu apportes (eau, snacks, timing…)."
+      );
+      return;
+    }
+    if (!useMobile && !message.trim()) {
+      Alert.alert(
+        "Message requis",
+        "Décris ce que tu proposes sur place (accueil, eau, transfert…)."
       );
       return;
     }
@@ -411,11 +445,14 @@ export function RavitoHostRequestsSection({
       await apiFetch(`/ravito-requests/${proposeFor}/proposals`, {
         method: "POST",
         token,
-        body: { boxId: Number(boxId), message: message.trim() || undefined },
+        body: useMobile
+          ? { mobileRavito: true, message: message.trim() }
+          : { boxId: Number(boxId), message: message.trim() },
       });
       setProposeFor(null);
       setMessage("");
       setBoxId(null);
+      setMobileMode(false);
       await load();
     } catch (err) {
       Alert.alert("Erreur", err?.message || "Envoi impossible.");
@@ -431,7 +468,10 @@ export function RavitoHostRequestsSection({
   if (rows.length === 0) {
     return (
       <Text style={styles.empty}>
-        Aucune demande de ravito à proximité de tes box pour le moment.
+        Aucune demande de ravito à proximité pour le moment
+        {allowMobileWithoutBox
+          ? " (box ou ravito mobile)."
+          : " de tes box."}
       </Text>
     );
   }
@@ -444,12 +484,15 @@ export function RavitoHostRequestsSection({
             {r.athleteName || "Athlète"} · {r.bookingDate}
           </Text>
           <Text style={styles.cardMeta}>
-            Point GPS · rayon {r.radiusKm} km
+            Point GPS · {r.startTime}–{r.endTime} · rayon {r.radiusKm} km
             {r.nearestBoxKm != null
               ? ` · ta box la plus proche ≈ ${r.nearestBoxKm.toFixed(1)} km`
               : ""}
           </Text>
           {r.note ? <Text style={styles.cardMeta}>{r.note}</Text> : null}
+          {r.specialRequest ? (
+            <Text style={styles.cardMeta}>Besoin : {r.specialRequest}</Text>
+          ) : null}
           {r.myProposalId ? (
             <Text style={styles.hint}>Tu as déjà répondu à cette demande.</Text>
           ) : (
@@ -458,7 +501,9 @@ export function RavitoHostRequestsSection({
               primary
               onPress={() => {
                 setProposeFor(r.id);
-                setBoxId(hostBoxes[0]?.id ?? null);
+                const firstBox = hostBoxes?.[0]?.id ?? null;
+                setBoxId(firstBox);
+                setMobileMode(!firstBox);
               }}
             />
           )}
@@ -471,32 +516,79 @@ export function RavitoHostRequestsSection({
           <View style={styles.sheet}>
             <Text style={styles.title}>Proposer ton ravito</Text>
             <Text style={styles.lead}>
-              Point de rendez-vous (ta box la plus proche) + ce que tu offres sur
-              place. Ce n’est pas une réservation automatique : l’athlète choisit
-              ta proposition puis réserve si besoin.
+              Tu peux proposer une de tes box, ou un ravito mobile (tu te
+              déplaces au point GPS, sans box fixe) — comme un livreur Uber Eats
+              outdoor.
             </Text>
-            {(hostBoxes || []).map((b) => (
-              <TouchableOpacity
-                key={`hb-${b.id}`}
-                style={[
-                  styles.boxPick,
-                  Number(boxId) === Number(b.id) && styles.boxPickOn,
-                ]}
-                onPress={() => setBoxId(b.id)}
-              >
-                <Text style={styles.propTitle}>{b.title}</Text>
-                <Text style={styles.cardMeta}>{b.city}</Text>
-              </TouchableOpacity>
-            ))}
+            {allowMobileWithoutBox ? (
+              <View style={styles.chipRow}>
+                <TouchableOpacity
+                  style={[styles.chip, !mobileMode && styles.chipOn]}
+                  onPress={() => setMobileMode(false)}
+                >
+                  <Text
+                    style={[styles.chipText, !mobileMode && styles.chipTextOn]}
+                  >
+                    Avec une box
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.chip, mobileMode && styles.chipOn]}
+                  onPress={() => {
+                    setMobileMode(true);
+                    setBoxId(null);
+                  }}
+                >
+                  <Text
+                    style={[styles.chipText, mobileMode && styles.chipTextOn]}
+                  >
+                    Ravito mobile (sans box)
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            ) : null}
+            {!mobileMode
+              ? (hostBoxes || []).map((b) => (
+                  <TouchableOpacity
+                    key={`hb-${b.id}`}
+                    style={[
+                      styles.boxPick,
+                      Number(boxId) === Number(b.id) && styles.boxPickOn,
+                    ]}
+                    onPress={() => {
+                      setBoxId(b.id);
+                      setMobileMode(false);
+                    }}
+                  >
+                    <Text style={styles.propTitle}>{b.title}</Text>
+                    <Text style={styles.cardMeta}>{b.city}</Text>
+                  </TouchableOpacity>
+                ))
+              : null}
+            {!mobileMode && (!hostBoxes || hostBoxes.length === 0) ? (
+              <Text style={styles.lead}>
+                Pas de box : passe en mode « Ravito mobile ».
+              </Text>
+            ) : null}
             <TextInput
               style={[styles.input, styles.area]}
               value={message}
               onChangeText={setMessage}
               multiline
-              placeholder="Ex. accueil à ce point, eau chaude, transfert bagages jusqu’à ma box à 2 km…"
+              placeholder={
+                mobileMode
+                  ? "Ex. je t’apporte 2 L d’eau + snacks, j’arrive ~10 min avant ton créneau…"
+                  : "Ex. accueil à ce point, eau chaude, transfert bagages…"
+              }
             />
             <View style={styles.footer}>
-              <Btn label="Annuler" onPress={() => setProposeFor(null)} />
+              <Btn
+                label="Annuler"
+                onPress={() => {
+                  setProposeFor(null);
+                  setMobileMode(false);
+                }}
+              />
               <Btn
                 label="Envoyer"
                 primary

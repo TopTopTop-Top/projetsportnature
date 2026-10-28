@@ -283,9 +283,33 @@ const createRavitoRequestSchema = z.object({
   boxIds: z.array(z.number().int().positive()).max(100).optional(),
 });
 
-const createRavitoProposalSchema = z.object({
-  boxId: z.number().int().positive(),
-  message: z.string().max(1000).optional(),
+const createRavitoProposalSchema = z
+  .object({
+    boxId: z.number().int().positive().optional(),
+    message: z.string().max(1000).optional(),
+    mobileRavito: z.boolean().optional(),
+  })
+  .superRefine((val, ctx) => {
+    const mobile = val.mobileRavito === true || val.boxId == null;
+    if (mobile && !String(val.message || "").trim()) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Message requis pour un ravito mobile (sans box).",
+        path: ["message"],
+      });
+    }
+    if (!mobile && val.boxId == null) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "boxId requis sauf ravito mobile.",
+        path: ["boxId"],
+      });
+    }
+  });
+
+const bookingEnRouteSchema = z.object({
+  etaMinutes: z.number().int().min(5).max(60).optional(),
+  note: z.string().max(300).optional(),
 });
 
 function mapRavitoRequestRow(r, proposals = null) {
@@ -445,18 +469,22 @@ async function syncRavitoRequestToRoutePlan(requestRow, athleteUserId, input) {
 }
 
 function mapRavitoProposalRow(r) {
+  const mobile = r.box_id == null;
   return {
     id: r.id,
     requestId: r.request_id,
     hostUserId: r.host_user_id,
     hostName: r.host_full_name || null,
-    boxId: r.box_id,
-    boxTitle: r.box_title || null,
+    boxId: r.box_id != null ? Number(r.box_id) : null,
+    boxTitle: mobile
+      ? "Ravito mobile (sans box)"
+      : r.box_title || null,
     boxCity: r.box_city || null,
     boxLat: r.box_latitude != null ? Number(r.box_latitude) : null,
     boxLon: r.box_longitude != null ? Number(r.box_longitude) : null,
     distanceToPointKm:
       r.distance_km != null ? Number(r.distance_km) : null,
+    mobileRavito: mobile,
     message: r.message || null,
     status: r.status,
     createdAt: r.created_at,
@@ -476,15 +504,18 @@ async function loadRavitoProposalsForRequest(requestId) {
     `SELECT p.*, u.full_name AS host_full_name, b.title AS box_title, b.city AS box_city,
             b.latitude AS box_latitude, b.longitude AS box_longitude,
             r.point_lat, r.point_lon,
-            (6371000 * acos(LEAST(1, GREATEST(-1,
-              cos(radians(r.point_lat)) * cos(radians(b.latitude))
-                * cos(radians(b.longitude) - radians(r.point_lon))
-              + sin(radians(r.point_lat)) * sin(radians(b.latitude))
-            )))) / 1000 AS distance_km
+            CASE
+              WHEN b.id IS NULL THEN NULL
+              ELSE (6371000 * acos(LEAST(1, GREATEST(-1,
+                cos(radians(r.point_lat)) * cos(radians(b.latitude))
+                  * cos(radians(b.longitude) - radians(r.point_lon))
+                + sin(radians(r.point_lat)) * sin(radians(b.latitude))
+              )))) / 1000
+            END AS distance_km
      FROM ravito_point_proposals p
      JOIN ravito_point_requests r ON r.id = p.request_id
      JOIN users u ON u.id = p.host_user_id
-     JOIN boxes b ON b.id = p.box_id
+     LEFT JOIN boxes b ON b.id = p.box_id
      WHERE p.request_id = $1
      ORDER BY p.status = 'pending' DESC, distance_km ASC NULLS LAST, p.created_at DESC`,
     [requestId]
@@ -5510,6 +5541,17 @@ router.get("/ravito-requests/for-host", requireAuth, async (req, res) => {
   const hostUserId = Number(req.auth.sub);
   const limitRaw = parseInt(String(req.query.limit || "40"), 10);
   const limit = Math.min(60, Math.max(1, Number.isFinite(limitRaw) ? limitRaw : 40));
+  const volunteerLat = Number(req.query.lat);
+  const volunteerLon = Number(req.query.lon);
+  const volunteerRadius = Number(req.query.radiusKm);
+  const hasVolunteerPoint =
+    Number.isFinite(volunteerLat) &&
+    Number.isFinite(volunteerLon) &&
+    Math.abs(volunteerLat) <= 90 &&
+    Math.abs(volunteerLon) <= 180;
+  const volRadius = Number.isFinite(volunteerRadius)
+    ? Math.min(30, Math.max(0.5, volunteerRadius))
+    : 8;
 
   const { rows } = await pool.query(
     `SELECT r.*, u.full_name AS athlete_full_name, t.name AS trail_name,
@@ -5537,18 +5579,35 @@ router.get("/ravito-requests/for-host", requireAuth, async (req, res) => {
      WHERE r.status = 'open'
        AND r.expires_at > NOW()
        AND r.athlete_user_id <> $1
-       AND EXISTS (
-         SELECT 1 FROM boxes b
-         WHERE b.host_user_id = $1 AND b.is_active = 1
+       AND (
+         EXISTS (
+           SELECT 1 FROM boxes b
+           WHERE b.host_user_id = $1 AND b.is_active = 1
+             AND (6371000 * acos(LEAST(1, GREATEST(-1,
+               cos(radians(r.point_lat)) * cos(radians(b.latitude))
+                 * cos(radians(b.longitude) - radians(r.point_lon))
+               + sin(radians(r.point_lat)) * sin(radians(b.latitude))
+             )))) / 1000 <= r.radius_km
+         )
+         OR (
+           $3::boolean = true
            AND (6371000 * acos(LEAST(1, GREATEST(-1,
-             cos(radians(r.point_lat)) * cos(radians(b.latitude))
-               * cos(radians(b.longitude) - radians(r.point_lon))
-             + sin(radians(r.point_lat)) * sin(radians(b.latitude))
-           )))) / 1000 <= r.radius_km
+             cos(radians(r.point_lat)) * cos(radians($4))
+               * cos(radians($5) - radians(r.point_lon))
+             + sin(radians(r.point_lat)) * sin(radians($4))
+           )))) / 1000 <= LEAST(r.radius_km, $6)
+         )
        )
      ORDER BY nearest_box_km ASC NULLS LAST, r.created_at DESC
      LIMIT $2`,
-    [hostUserId, limit]
+    [
+      hostUserId,
+      limit,
+      hasVolunteerPoint,
+      hasVolunteerPoint ? volunteerLat : 0,
+      hasVolunteerPoint ? volunteerLon : 0,
+      volRadius,
+    ]
   );
   return res.json(
     rows.map((r) => ({
@@ -5590,7 +5649,8 @@ router.get("/ravito-requests/:id", requireAuth, async (req, res) => {
     `SELECT 1 FROM boxes WHERE host_user_id = $1 AND is_active = 1 LIMIT 1`,
     [userId]
   );
-  if (!isAthlete && !myPropRows[0] && !hostBoxRows[0]) {
+  const isOpen = String(request.status) === "open";
+  if (!isAthlete && !myPropRows[0] && !hostBoxRows[0] && !isOpen) {
     return res.status(403).json({ error: "Accès refusé." });
   }
   if (!isAthlete) {
@@ -5628,6 +5688,8 @@ router.post("/ravito-requests/:id/proposals", requireAuth, async (req, res) => {
   }
   const hostUserId = Number(req.auth.sub);
   const input = parsed.data;
+  const mobileRavito =
+    input.mobileRavito === true || input.boxId == null;
 
   const { rows: reqRows } = await pool.query(
     `SELECT * FROM ravito_point_requests
@@ -5642,37 +5704,42 @@ router.post("/ravito-requests/:id/proposals", requireAuth, async (req, res) => {
     return res.status(400).json({ error: "Tu ne peux pas proposer ta propre demande." });
   }
 
-  const { rows: boxRows } = await pool.query(
-    `SELECT id, title, latitude, longitude FROM boxes
-     WHERE id = $1 AND host_user_id = $2 AND is_active = 1`,
-    [input.boxId, hostUserId]
-  );
-  if (!boxRows[0]) {
-    return res.status(404).json({ error: "Box introuvable pour ton compte hôte." });
-  }
-
-  const distKm =
-    (6371000 *
-      Math.acos(
-        Math.min(
-          1,
-          Math.max(
-            -1,
-            Math.cos((request.point_lat * Math.PI) / 180) *
-              Math.cos((boxRows[0].latitude * Math.PI) / 180) *
-              Math.cos(
-                ((boxRows[0].longitude - request.point_lon) * Math.PI) / 180
-              ) +
-              Math.sin((request.point_lat * Math.PI) / 180) *
-                Math.sin((boxRows[0].latitude * Math.PI) / 180)
+  let boxId = null;
+  let boxTitle = "ravito mobile";
+  if (!mobileRavito) {
+    const { rows: boxRows } = await pool.query(
+      `SELECT id, title, latitude, longitude FROM boxes
+       WHERE id = $1 AND host_user_id = $2 AND is_active = 1`,
+      [input.boxId, hostUserId]
+    );
+    if (!boxRows[0]) {
+      return res.status(404).json({ error: "Box introuvable pour ton compte hôte." });
+    }
+    const distKm =
+      (6371000 *
+        Math.acos(
+          Math.min(
+            1,
+            Math.max(
+              -1,
+              Math.cos((request.point_lat * Math.PI) / 180) *
+                Math.cos((boxRows[0].latitude * Math.PI) / 180) *
+                Math.cos(
+                  ((boxRows[0].longitude - request.point_lon) * Math.PI) / 180
+                ) +
+                Math.sin((request.point_lat * Math.PI) / 180) *
+                  Math.sin((boxRows[0].latitude * Math.PI) / 180)
+            )
           )
-        )
-      )) /
-    1000;
-  if (distKm > Number(request.radius_km) + 0.5) {
-    return res.status(400).json({
-      error: `Cette box est à ${distKm.toFixed(1)} km du point (rayon ${request.radius_km} km).`,
-    });
+        )) /
+      1000;
+    if (distKm > Number(request.radius_km) + 0.5) {
+      return res.status(400).json({
+        error: `Cette box est à ${distKm.toFixed(1)} km du point (rayon ${request.radius_km} km).`,
+      });
+    }
+    boxId = Number(boxRows[0].id);
+    boxTitle = boxRows[0].title || "sa box";
   }
 
   try {
@@ -5683,23 +5750,34 @@ router.post("/ravito-requests/:id/proposals", requireAuth, async (req, res) => {
       [
         requestId,
         hostUserId,
-        input.boxId,
+        boxId,
         input.message?.trim() || null,
       ]
     );
     await createNotification({
       recipientUserId: request.athlete_user_id,
       type: "ravito_proposal_received",
-      title: "Proposition de ravito",
-      body: `Un hôte propose « ${boxRows[0].title || "sa box"} » pour ta demande.`,
-      data: { requestId, proposalId: propRows[0].id, boxId: input.boxId },
+      title: mobileRavito
+        ? "Proposition de ravito mobile"
+        : "Proposition de ravito",
+      body: mobileRavito
+        ? "Quelqu’un propose de te ravitailler sur place (sans box fixe)."
+        : `Un hôte propose « ${boxTitle} » pour ta demande.`,
+      data: {
+        requestId,
+        proposalId: propRows[0].id,
+        boxId,
+        mobileRavito,
+      },
     });
     const proposals = await loadRavitoProposalsForRequest(requestId);
     const created = proposals.find((p) => Number(p.id) === Number(propRows[0].id));
     return res.status(201).json(created || mapRavitoProposalRow(propRows[0]));
   } catch (error) {
     if (String(error?.code) === "23505") {
-      return res.status(409).json({ error: "Tu as déjà proposé cette box." });
+      return res.status(409).json({
+        error: "Tu as déjà proposé une réponse pour cette demande.",
+      });
     }
     throw error;
   }
@@ -5733,7 +5811,7 @@ router.post(
     const { rows: propRows } = await pool.query(
       `SELECT p.*, b.title AS box_title
        FROM ravito_point_proposals p
-       JOIN boxes b ON b.id = p.box_id
+       LEFT JOIN boxes b ON b.id = p.box_id
        WHERE p.id = $1 AND p.request_id = $2 AND p.status = 'pending'`,
       [proposalId, requestId]
     );
@@ -5762,8 +5840,14 @@ router.post(
     );
 
     const planId = Number(reqRows[0].route_plan_id);
-    const acceptedBoxId = Number(propRows[0].box_id);
-    if (Number.isFinite(planId) && planId > 0 && Number.isFinite(acceptedBoxId)) {
+    const acceptedBoxId =
+      propRows[0].box_id != null ? Number(propRows[0].box_id) : null;
+    const mobileRavito = acceptedBoxId == null;
+    if (
+      Number.isFinite(planId) &&
+      planId > 0 &&
+      Number.isFinite(acceptedBoxId)
+    ) {
       const { rows: sortRows } = await pool.query(
         `SELECT COALESCE(MAX(sort_index), -1) + 1 AS next_sort
          FROM route_plan_boxes WHERE route_plan_id = $1`,
@@ -5786,15 +5870,23 @@ router.post(
       recipientUserId: propRows[0].host_user_id,
       type: "ravito_proposal_accepted",
       title: "Proposition acceptée",
-      body: `L’athlète a retenu « ${propRows[0].box_title || "ta box"} ». Tu peux confirmer la réservation.`,
-      data: { requestId, proposalId, boxId: propRows[0].box_id },
+      body: mobileRavito
+        ? "L’athlète a retenu ton ravito mobile. Prépare-toi au point GPS au créneau convenu."
+        : `L’athlète a retenu « ${propRows[0].box_title || "ta box"} ». Tu peux confirmer la réservation.`,
+      data: {
+        requestId,
+        proposalId,
+        boxId: acceptedBoxId,
+        mobileRavito,
+      },
     });
 
     return res.json({
       ok: true,
       requestId,
       proposalId,
-      boxId: propRows[0].box_id,
+      boxId: acceptedBoxId,
+      mobileRavito,
       routePlanId:
         reqRows[0].route_plan_id != null
           ? Number(reqRows[0].route_plan_id)
@@ -5806,5 +5898,77 @@ router.post(
     });
   }
 );
+
+router.post("/bookings/:id/en-route", requireAuth, async (req, res) => {
+  const bookingId = Number(req.params.id);
+  if (!Number.isInteger(bookingId) || bookingId <= 0) {
+    return res.status(400).json({ error: "Invalid booking id" });
+  }
+  const parsed = bookingEnRouteSchema.safeParse(req.body || {});
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error.flatten() });
+  }
+  const etaMinutes = parsed.data.etaMinutes ?? 10;
+  const note = parsed.data.note?.trim() || null;
+  const athleteUserId = Number(req.auth.sub);
+
+  const { rows } = await pool.query(
+    `SELECT b.*, bx.host_user_id, bx.title AS box_title, bx.city AS box_city
+     FROM bookings b
+     JOIN boxes bx ON bx.id = b.box_id
+     WHERE b.id = $1 AND b.athlete_user_id = $2`,
+    [bookingId, athleteUserId]
+  );
+  const booking = rows[0];
+  if (!booking) {
+    return res.status(404).json({ error: "Réservation introuvable." });
+  }
+  if (String(booking.status || "") === "cancelled") {
+    return res.status(400).json({ error: "Réservation annulée." });
+  }
+
+  const { rows: updatedRows } = await pool.query(
+    `UPDATE bookings
+     SET en_route_at = NOW(),
+         en_route_eta_min = $2
+     WHERE id = $1
+     RETURNING *`,
+    [bookingId, etaMinutes]
+  );
+
+  await logBookingEvent({
+    bookingId,
+    actorUserId: athleteUserId,
+    eventType: "athlete_en_route",
+    message: `Athlete en route (~${etaMinutes} min)`,
+    data: { etaMinutes, note },
+  });
+
+  await createNotification({
+    recipientUserId: booking.host_user_id,
+    type: "athlete_en_route",
+    title: `Athlète à ~${etaMinutes} min`,
+    body: [
+      `Pour « ${booking.box_title || "ta box"} »`,
+      `${booking.booking_date} ${booking.start_time}–${booking.end_time}`,
+      note ? `Note : ${note}` : null,
+    ]
+      .filter(Boolean)
+      .join(" · "),
+    data: {
+      bookingId,
+      etaMinutes,
+      boxId: booking.box_id,
+      note,
+    },
+  });
+
+  return res.json({
+    ok: true,
+    bookingId,
+    etaMinutes,
+    enRouteAt: updatedRows[0]?.en_route_at || null,
+  });
+});
 
 module.exports = router;
