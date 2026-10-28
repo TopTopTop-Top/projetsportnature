@@ -67,11 +67,16 @@ import {
 import IntentGuideBanner from "./IntentGuideBanner";
 import ExplorerFocusSheet from "./ExplorerFocusSheet";
 import MoreActions from "./MoreActions";
+import CapabilityCards from "./CapabilityCards";
 import theme from "./theme";
 import { getDevicePosition } from "./liveLocation";
 import {
   isSimpleUi as readSimpleUiPref,
   setSimpleUi as writeSimpleUiPref,
+  getCapabilities,
+  setCapabilities as writeCapabilities,
+  defaultCapabilitiesFromRole,
+  roleFromCapabilities,
 } from "./uiPrefsStorage";
 import AccountRecoveryCodeModal from "./AccountRecoveryCodeModal";
 import {
@@ -372,7 +377,19 @@ function trailTouchesBounds(trail, bounds) {
 const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
 
-const ROLE_LABELS = { athlete: "Athlète", host: "Hôte", both: "Les deux" };
+const ROLE_LABELS = {
+  athlete: "Utilisateur",
+  host: "Hôte",
+  both: "Multi-casquettes",
+};
+
+function formatCapabilitiesLabel(caps) {
+  const parts = [];
+  if (caps?.user) parts.push("Utilisateur");
+  if (caps?.host) parts.push("Hôte");
+  if (caps?.ravito) parts.push("Ravitailleur");
+  return parts.length ? parts.join(" · ") : "Aucune activité";
+}
 const WEB_READABLE =
   Platform.OS === "web"
     ? { maxWidth: 520, width: "100%", alignSelf: "center" }
@@ -8444,9 +8461,13 @@ function HostScreen() {
     trails,
     authToken,
     ravitoRequestsRefreshNonce,
+    canHost,
+    canRavito,
+    capabilities,
+    simpleUi,
     actionsRef,
   } = useAppMain();
-  const canHostLocal = user?.role === "host" || user?.role === "both";
+  const canHostLocal = canHost;
   const isFocused = useIsFocused();
   const scrollRef = useRef(null);
   const hostLat = Number(hostForm.latitude) || 45.8992;
@@ -8631,25 +8652,48 @@ function HostScreen() {
         showsVerticalScrollIndicator={Platform.OS === "web"}
         keyboardShouldPersistTaps="handled"
       >
+        <View style={styles.hostHeroBanner}>
+          <Text style={styles.hostHeroTitle}>Espace hôte</Text>
+          <Text style={styles.hostHeroText}>
+            {simpleUi
+              ? "Publie une box, suis les demandes, prépare le ravito."
+              : "Gère tes box, disponibilités et accueils sportifs."}
+          </Text>
+        </View>
         <Section
-          title="Publier un box"
-          subtitle="Accueille des sportifs et propose ton point ravito."
+          title={simpleUi ? "Ma box" : "Publier un box"}
+          subtitle={
+            simpleUi
+              ? "Titre, lieu, eau / nourriture — puis publie."
+              : "Accueille des sportifs et propose ton point ravito."
+          }
           icon="storefront-outline"
         >
           {!canHostLocal ? (
             <View style={styles.infoBanner}>
               <Ionicons
-                name="lock-closed-outline"
+                name="home-outline"
                 size={22}
                 color={theme.primary}
                 style={{ marginRight: 10 }}
               />
               <View style={{ flex: 1 }}>
-                <Text style={styles.infoBannerTitle}>Rôle hôte requis</Text>
+                <Text style={styles.infoBannerTitle}>Active la casquette Hôte</Text>
                 <Text style={styles.infoBannerText}>
-                  Passe en « Hôte » ou « Les deux » depuis ton profil (nouveau
-                  compte) pour publier.
+                  Dans Compte → Mes activités, coche « Hôte » pour publier une
+                  box. Tu peux aussi être ravitailleur sans box.
                 </Text>
+                <PrimaryButton
+                  compact
+                  label="Activer Hôte"
+                  icon="checkmark-outline"
+                  onPress={() =>
+                    actionsRef.current.updateCapabilities?.({
+                      ...capabilities,
+                      host: true,
+                    })
+                  }
+                />
               </View>
             </View>
           ) : (
@@ -9925,6 +9969,8 @@ function ProfileScreen() {
     unfollowUser,
     showFollowingOnMap,
     canHost,
+    capabilities,
+    capabilitiesBusy,
     simpleUi,
     setSimpleUi,
     actionsRef,
@@ -9937,8 +9983,7 @@ function ProfileScreen() {
   const [recoveryRegenBusy, setRecoveryRegenBusy] = useState(false);
   const [recoveryRegenPassword, setRecoveryRegenPassword] = useState("");
   const [hasRecoveryCode, setHasRecoveryCode] = useState(null);
-  const roleLabel = ROLE_LABELS[user?.role] || user?.role;
-  const canEnableBoth = user?.role !== "both";
+  const roleLabel = formatCapabilitiesLabel(capabilities);
   const today = todayIsoDate();
   const todayBookingsCount = useMemo(
     () =>
@@ -10044,7 +10089,7 @@ function ProfileScreen() {
         </Section>
         <Section
           title="Mon profil"
-          subtitle="Compte connecté."
+          subtitle="Un compte — plusieurs casquettes."
           icon="person-outline"
         >
           <View style={styles.profileCard}>
@@ -10059,6 +10104,29 @@ function ProfileScreen() {
               <Text style={styles.profileRoleText}>{roleLabel}</Text>
             </View>
           </View>
+        </Section>
+        <Section
+          title="Mes activités"
+          subtitle="Active ce que tu fais. Tu peux tout cumuler."
+          icon="sparkles-outline"
+        >
+          <CapabilityCards
+            value={capabilities}
+            busy={capabilitiesBusy}
+            onChange={(next) =>
+              actionsRef.current.updateCapabilities?.(next)
+            }
+          />
+          {capabilities.host ? (
+            <PrimaryButton
+              label="Gérer mes box"
+              icon="home-outline"
+              onPress={() => {
+                const nav = mainTabNavigationRef.current;
+                if (nav?.navigate) nav.navigate("Host");
+              }}
+            />
+          ) : null}
         </Section>
         <Section
           title="Mes abonnements"
@@ -10120,16 +10188,6 @@ function ProfileScreen() {
               Notifications non lues: {unreadNotificationsCount}
             </Text>
           </View>
-          {canHost ? (
-            <PrimaryButton
-              label="Gérer mes box"
-              icon="home-outline"
-              onPress={() => {
-                const nav = mainTabNavigationRef.current;
-                if (nav?.navigate) nav.navigate("Host");
-              }}
-            />
-          ) : null}
           <PrimaryButton
             label="Importer une trace GPX"
             icon="cloud-upload-outline"
@@ -10324,16 +10382,11 @@ function ProfileScreen() {
             />
           ) : null}
         </Section>
-        <PrimaryButton
-          label="Rafraîchir la session"
-          icon="refresh-outline"
-          onPress={() => actionsRef.current.refreshSession()}
-        />
-        {canEnableBoth ? (
+        {!simpleUi ? (
           <PrimaryButton
-            label="Activer mode Athlète + Hôte"
-            icon="swap-horizontal-outline"
-            onPress={() => actionsRef.current.updateMyRole("both")}
+            label="Rafraîchir la session"
+            icon="refresh-outline"
+            onPress={() => actionsRef.current.refreshSession()}
           />
         ) : null}
         <SecondaryButton
@@ -10350,6 +10403,7 @@ function ReservationsScreen() {
   const {
     canHost,
     canBook,
+    canRavito,
     hostBookings,
     athleteBookings,
     hostBoxes,
@@ -10636,10 +10690,14 @@ function ReservationsScreen() {
           )
         ) : null}
 
-        {(canBook || canHost) &&
+        {canRavito &&
         (!canHost || reservationTab === "athlete" || reservationTab === "host") ? (
           simpleUi ? (
-            <MoreActions label="Proposer un ravito mobile (sans box)">
+            <Section
+              title="Ravitailleur"
+              subtitle="Aider au point GPS — avec ou sans box."
+              icon="bicycle-outline"
+            >
               <RavitoHostRequestsSection
                 token={authToken}
                 apiFetch={apiFetch}
@@ -10649,7 +10707,7 @@ function ReservationsScreen() {
                 volunteerLon={mapLon}
                 allowMobileWithoutBox
               />
-            </MoreActions>
+            </Section>
           ) : (
             <Section
               title="Ravito mobile — aider sans box"
@@ -11409,9 +11467,9 @@ function ReservationsScreen() {
           </Section>
         ) : null}
 
-        {!canHost && !canBook ? (
+        {!canHost && !canBook && !canRavito ? (
           <Text style={styles.emptyText}>
-            Active un rôle Athlète ou Hôte pour voir tes réservations.
+            Dans Compte, active Utilisateur, Hôte ou Ravitailleur pour commencer.
           </Text>
         ) : null}
       </ScrollView>
@@ -11677,6 +11735,12 @@ function RavitoApp() {
     writeSimpleUiPref(!!enabled);
     setSimpleUiState(!!enabled);
   }, []);
+  const [capabilities, setCapabilitiesState] = useState({
+    user: true,
+    host: false,
+    ravito: false,
+  });
+  const [capabilitiesBusy, setCapabilitiesBusy] = useState(false);
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -11884,14 +11948,19 @@ function RavitoApp() {
   }, []);
 
   const isAuthed = useMemo(() => Boolean(token), [token]);
-  const canHost = useMemo(
-    () => user?.role === "host" || user?.role === "both",
-    [user?.role]
-  );
-  const canBook = useMemo(
-    () => user?.role === "athlete" || user?.role === "both",
-    [user?.role]
-  );
+
+  useEffect(() => {
+    if (!user?.id) return;
+    const stored = getCapabilities(user.id);
+    setCapabilitiesState(
+      stored || defaultCapabilitiesFromRole(user.role)
+    );
+  }, [user?.id, user?.role]);
+
+  // Casquettes UI (compte unique). Le rôle API est synchronisé en arrière-plan.
+  const canHost = !!capabilities.host;
+  const canBook = !!capabilities.user;
+  const canRavito = !!capabilities.ravito;
 
   useEffect(() => {
     if (!token || hostEditingBoxId == null) {
@@ -12343,10 +12412,16 @@ function RavitoApp() {
     }
     setAuthLoading(true);
     try {
+      // Compte unique : rôle API « both » ; les casquettes se choisissent après.
       const result = await apiFetch("/auth/register", {
         method: "POST",
-        body: { fullName: name, email: mail, password, role },
+        body: { fullName: name, email: mail, password, role: "both" },
       });
+      const starterCaps = { user: true, host: false, ravito: false };
+      if (result.user?.id) {
+        writeCapabilities(result.user.id, starterCaps);
+        setCapabilitiesState(starterCaps);
+      }
       setToken(result.token);
       setRefreshToken(result.refreshToken);
       setUser(result.user);
@@ -12374,7 +12449,7 @@ function RavitoApp() {
     } finally {
       setAuthLoading(false);
     }
-  }, [fullName, email, password, role]);
+  }, [fullName, email, password]);
 
   const completeRecoveryCodeReveal = useCallback(() => {
     const pending = recoveryCodeReveal?.session;
@@ -12549,8 +12624,8 @@ function RavitoApp() {
     }
   };
 
-  const updateMyRole = async (nextRole) => {
-    if (!token) return;
+  const updateMyRole = async (nextRole, { silent } = {}) => {
+    if (!token) return null;
     try {
       const result = await apiFetch("/users/me/role", {
         method: "PATCH",
@@ -12558,14 +12633,45 @@ function RavitoApp() {
         body: { role: nextRole },
       });
       setUser(result.user);
-      userAlert(
-        "Profil mis à jour",
-        `Ton rôle est maintenant : ${
-          ROLE_LABELS[result.user.role] || result.user.role
-        }.`
-      );
+      if (!silent) {
+        userAlert(
+          "Profil mis à jour",
+          `Activités synchronisées (${
+            ROLE_LABELS[result.user.role] || result.user.role
+          }).`
+        );
+      }
+      return result.user;
     } catch (error) {
       userAlert("Erreur", error.message);
+      return null;
+    }
+  };
+
+  const updateCapabilities = async (nextCaps) => {
+    if (!user?.id || capabilitiesBusy) return;
+    const safe = {
+      user: !!nextCaps?.user,
+      host: !!nextCaps?.host,
+      ravito: !!nextCaps?.ravito,
+    };
+    if (!safe.user && !safe.host && !safe.ravito) {
+      safe.user = true;
+    }
+    setCapabilitiesBusy(true);
+    try {
+      writeCapabilities(user.id, safe);
+      setCapabilitiesState(safe);
+      const nextRole = roleFromCapabilities(safe);
+      if (String(user.role) !== nextRole) {
+        await updateMyRole(nextRole, { silent: true });
+      }
+      userAlert(
+        "Activités mises à jour",
+        formatCapabilitiesLabel(safe)
+      );
+    } finally {
+      setCapabilitiesBusy(false);
     }
   };
 
@@ -15275,6 +15381,7 @@ function RavitoApp() {
     refreshSession,
     logout,
     updateMyRole,
+    updateCapabilities,
     changeMyPassword,
     regenerateRecoveryCode,
     fetchRecoveryCodeStatus,
@@ -15398,6 +15505,9 @@ function RavitoApp() {
       setSelectedTrailId,
       canHost,
       canBook,
+      canRavito,
+      capabilities,
+      capabilitiesBusy,
       selectedBox,
       selectedTrail,
       webMapCenter,
@@ -15492,6 +15602,9 @@ function RavitoApp() {
       selectedTrailId,
       canHost,
       canBook,
+      canRavito,
+      capabilities,
+      capabilitiesBusy,
       selectedBox,
       selectedTrail,
       webMapCenter,
@@ -17116,6 +17229,26 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingVertical: 8,
   },
+  hostHeroBanner: {
+    borderRadius: theme.radius.lg,
+    paddingVertical: 18,
+    paddingHorizontal: 16,
+    marginBottom: 14,
+    backgroundColor: theme.hero,
+    overflow: "hidden",
+  },
+  hostHeroTitle: {
+    fontSize: 22,
+    fontWeight: "800",
+    color: "#fff",
+    letterSpacing: -0.3,
+  },
+  hostHeroText: {
+    marginTop: 6,
+    fontSize: 14,
+    lineHeight: 20,
+    color: "rgba(255,255,255,0.82)",
+  },
   profileAvatar: {
     width: 72,
     height: 72,
@@ -17285,8 +17418,8 @@ function AuthScreen() {
               </View>
             </View>
             <Text style={styles.heroSubtitle}>
-              Réserve un point ravito sur ton parcours et découvre des traces
-              GPX locales.
+              Un compte pour courir, accueillir ou ravitailler — tu choisiras
+              après.
             </Text>
           </View>
 
@@ -17453,36 +17586,11 @@ function AuthScreen() {
 
             {isRegister ? (
               <>
-                <Text style={styles.fieldLabel}>Ton profil</Text>
                 <Text style={styles.roleHelp}>
-                  Athlète : réserver des box. Hôte : en publier. Les deux : les
-                  deux.
+                  Un seul compte pour tout le monde. Après l’inscription, tu
+                  actives ce que tu veux : utilisateur, hôte, ravitailleur — ou
+                  les trois.
                 </Text>
-                <View style={styles.roleRow}>
-                  {["athlete", "host", "both"].map((r) => (
-                    <TouchableOpacity
-                      key={r}
-                      style={[
-                        styles.roleChip,
-                        role === r && styles.roleChipActive,
-                        Platform.OS === "web" && { cursor: "pointer" },
-                      ]}
-                      onPress={() => setRole(r)}
-                      activeOpacity={0.85}
-                      disabled={authLoading}
-                    >
-                      <Text
-                        pointerEvents="none"
-                        style={[
-                          styles.roleChipText,
-                          role === r && styles.roleChipTextActive,
-                        ]}
-                      >
-                        {ROLE_LABELS[r]}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
                 <PrimaryButton
                   label="Créer mon compte"
                   icon="checkmark-circle-outline"

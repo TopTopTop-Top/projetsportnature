@@ -63,23 +63,45 @@ export function setSimpleUi(enabled) {
   writeRaw(prefs);
 }
 
-export function subscribeSimpleUi(listener) {
-  if (typeof listener !== "function") return () => {};
-  const key = `_simple_ui_listeners`;
-  if (!globalThis[key]) globalThis[key] = new Set();
-  globalThis[key].add(listener);
-  return () => globalThis[key]?.delete(listener);
+/**
+ * Casquettes du compte unique (après inscription).
+ * user = demande / réserve ; host = box fixe ; ravito = ravitailleur mobile.
+ */
+export function defaultCapabilitiesFromRole(role) {
+  const r = String(role || "athlete");
+  if (r === "both") return { user: true, host: true, ravito: true };
+  if (r === "host") return { user: false, host: true, ravito: true };
+  return { user: true, host: false, ravito: false };
 }
 
-export function notifySimpleUiListeners() {
-  const set = globalThis._simple_ui_listeners;
-  if (!set) return;
-  const value = isSimpleUi();
-  set.forEach((fn) => {
-    try {
-      fn(value);
-    } catch {
-      /* ignore */
-    }
-  });
+export function getCapabilities(userId) {
+  if (userId == null) return null;
+  const prefs = readRaw();
+  const raw = prefs[`caps_${userId}`];
+  if (!raw || typeof raw !== "object") return null;
+  return {
+    user: !!raw.user,
+    host: !!raw.host,
+    ravito: !!raw.ravito,
+  };
+}
+
+export function setCapabilities(userId, caps) {
+  if (userId == null || !caps) return;
+  const prefs = readRaw();
+  prefs[`caps_${userId}`] = {
+    user: !!caps.user,
+    host: !!caps.host,
+    ravito: !!caps.ravito,
+  };
+  writeRaw(prefs);
+}
+
+/** Rôle API dérivé des casquettes (compat backend athlete/host/both). */
+export function roleFromCapabilities(caps) {
+  const user = !!caps?.user || !!caps?.ravito;
+  const host = !!caps?.host;
+  if (host && user) return "both";
+  if (host) return "host";
+  return "athlete";
 }
