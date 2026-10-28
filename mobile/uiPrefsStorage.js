@@ -49,3 +49,37 @@ export function undismissGuide(guideId) {
   delete prefs[`guide_dismissed_${guideId}`];
   writeRaw(prefs);
 }
+
+/** Interface épurée (défaut). Mode expert = tout visible. */
+export function isSimpleUi() {
+  const prefs = readRaw();
+  if (prefs.simple_ui === undefined || prefs.simple_ui === null) return true;
+  return !!prefs.simple_ui;
+}
+
+export function setSimpleUi(enabled) {
+  const prefs = readRaw();
+  prefs.simple_ui = !!enabled;
+  writeRaw(prefs);
+}
+
+export function subscribeSimpleUi(listener) {
+  if (typeof listener !== "function") return () => {};
+  const key = `_simple_ui_listeners`;
+  if (!globalThis[key]) globalThis[key] = new Set();
+  globalThis[key].add(listener);
+  return () => globalThis[key]?.delete(listener);
+}
+
+export function notifySimpleUiListeners() {
+  const set = globalThis._simple_ui_listeners;
+  if (!set) return;
+  const value = isSimpleUi();
+  set.forEach((fn) => {
+    try {
+      fn(value);
+    } catch {
+      /* ignore */
+    }
+  });
+}

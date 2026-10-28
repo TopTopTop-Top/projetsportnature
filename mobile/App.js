@@ -66,8 +66,13 @@ import {
 } from "./explorerSavedProbesStorage";
 import IntentGuideBanner from "./IntentGuideBanner";
 import ExplorerFocusSheet from "./ExplorerFocusSheet";
+import MoreActions from "./MoreActions";
 import theme from "./theme";
 import { getDevicePosition } from "./liveLocation";
+import {
+  isSimpleUi as readSimpleUiPref,
+  setSimpleUi as writeSimpleUiPref,
+} from "./uiPrefsStorage";
 import AccountRecoveryCodeModal from "./AccountRecoveryCodeModal";
 import {
   RavitoRequestModal,
@@ -2227,6 +2232,7 @@ function ExplorerScreen() {
     openRavitoRequestAtPoint,
     athleteBookings,
     hostBookings,
+    simpleUi,
     actionsRef,
   } = useAppMain();
 
@@ -4710,16 +4716,22 @@ function ExplorerScreen() {
           "Réserver : box → créneau ci-dessous → confirmer. Suivi dans Réserver.",
         ]}
       />
-      <OutlineButton
-        compact
-        stretch
-        label="Catalogue traces GPX"
-        icon="navigate-outline"
-        onPress={() => actionsRef.current.navigateToTrails?.()}
-      />
+      {!simpleUi ? (
+        <OutlineButton
+          compact
+          stretch
+          label="Catalogue traces GPX"
+          icon="navigate-outline"
+          onPress={() => actionsRef.current.navigateToTrails?.()}
+        />
+      ) : null}
       <Section
         title="Carte"
-        subtitle="Explore les box et traces. Touche Filtrer pour la zone ou la ville."
+        subtitle={
+          simpleUi
+            ? "Choisis une box, puis réserve."
+            : "Explore les box et traces. Touche Filtrer pour la zone ou la ville."
+        }
         icon="map-outline"
       >
         <View style={styles.explorerMapSearchRow}>
@@ -4763,18 +4775,28 @@ function ExplorerScreen() {
                     mapTrailPickIds.length
                   } trace${mapTrailPickIds.length > 1 ? "s" : ""} au plan`}
             </Text>
-            <Text style={styles.statBannerText}>
-              Focus = regarder · Plan = long-press ou bouton « Ajouter »
-            </Text>
+            {!simpleUi ? (
+              <Text style={styles.statBannerText}>
+                Focus = regarder · Plan = long-press ou bouton « Ajouter »
+              </Text>
+            ) : (
+              <Text style={styles.statBannerText}>
+                Touche une box pour la réserver
+              </Text>
+            )}
           </View>
         </View>
-        <View style={styles.explorerSelectionSummary}>
-          <Text style={styles.explorerSelectionSummaryText}>
-            Plan en cours : {safePickedBoxIds.length} box ·{" "}
-            {mapTrailPickIds.length} trace
-            {mapTrailPickIds.length > 1 ? "s" : ""}
-          </Text>
-        </View>
+        {!simpleUi ||
+        safePickedBoxIds.length > 0 ||
+        mapTrailPickIds.length > 0 ? (
+          <View style={styles.explorerSelectionSummary}>
+            <Text style={styles.explorerSelectionSummaryText}>
+              Plan en cours : {safePickedBoxIds.length} box ·{" "}
+              {mapTrailPickIds.length} trace
+              {mapTrailPickIds.length > 1 ? "s" : ""}
+            </Text>
+          </View>
+        ) : null}
         {activePlanOnMap ? (
           <View style={[styles.infoBanner, { marginTop: 8 }]}>
             <Ionicons
@@ -9902,6 +9924,9 @@ function ProfileScreen() {
     openUserReviews,
     unfollowUser,
     showFollowingOnMap,
+    canHost,
+    simpleUi,
+    setSimpleUi,
     actionsRef,
   } = useAppMain();
   const isFocused = useIsFocused();
@@ -9968,6 +9993,56 @@ function ProfileScreen() {
           ]}
         />
         <Section
+          title="Interface"
+          subtitle={
+            simpleUi
+              ? "Mode simple : parcours Découvrir → Planifier → Réserver."
+              : "Mode complet : tous les outils avancés visibles."
+          }
+          icon="options-outline"
+        >
+          <TouchableOpacity
+            style={[
+              styles.roleChip,
+              simpleUi && styles.roleChipActive,
+              { alignSelf: "flex-start", marginBottom: 8 },
+            ]}
+            onPress={() => setSimpleUi(true)}
+            activeOpacity={0.85}
+          >
+            <Text
+              style={[
+                styles.roleChipText,
+                simpleUi && styles.roleChipTextActive,
+              ]}
+            >
+              Simple
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[
+              styles.roleChip,
+              !simpleUi && styles.roleChipActive,
+              { alignSelf: "flex-start", marginBottom: 8 },
+            ]}
+            onPress={() => setSimpleUi(false)}
+            activeOpacity={0.85}
+          >
+            <Text
+              style={[
+                styles.roleChipText,
+                !simpleUi && styles.roleChipTextActive,
+              ]}
+            >
+              Complet
+            </Text>
+          </TouchableOpacity>
+          <Text style={styles.helperText}>
+            Le mode simple masque les options avancées (agenda, GPX, ravito
+            déplié, etc.) pour se concentrer sur la réservation.
+          </Text>
+        </Section>
+        <Section
           title="Mon profil"
           subtitle="Compte connecté."
           icon="person-outline"
@@ -10032,8 +10107,8 @@ function ProfileScreen() {
           ) : null}
         </Section>
         <Section
-          title="Actions rapides"
-          subtitle="Accès direct aux tâches clés sans changer d'écran."
+          title="Actions"
+          subtitle="Accès directs."
           icon="flash-outline"
         >
           <View style={styles.card}>
@@ -10045,29 +10120,43 @@ function ProfileScreen() {
               Notifications non lues: {unreadNotificationsCount}
             </Text>
           </View>
+          {canHost ? (
+            <PrimaryButton
+              label="Gérer mes box"
+              icon="home-outline"
+              onPress={() => {
+                const nav = mainTabNavigationRef.current;
+                if (nav?.navigate) nav.navigate("Host");
+              }}
+            />
+          ) : null}
           <PrimaryButton
             label="Importer une trace GPX"
             icon="cloud-upload-outline"
             onPress={() => actionsRef.current.uploadGpx?.()}
           />
-          <SecondaryButton
-            label="Rafraîchir traces + réservations + notifications"
-            icon="refresh-outline"
-            onPress={async () => {
-              await Promise.allSettled([
-                actionsRef.current.loadTrails?.(),
-                actionsRef.current.loadAthleteBookings?.(),
-                actionsRef.current.loadHostBookings?.(),
-                actionsRef.current.loadNotifications?.(),
-              ]);
-              userAlert("Synchronisation", "Données mises à jour.");
-            }}
-          />
-          <SecondaryButton
-            label="Catalogue traces GPX"
-            icon="navigate-outline"
-            onPress={() => actionsRef.current.navigateToTrails?.()}
-          />
+          {!simpleUi ? (
+            <>
+              <SecondaryButton
+                label="Rafraîchir les données"
+                icon="refresh-outline"
+                onPress={async () => {
+                  await Promise.allSettled([
+                    actionsRef.current.loadTrails?.(),
+                    actionsRef.current.loadAthleteBookings?.(),
+                    actionsRef.current.loadHostBookings?.(),
+                    actionsRef.current.loadNotifications?.(),
+                  ]);
+                  userAlert("Synchronisation", "Données mises à jour.");
+                }}
+              />
+              <SecondaryButton
+                label="Catalogue traces GPX"
+                icon="navigate-outline"
+                onPress={() => actionsRef.current.navigateToTrails?.()}
+              />
+            </>
+          ) : null}
         </Section>
 
         <Section
@@ -10271,6 +10360,7 @@ function ReservationsScreen() {
     authToken,
     acceptRavitoProposal,
     ravitoRequestsRefreshNonce,
+    simpleUi,
     actionsRef,
   } = useAppMain();
   const isFocused = useIsFocused();
@@ -10497,7 +10587,7 @@ function ReservationsScreen() {
                   reservationTab === "host" && styles.roleChipTextActive,
                 ]}
               >
-                Reçues (hôte)
+                Reçues
               </Text>
             </TouchableOpacity>
             <TouchableOpacity
@@ -10514,44 +10604,69 @@ function ReservationsScreen() {
                   reservationTab === "athlete" && styles.roleChipTextActive,
                 ]}
               >
-                Mes réservations
+                Envoyées
               </Text>
             </TouchableOpacity>
           </View>
         ) : null}
 
         {canBook && (!canHost || reservationTab === "athlete") ? (
-          <Section
-            title="Demandes de ravito (point GPS)"
-            subtitle="Publie un besoin sur la carte, reçois des propositions (box ou ravito mobile), puis réserve."
-            icon="megaphone-outline"
-          >
-            <RavitoAthleteRequestsSection
-              token={authToken}
-              apiFetch={apiFetch}
-              onAcceptProposal={acceptRavitoProposal}
-              refreshNonce={ravitoRequestsRefreshNonce}
-            />
-          </Section>
+          simpleUi ? (
+            <MoreActions label="Demander un ravito sur le trajet">
+              <RavitoAthleteRequestsSection
+                token={authToken}
+                apiFetch={apiFetch}
+                onAcceptProposal={acceptRavitoProposal}
+                refreshNonce={ravitoRequestsRefreshNonce}
+              />
+            </MoreActions>
+          ) : (
+            <Section
+              title="Demandes de ravito (point GPS)"
+              subtitle="Publie un besoin sur la carte, reçois des propositions (box ou ravito mobile), puis réserve."
+              icon="megaphone-outline"
+            >
+              <RavitoAthleteRequestsSection
+                token={authToken}
+                apiFetch={apiFetch}
+                onAcceptProposal={acceptRavitoProposal}
+                refreshNonce={ravitoRequestsRefreshNonce}
+              />
+            </Section>
+          )
         ) : null}
 
         {(canBook || canHost) &&
         (!canHost || reservationTab === "athlete" || reservationTab === "host") ? (
-          <Section
-            title="Ravito mobile — aider sans box"
-            subtitle="Tu peux ravitailler un coureur au point GPS même sans box fixe."
-            icon="bicycle-outline"
-          >
-            <RavitoHostRequestsSection
-              token={authToken}
-              apiFetch={apiFetch}
-              hostBoxes={hostBoxes || []}
-              refreshNonce={ravitoRequestsRefreshNonce}
-              volunteerLat={mapLat}
-              volunteerLon={mapLon}
-              allowMobileWithoutBox
-            />
-          </Section>
+          simpleUi ? (
+            <MoreActions label="Proposer un ravito mobile (sans box)">
+              <RavitoHostRequestsSection
+                token={authToken}
+                apiFetch={apiFetch}
+                hostBoxes={hostBoxes || []}
+                refreshNonce={ravitoRequestsRefreshNonce}
+                volunteerLat={mapLat}
+                volunteerLon={mapLon}
+                allowMobileWithoutBox
+              />
+            </MoreActions>
+          ) : (
+            <Section
+              title="Ravito mobile — aider sans box"
+              subtitle="Tu peux ravitailler un coureur au point GPS même sans box fixe."
+              icon="bicycle-outline"
+            >
+              <RavitoHostRequestsSection
+                token={authToken}
+                apiFetch={apiFetch}
+                hostBoxes={hostBoxes || []}
+                refreshNonce={ravitoRequestsRefreshNonce}
+                volunteerLat={mapLat}
+                volunteerLon={mapLon}
+                allowMobileWithoutBox
+              />
+            </Section>
+          )
         ) : null}
 
         {notifications?.length > 0 ? (
@@ -10641,7 +10756,7 @@ function ReservationsScreen() {
           </Section>
         ) : null}
 
-        {(canHost || canBook) && agendaEntries.length > 0 ? (
+        {(canHost || canBook) && agendaEntries.length > 0 && !simpleUi ? (
           <Section
             title="Planning des réservations"
             subtitle="Vue agenda claire de tes réservations en cours, validées et prévues."
@@ -10904,34 +11019,38 @@ function ReservationsScreen() {
                         />
                       </>
                     ) : null}
-                    <OutlineButton
-                      compact
-                      label="Mettre en évidence sur la carte"
-                      icon="locate-outline"
-                      onPress={() => actionsRef.current.spotlightBookingOnMap?.(b)}
-                    />
-                    <OutlineButton
-                      compact
-                      label="Voir timeline"
-                      icon="time-outline"
-                      onPress={() =>
-                        actionsRef.current.showBookingTimeline(b.id)
-                      }
-                    />
-                    {b.status === "completed" ? (
+                    <MoreActions label="Plus">
                       <OutlineButton
                         compact
-                        label="Noter l'athlète (5★)"
-                        icon="star-outline"
+                        label="Mettre en évidence sur la carte"
+                        icon="locate-outline"
                         onPress={() =>
-                          actionsRef.current.submitReview({
-                            bookingId: b.id,
-                            score: 5,
-                            comment: "Athlète recommandé.",
-                          })
+                          actionsRef.current.spotlightBookingOnMap?.(b)
                         }
                       />
-                    ) : null}
+                      <OutlineButton
+                        compact
+                        label="Voir timeline"
+                        icon="time-outline"
+                        onPress={() =>
+                          actionsRef.current.showBookingTimeline(b.id)
+                        }
+                      />
+                      {b.status === "completed" ? (
+                        <OutlineButton
+                          compact
+                          label="Noter l'athlète (5★)"
+                          icon="star-outline"
+                          onPress={() =>
+                            actionsRef.current.submitReview({
+                              bookingId: b.id,
+                              score: 5,
+                              comment: "Athlète recommandé.",
+                            })
+                          }
+                        />
+                      ) : null}
+                    </MoreActions>
                   </View>
                 </SwipeActionRow>
               );
@@ -10944,8 +11063,12 @@ function ReservationsScreen() {
 
         {canBook && reservationTab !== "host" ? (
           <Section
-            title="Mes réservations (athlète)"
-            subtitle="Tes demandes de box : modifier, supprimer ou tout effacer."
+            title="Mes réservations"
+            subtitle={
+              simpleUi
+                ? "Statut, code d’accès, arrivée."
+                : "Tes demandes de box : modifier, supprimer ou tout effacer."
+            }
             icon="time-outline"
           >
             {editingAthleteBookingId != null ? (
@@ -11008,7 +11131,7 @@ function ReservationsScreen() {
                 </View>
               </View>
             ) : null}
-            {athleteBookings.length > 0 ? (
+            {athleteBookings.length > 0 && !simpleUi ? (
               <SecondaryButton
                 label="Effacer tout mon historique de réservations"
                 icon="trash-outline"
@@ -11049,27 +11172,15 @@ function ReservationsScreen() {
                         .join(" · ")}
                     </Text>
                     {b.host_user_id ? (
-                      <>
-                        <Text style={styles.cardAvailability}>
-                          Hôte : {b.host_full_name || "Hôte"} —{" "}
-                          {formatPublicRatingLine({
-                            count: b.host_review_count,
-                            avg_score: b.host_avg_score,
-                          })}
-                        </Text>
-                        <OutlineButton
-                          compact
-                          stretch
-                          label="Profil, notes et commentaires de l'hôte"
-                          icon="person-circle-outline"
-                          onPress={() =>
-                            openUserReviews(
-                              b.host_user_id,
-                              `Hôte — ${b.host_full_name || "profil & avis"}`
-                            )
-                          }
-                        />
-                      </>
+                      <Text style={styles.cardAvailability}>
+                        Hôte : {b.host_full_name || "Hôte"}
+                        {!simpleUi
+                          ? ` — ${formatPublicRatingLine({
+                              count: b.host_review_count,
+                              avg_score: b.host_avg_score,
+                            })}`
+                          : ""}
+                      </Text>
                     ) : null}
                     <Text style={styles.cardDetailLine}>
                       Statut : {bookingApprovalLabel(approval)}
@@ -11077,23 +11188,28 @@ function ReservationsScreen() {
                         ? ` · code ${b.access_code}`
                         : ""}
                     </Text>
-                    <Text style={styles.cardDetailLine}>
-                      Ma demande : {bookingSpecialRequestLabel(b.special_request)}
-                    </Text>
-                    {formatBoxOfferLines({
-                      has_water: b.box_has_water,
-                      capacity_liters: b.box_capacity_liters,
-                      criteria_json: b.box_criteria_json,
-                      criteria_note: b.box_criteria_note,
-                      availability_note: b.box_availability_note,
-                    }).map((line, i) => (
-                      <Text
-                        key={`ath-offer-${b.id}-${i}`}
-                        style={styles.cardAvailability}
-                      >
-                        {line}
+                    {!simpleUi ? (
+                      <Text style={styles.cardDetailLine}>
+                        Ma demande :{" "}
+                        {bookingSpecialRequestLabel(b.special_request)}
                       </Text>
-                    ))}
+                    ) : null}
+                    {!simpleUi
+                      ? formatBoxOfferLines({
+                          has_water: b.box_has_water,
+                          capacity_liters: b.box_capacity_liters,
+                          criteria_json: b.box_criteria_json,
+                          criteria_note: b.box_criteria_note,
+                          availability_note: b.box_availability_note,
+                        }).map((line, i) => (
+                          <Text
+                            key={`ath-offer-${b.id}-${i}`}
+                            style={styles.cardAvailability}
+                          >
+                            {line}
+                          </Text>
+                        ))
+                      : null}
                     {b.en_route_at ? (
                       <Text style={[styles.cardAvailability, { color: theme.primary }]}>
                         Préavis envoyé : ~{b.en_route_eta_min || 10} min (
@@ -11146,7 +11262,7 @@ function ReservationsScreen() {
                               ? "GPS…"
                               : liveShareBookingId === Number(b.id)
                               ? "Arrêter le suivi GPS"
-                              : "Partager ma position live"
+                              : "Partager ma position"
                           }
                           icon={
                             liveShareBookingId === Number(b.id)
@@ -11156,40 +11272,6 @@ function ReservationsScreen() {
                           onPress={() => toggleLiveShare(b.id)}
                         />
                       </>
-                    ) : null}
-                    {b.status !== "cancelled" ? (
-                      <OutlineButton
-                        compact
-                        label="Annuler ma réservation"
-                        icon="close-circle-outline"
-                        onPress={() =>
-                          actionsRef.current.deleteAthleteBooking(b.id)
-                        }
-                      />
-                    ) : null}
-                    <Text style={styles.cardDetailLine}>
-                      Paiement: {b.payment_status || "simulated_unpaid"} ·
-                      remboursement: {b.refund_status || "none"}
-                    </Text>
-                    <Text style={styles.cardDetailLine}>
-                      Accès : {bookingAccessMethodLabel(b.access_method)}
-                    </Text>
-                    {showAccess && b.access_instructions ? (
-                      <Text style={styles.cardAvailability}>
-                        Instructions : {b.access_instructions}
-                      </Text>
-                    ) : null}
-                    {!showAccess ? (
-                      <Text style={styles.cardAvailability}>
-                        {approval !== "accepted"
-                          ? "Le code d’accès apparaîtra après validation par l’hôte."
-                          : "Les informations d’accès sont masquées hors fenêtre autorisée (avant/après le créneau)."}
-                      </Text>
-                    ) : null}
-                    {changeDraft ? (
-                      <Text style={styles.cardAvailability}>
-                        {bookingChangePreviewText(b, changeDraft)}
-                      </Text>
                     ) : null}
                     {approval === "pending_athlete_confirmation" ? (
                       <>
@@ -11217,47 +11299,104 @@ function ReservationsScreen() {
                         />
                       </>
                     ) : null}
-                    <OutlineButton
-                      compact
-                      label="Mettre en évidence sur la carte"
-                      icon="locate-outline"
-                      onPress={() => actionsRef.current.spotlightBookingOnMap?.(b)}
-                    />
-                    <OutlineButton
-                      compact
-                      label="Voir timeline"
-                      icon="time-outline"
-                      onPress={() =>
-                        actionsRef.current.showBookingTimeline(b.id)
-                      }
-                    />
-                    <OutlineButton
-                      compact
-                      label="Signaler incident d'accès"
-                      icon="alert-circle-outline"
-                      onPress={() =>
-                        actionsRef.current.reportAccessIncident?.({
-                          bookingId: b.id,
-                          kind: "access_issue",
-                          details:
-                            "Incident signalé depuis l'application mobile.",
-                        })
-                      }
-                    />
-                    {b.status === "completed" ? (
+                    {showAccess && b.access_instructions ? (
+                      <Text style={styles.cardAvailability}>
+                        Instructions : {b.access_instructions}
+                      </Text>
+                    ) : null}
+                    {!showAccess ? (
+                      <Text style={styles.cardAvailability}>
+                        {approval !== "accepted"
+                          ? "Le code d’accès apparaîtra après validation par l’hôte."
+                          : "Accès visible juste avant le créneau."}
+                      </Text>
+                    ) : null}
+                    {changeDraft ? (
+                      <Text style={styles.cardAvailability}>
+                        {bookingChangePreviewText(b, changeDraft)}
+                      </Text>
+                    ) : null}
+                    <MoreActions label="Plus">
+                      {b.host_user_id ? (
+                        <OutlineButton
+                          compact
+                          stretch
+                          label="Profil de l’hôte"
+                          icon="person-circle-outline"
+                          onPress={() =>
+                            openUserReviews(
+                              b.host_user_id,
+                              `Hôte — ${b.host_full_name || "profil & avis"}`
+                            )
+                          }
+                        />
+                      ) : null}
+                      {b.status !== "cancelled" ? (
+                        <OutlineButton
+                          compact
+                          label="Annuler ma réservation"
+                          icon="close-circle-outline"
+                          onPress={() =>
+                            actionsRef.current.deleteAthleteBooking(b.id)
+                          }
+                        />
+                      ) : null}
+                      {!simpleUi ? (
+                        <>
+                          <Text style={styles.cardDetailLine}>
+                            Paiement: {b.payment_status || "simulated_unpaid"} ·
+                            remboursement: {b.refund_status || "none"}
+                          </Text>
+                          <Text style={styles.cardDetailLine}>
+                            Accès :{" "}
+                            {bookingAccessMethodLabel(b.access_method)}
+                          </Text>
+                        </>
+                      ) : null}
                       <OutlineButton
                         compact
-                        label="Noter l'hôte (5★)"
-                        icon="star-outline"
+                        label="Voir sur la carte"
+                        icon="locate-outline"
                         onPress={() =>
-                          actionsRef.current.submitReview({
+                          actionsRef.current.spotlightBookingOnMap?.(b)
+                        }
+                      />
+                      <OutlineButton
+                        compact
+                        label="Voir timeline"
+                        icon="time-outline"
+                        onPress={() =>
+                          actionsRef.current.showBookingTimeline(b.id)
+                        }
+                      />
+                      <OutlineButton
+                        compact
+                        label="Signaler un incident"
+                        icon="alert-circle-outline"
+                        onPress={() =>
+                          actionsRef.current.reportAccessIncident?.({
                             bookingId: b.id,
-                            score: 5,
-                            comment: "Hôte recommandé.",
+                            kind: "access_issue",
+                            details:
+                              "Incident signalé depuis l'application mobile.",
                           })
                         }
                       />
-                    ) : null}
+                      {b.status === "completed" ? (
+                        <OutlineButton
+                          compact
+                          label="Noter l'hôte (5★)"
+                          icon="star-outline"
+                          onPress={() =>
+                            actionsRef.current.submitReview({
+                              bookingId: b.id,
+                              score: 5,
+                              comment: "Hôte recommandé.",
+                            })
+                          }
+                        />
+                      ) : null}
+                    </MoreActions>
                   </View>
                 </SwipeActionRow>
               );
@@ -11281,7 +11420,7 @@ function ReservationsScreen() {
 }
 
 function MainTabs() {
-  const { canHost } = useAppMain();
+  const { canHost, simpleUi } = useAppMain();
   const { width } = useWindowDimensions();
   const compactTabs = width < 390;
   const ultraCompactTabs = width < 355;
@@ -11290,7 +11429,7 @@ function MainTabs() {
   const tabTargets = [
     { key: "Carte", label: "Découvrir" },
     { key: "Plans", label: "Planifier" },
-    { key: "Trails", label: "Traces GPX" },
+    ...(!simpleUi ? [{ key: "Trails", label: "Traces GPX" }] : []),
     ...(canHost ? [{ key: "Host", label: "Mes box" }] : []),
     { key: "Reservations", label: "Réserver" },
     { key: "Profil", label: "Compte" },
@@ -11408,7 +11547,15 @@ function MainTabs() {
           <Tab.Screen
             name="Host"
             component={HostScreen}
-            options={{ title: "Mes box", tabBarLabel: "Box" }}
+            options={
+              simpleUi
+                ? {
+                    title: "Mes box",
+                    tabBarButton: () => null,
+                    tabBarItemStyle: { display: "none", width: 0, height: 0 },
+                  }
+                : { title: "Mes box", tabBarLabel: "Box" }
+            }
           />
         ) : null}
         <Tab.Screen
@@ -11525,6 +11672,11 @@ function RavitoApp() {
   /** Dernier refresh token (synchrone) pour apiFetch / rotation sans attendre un re-render. */
   const refreshTokenRef = useRef(null);
   const [user, setUser] = useState(null);
+  const [simpleUi, setSimpleUiState] = useState(() => readSimpleUiPref());
+  const setSimpleUi = useCallback((enabled) => {
+    writeSimpleUiPref(!!enabled);
+    setSimpleUiState(!!enabled);
+  }, []);
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -15260,6 +15412,8 @@ function RavitoApp() {
       openRavitoRequestAtPoint,
       acceptRavitoProposal,
       ravitoRequestsRefreshNonce,
+      simpleUi,
+      setSimpleUi,
       actionsRef,
     }),
     [
@@ -15352,6 +15506,8 @@ function RavitoApp() {
       openRavitoRequestAtPoint,
       acceptRavitoProposal,
       ravitoRequestsRefreshNonce,
+      simpleUi,
+      setSimpleUi,
     ]
   );
 

@@ -2,10 +2,15 @@ import React, { useState } from "react";
 import { View, Text, TouchableOpacity, StyleSheet } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import theme from "./theme";
-import { isGuideDismissed, dismissGuide } from "./uiPrefsStorage";
+import {
+  isGuideDismissed,
+  dismissGuide,
+  isSimpleUi,
+} from "./uiPrefsStorage";
 
 /**
  * Bloc court « que faire ici » — dismissible (1ère visite).
+ * Masqué en mode simple pour ne pas surcharger.
  */
 export default function IntentGuideBanner({
   title,
@@ -16,6 +21,7 @@ export default function IntentGuideBanner({
     guideId ? isGuideDismissed(guideId) : false
   );
 
+  if (isSimpleUi()) return null;
   if (hidden || (!title && (!lines || lines.length === 0))) return null;
 
   return (
