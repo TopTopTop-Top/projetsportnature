@@ -67,6 +67,7 @@ import {
 import IntentGuideBanner from "./IntentGuideBanner";
 import ExplorerFocusSheet from "./ExplorerFocusSheet";
 import theme from "./theme";
+import { getDevicePosition } from "./liveLocation";
 import AccountRecoveryCodeModal from "./AccountRecoveryCodeModal";
 import {
   RavitoRequestModal,
@@ -10291,6 +10292,9 @@ function ReservationsScreen() {
     canHost && !canBook ? "host" : "athlete"
   );
   const [notifUnreadOnly, setNotifUnreadOnly] = useState(false);
+  const [liveShareBookingId, setLiveShareBookingId] = useState(null);
+  const [liveShareBusy, setLiveShareBusy] = useState(false);
+  const [liveByBookingId, setLiveByBookingId] = useState({});
   const hostViewActive = canHost && reservationTab !== "athlete";
   const agendaEntries = useMemo(
     () =>
@@ -10337,6 +10341,122 @@ function ReservationsScreen() {
     }, 12000);
     return () => clearInterval(id);
   }, [canHost, canBook, isFocused, actionsRef, notifUnreadOnly]);
+
+  useEffect(() => {
+    if (liveShareBookingId) return;
+    const active = (athleteBookings || []).find(
+      (b) =>
+        Number(b.live_sharing) === 1 && String(b.status || "") !== "cancelled"
+    );
+    if (active) setLiveShareBookingId(Number(active.id));
+  }, [athleteBookings, liveShareBookingId]);
+
+  useEffect(() => {
+    if (!isFocused || !liveShareBookingId) return;
+    let cancelled = false;
+    const tick = async () => {
+      try {
+        const live = await actionsRef.current.pushBookingLiveLocation?.(
+          liveShareBookingId
+        );
+        if (!cancelled && live) {
+          setLiveByBookingId((prev) => ({
+            ...prev,
+            [liveShareBookingId]: live,
+          }));
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setLiveShareBookingId(null);
+          userAlert(
+            "Suivi GPS interrompu",
+            error?.message || "Impossible de partager la position."
+          );
+        }
+      }
+    };
+    tick();
+    const id = setInterval(tick, 8000);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, [isFocused, liveShareBookingId, actionsRef]);
+
+  useEffect(() => {
+    if (!isFocused || !hostViewActive) return;
+    const sharingIds = (hostBookings || [])
+      .filter(
+        (b) =>
+          Number(b.live_sharing) === 1 ||
+          (b.en_route_at && String(b.status || "") !== "cancelled")
+      )
+      .map((b) => Number(b.id))
+      .filter((id) => Number.isFinite(id));
+    if (!sharingIds.length) return;
+    let cancelled = false;
+    const poll = async () => {
+      for (const bid of sharingIds) {
+        try {
+          const live = await actionsRef.current.fetchBookingLiveLocation?.(bid);
+          if (!cancelled && live) {
+            setLiveByBookingId((prev) => ({ ...prev, [bid]: live }));
+          }
+        } catch {
+          /* ignore single poll errors */
+        }
+      }
+    };
+    poll();
+    const id = setInterval(poll, 10000);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, [isFocused, hostViewActive, hostBookings, actionsRef]);
+
+  const toggleLiveShare = async (bookingId) => {
+    const bid = Number(bookingId);
+    if (!Number.isFinite(bid) || liveShareBusy) return;
+    setLiveShareBusy(true);
+    try {
+      if (liveShareBookingId === bid) {
+        await actionsRef.current.stopBookingLiveLocation?.(bid);
+        setLiveShareBookingId(null);
+        setLiveByBookingId((prev) => {
+          const next = { ...prev };
+          if (next[bid]) next[bid] = { ...next[bid], sharing: false };
+          return next;
+        });
+        userAlert("Suivi arrêté", "Ta position n’est plus partagée avec l’hôte.");
+      } else {
+        if (liveShareBookingId) {
+          try {
+            await actionsRef.current.stopBookingLiveLocation?.(
+              liveShareBookingId
+            );
+          } catch {
+            /* ignore */
+          }
+        }
+        const live = await actionsRef.current.pushBookingLiveLocation?.(bid);
+        setLiveShareBookingId(bid);
+        if (live) {
+          setLiveByBookingId((prev) => ({ ...prev, [bid]: live }));
+        }
+        userAlert(
+          "Suivi live activé",
+          live?.etaMinutes != null
+            ? `L’hôte voit ta position (~${live.etaMinutes} min).`
+            : "L’hôte voit ta position en direct."
+        );
+      }
+    } catch (error) {
+      userAlert("Erreur", error?.message || "GPS indisponible.");
+    } finally {
+      setLiveShareBusy(false);
+    }
+  };
 
   return (
     <SafeAreaView style={styles.screen} edges={["left", "right"]}>
@@ -10701,6 +10821,41 @@ function ReservationsScreen() {
                         </Text>
                       </View>
                     ) : null}
+                    {(() => {
+                      const live = liveByBookingId[b.id];
+                      const sharing =
+                        live?.sharing === true || Number(b.live_sharing) === 1;
+                      if (!sharing && !live?.distanceKm) return null;
+                      const eta =
+                        live?.etaMinutes != null
+                          ? live.etaMinutes
+                          : b.en_route_eta_min;
+                      const dist =
+                        live?.distanceKm != null ? live.distanceKm : null;
+                      return (
+                        <View style={[styles.infoBanner, { marginBottom: 8 }]}>
+                          <Text style={styles.infoBannerTitle}>
+                            {sharing
+                              ? "Suivi GPS live"
+                              : "Dernière position"}
+                          </Text>
+                          <Text style={styles.infoBannerText}>
+                            {dist != null
+                              ? `~${dist} km`
+                              : "Position reçue"}
+                            {eta != null ? ` · ETA ~${eta} min` : ""}
+                            {live?.liveUpdatedAt
+                              ? ` · ${new Date(
+                                  live.liveUpdatedAt
+                                ).toLocaleTimeString("fr-FR", {
+                                  hour: "2-digit",
+                                  minute: "2-digit",
+                                })}`
+                              : ""}
+                          </Text>
+                        </View>
+                      );
+                    })()}
                     {formatBoxOfferLines({
                       has_water: b.box_has_water,
                       capacity_liters: b.box_capacity_liters,
@@ -10949,16 +11104,58 @@ function ReservationsScreen() {
                         )
                       </Text>
                     ) : null}
+                    {(() => {
+                      const live = liveByBookingId[b.id];
+                      const sharing =
+                        liveShareBookingId === Number(b.id) ||
+                        live?.sharing === true ||
+                        Number(b.live_sharing) === 1;
+                      if (!sharing && !live?.etaMinutes) return null;
+                      return (
+                        <Text
+                          style={[
+                            styles.cardAvailability,
+                            { color: theme.primary },
+                          ]}
+                        >
+                          {sharing ? "GPS partagé" : "Dernier suivi"}
+                          {live?.distanceKm != null
+                            ? ` · ~${live.distanceKm} km`
+                            : ""}
+                          {live?.etaMinutes != null
+                            ? ` · ETA ~${live.etaMinutes} min`
+                            : ""}
+                        </Text>
+                      );
+                    })()}
                     {b.status !== "cancelled" &&
                     approval !== "rejected" ? (
-                      <PrimaryButton
-                        compact
-                        label="Je suis à ~10 min"
-                        icon="navigate-outline"
-                        onPress={() =>
-                          actionsRef.current.notifyBookingEnRoute?.(b.id, 10)
-                        }
-                      />
+                      <>
+                        <PrimaryButton
+                          compact
+                          label="Je suis à ~10 min"
+                          icon="navigate-outline"
+                          onPress={() =>
+                            actionsRef.current.notifyBookingEnRoute?.(b.id, 10)
+                          }
+                        />
+                        <OutlineButton
+                          compact
+                          label={
+                            liveShareBusy && liveShareBookingId === Number(b.id)
+                              ? "GPS…"
+                              : liveShareBookingId === Number(b.id)
+                              ? "Arrêter le suivi GPS"
+                              : "Partager ma position live"
+                          }
+                          icon={
+                            liveShareBookingId === Number(b.id)
+                              ? "stop-circle-outline"
+                              : "locate-outline"
+                          }
+                          onPress={() => toggleLiveShare(b.id)}
+                        />
+                      </>
                     ) : null}
                     {b.status !== "cancelled" ? (
                       <OutlineButton
@@ -12555,6 +12752,40 @@ function RavitoApp() {
     } catch (error) {
       userAlert("Erreur", error.message);
     }
+  };
+
+  const pushBookingLiveLocation = async (bookingId) => {
+    if (!token) return null;
+    const bid = Number(bookingId);
+    if (!Number.isFinite(bid)) return null;
+    const pos = await getDevicePosition();
+    return apiFetch(`/bookings/${bid}/live-location`, {
+      method: "POST",
+      token,
+      body: {
+        lat: pos.lat,
+        lon: pos.lon,
+        accuracyM: pos.accuracy,
+        sharing: true,
+      },
+    });
+  };
+
+  const stopBookingLiveLocation = async (bookingId) => {
+    if (!token) return;
+    const bid = Number(bookingId);
+    if (!Number.isFinite(bid)) return;
+    await apiFetch(`/bookings/${bid}/live-location/stop`, {
+      method: "POST",
+      token,
+    });
+  };
+
+  const fetchBookingLiveLocation = async (bookingId) => {
+    if (!token) return null;
+    const bid = Number(bookingId);
+    if (!Number.isFinite(bid)) return null;
+    return apiFetch(`/bookings/${bid}/live-location`, { token });
   };
 
   const reportAccessIncident = async ({ bookingId, kind, details }) => {
@@ -14795,6 +15026,9 @@ function RavitoApp() {
     markAllNotificationsRead,
     showBookingTimeline,
     notifyBookingEnRoute,
+    pushBookingLiveLocation,
+    stopBookingLiveLocation,
+    fetchBookingLiveLocation,
     reportAccessIncident,
     markRefundDone,
     submitReview,

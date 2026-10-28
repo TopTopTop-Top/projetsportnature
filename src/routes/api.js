@@ -312,6 +312,13 @@ const bookingEnRouteSchema = z.object({
   note: z.string().max(300).optional(),
 });
 
+const bookingLiveLocationSchema = z.object({
+  lat: z.number().min(-90).max(90),
+  lon: z.number().min(-180).max(180),
+  accuracyM: z.number().min(0).max(5000).optional().nullable(),
+  sharing: z.boolean().optional(),
+});
+
 function mapRavitoRequestRow(r, proposals = null) {
   return {
     id: r.id,
@@ -5969,6 +5976,14 @@ router.post("/bookings/:id/en-route", requireAuth, async (req, res) => {
     etaMinutes,
     enRouteAt: updatedRows[0]?.en_route_at || null,
   });
+});
+
+const { attachBookingLiveRoutes } = require("./bookingLive");
+attachBookingLiveRoutes(router, {
+  pool,
+  requireAuth,
+  createNotification,
+  logBookingEvent,
 });
 
 module.exports = router;

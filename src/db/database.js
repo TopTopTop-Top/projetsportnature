@@ -575,6 +575,26 @@ async function migrate() {
       ALTER TABLE bookings
         ADD COLUMN IF NOT EXISTS en_route_eta_min INTEGER
     `);
+    await client.query(`
+      ALTER TABLE bookings
+        ADD COLUMN IF NOT EXISTS live_lat DOUBLE PRECISION
+    `);
+    await client.query(`
+      ALTER TABLE bookings
+        ADD COLUMN IF NOT EXISTS live_lon DOUBLE PRECISION
+    `);
+    await client.query(`
+      ALTER TABLE bookings
+        ADD COLUMN IF NOT EXISTS live_accuracy_m DOUBLE PRECISION
+    `);
+    await client.query(`
+      ALTER TABLE bookings
+        ADD COLUMN IF NOT EXISTS live_updated_at TIMESTAMPTZ
+    `);
+    await client.query(`
+      ALTER TABLE bookings
+        ADD COLUMN IF NOT EXISTS live_sharing SMALLINT NOT NULL DEFAULT 0
+    `);
 
     await client.query("COMMIT");
     console.log("Migration PostgreSQL OK");
