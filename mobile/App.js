@@ -730,6 +730,38 @@ function explorerListSourceLabelFr(source) {
   return "—";
 }
 
+/** Libellé trace lisible (ignore hashes / ids techniques). */
+function cleanTrailLabel(name) {
+  if (typeof name !== "string") return null;
+  const t = name.trim();
+  if (!t || t.length > 48) return null;
+  if (/^[a-f0-9_]{10,}/i.test(t)) return null;
+  if (/^[0-9a-f-]{20,}$/i.test(t)) return null;
+  return t;
+}
+
+/** Récap court d’un projet pour aperçu avant activation. */
+function planPreviewRecap(plan) {
+  if (!plan) {
+    return {
+      title: "Aucun projet",
+      lines: ["Exploration libre de la carte, sans box liées à un projet."],
+    };
+  }
+  const boxes = Number(plan.selected_box_count || 0);
+  const trail = cleanTrailLabel(plan.trail_name);
+  const activity = plan.activity ? String(plan.activity).replace(/_/g, " ") : null;
+  const lines = [
+    boxes === 0 ? "Aucune box encore liée" : `${boxes} box sur le parcours`,
+    trail ? `Trace : ${trail}` : null,
+    activity ? `Activité : ${activity}` : null,
+  ].filter(Boolean);
+  return {
+    title: plan.name || `Projet #${plan.id}`,
+    lines: lines.length ? lines : ["Projet sans détail"],
+  };
+}
+
 const AuthUiContext = createContext(null);
 
 /** Données / actions des écrans connectés — évite de définir les écrans dans App (sinon React Navigation remonte la carte à chaque render). */
@@ -2263,6 +2295,10 @@ function ExplorerScreen() {
   const [explorerHoveredTrailId, setExplorerHoveredTrailId] = useState(null);
   const [discoverProjectPickerOpen, setDiscoverProjectPickerOpen] =
     useState(false);
+  const [discoverProjectPreviewId, setDiscoverProjectPreviewId] =
+    useState(null); // null | "none" | number
+  const [discoverPanelOpen, setDiscoverPanelOpen] = useState(true);
+  const [discoverToolsOpen, setDiscoverToolsOpen] = useState(false);
   const [explorerTrailProbe, setExplorerTrailProbe] = useState(null);
   const [lastMapTapCoords, setLastMapTapCoords] = useState(null);
   const [chartProbeHover, setChartProbeHover] = useState(false);
@@ -4735,16 +4771,40 @@ function ExplorerScreen() {
   const explorerScrollContent = (
     <>
       <View style={styles.discoverCoach}>
-        <View style={styles.discoverCoachTop}>
-          <Text style={styles.discoverCoachKicker}>RavitoBox</Text>
-          <Text style={styles.discoverCoachTitle}>Découvrir</Text>
+        <View style={styles.discoverCoachTopRow}>
+          <View style={{ flex: 1, minWidth: 0 }}>
+            <Text style={styles.discoverCoachKicker}>RavitoBox</Text>
+            <Text style={styles.discoverCoachTitle}>Découvrir</Text>
+          </View>
+          {webDesktopSplit ? (
+            <TouchableOpacity
+              style={styles.discoverPanelToggle}
+              onPress={() => setDiscoverPanelOpen(false)}
+              accessibilityLabel="Masquer le panneau"
+              hitSlop={8}
+            >
+              <Ionicons name="chevron-back" size={18} color="#fff" />
+            </TouchableOpacity>
+          ) : null}
         </View>
         {canBook && Array.isArray(routePlans) && routePlans.length > 0 ? (
           <View style={styles.discoverProjectBlock}>
             <Text style={styles.discoverCoachLabel}>Projet</Text>
             <TouchableOpacity
               style={styles.discoverProjectSelect}
-              onPress={() => setDiscoverProjectPickerOpen((v) => !v)}
+              onPress={() => {
+                setDiscoverProjectPickerOpen((v) => {
+                  const next = !v;
+                  if (next) {
+                    setDiscoverProjectPreviewId(
+                      selectedRoutePlanId == null
+                        ? "none"
+                        : Number(selectedRoutePlanId)
+                    );
+                  }
+                  return next;
+                });
+              }}
               activeOpacity={0.88}
               accessibilityRole="button"
               accessibilityLabel="Choisir un projet"
@@ -4766,15 +4826,8 @@ function ExplorerScreen() {
                       const cur = routePlans.find(
                         (p) => Number(p.id) === Number(selectedRoutePlanId)
                       );
-                      if (!cur) return null;
-                      const boxes = Number(cur.selected_box_count || 0);
-                      const trail =
-                        typeof cur.trail_name === "string" &&
-                        cur.trail_name.length < 40 &&
-                        !/^[a-f0-9_]{12,}/i.test(cur.trail_name)
-                          ? cur.trail_name
-                          : null;
-                      return [trail, `${boxes} box`].filter(Boolean).join(" · ");
+                      const recap = planPreviewRecap(cur);
+                      return recap.lines[0] || null;
                     })()}
                   </Text>
                 ) : null}
@@ -4787,78 +4840,147 @@ function ExplorerScreen() {
             </TouchableOpacity>
             {discoverProjectPickerOpen ? (
               <View style={styles.discoverProjectMenu}>
-                <TouchableOpacity
-                  style={[
-                    styles.discoverProjectMenuRow,
-                    !selectedRoutePlanId && styles.discoverProjectMenuRowOn,
-                  ]}
-                  onPress={() => {
-                    setSelectedRoutePlanId(null);
-                    setSelectedRoutePlanDetail(null);
-                    setDiscoverProjectPickerOpen(false);
-                  }}
-                  activeOpacity={0.85}
-                >
-                  <Text
-                    style={[
-                      styles.discoverProjectMenuTitle,
-                      !selectedRoutePlanId && styles.discoverProjectMenuTitleOn,
-                    ]}
-                  >
-                    Aucun
-                  </Text>
-                </TouchableOpacity>
-                {routePlans.map((plan) => {
-                  const pid = Number(plan.id);
-                  const on = Number(selectedRoutePlanId) === pid;
-                  const boxes = Number(plan.selected_box_count || 0);
-                  const trail =
-                    typeof plan.trail_name === "string" &&
-                    plan.trail_name.length < 40 &&
-                    !/^[a-f0-9_]{12,}/i.test(plan.trail_name)
-                      ? plan.trail_name
-                      : null;
+                {(() => {
+                  const previewPlan =
+                    discoverProjectPreviewId === "none" ||
+                    discoverProjectPreviewId == null
+                      ? null
+                      : routePlans.find(
+                          (p) =>
+                            Number(p.id) === Number(discoverProjectPreviewId)
+                        );
+                  const recap = planPreviewRecap(previewPlan);
+                  const canActivate =
+                    discoverProjectPreviewId === "none"
+                      ? selectedRoutePlanId != null
+                      : Number(discoverProjectPreviewId) !==
+                        Number(selectedRoutePlanId);
                   return (
-                    <TouchableOpacity
-                      key={`xp-${pid}`}
-                      style={[
-                        styles.discoverProjectMenuRow,
-                        on && styles.discoverProjectMenuRowOn,
-                      ]}
-                      onPress={() => {
-                        setSelectedRoutePlanId(pid);
-                        actionsRef.current.loadRoutePlanDetail?.(pid);
-                        setDiscoverProjectPickerOpen(false);
-                      }}
-                      activeOpacity={0.85}
-                    >
-                      <View style={{ flex: 1, minWidth: 0 }}>
+                    <View style={styles.discoverProjectPreview}>
+                      <Text style={styles.discoverProjectPreviewKicker}>
+                        Aperçu
+                      </Text>
+                      <Text
+                        style={styles.discoverProjectPreviewTitle}
+                        numberOfLines={2}
+                      >
+                        {recap.title}
+                      </Text>
+                      {recap.lines.map((line, i) => (
                         <Text
-                          style={[
-                            styles.discoverProjectMenuTitle,
-                            on && styles.discoverProjectMenuTitleOn,
-                          ]}
-                          numberOfLines={1}
+                          key={`prev-l-${i}`}
+                          style={styles.discoverProjectPreviewLine}
                         >
-                          {plan.name || `Projet #${pid}`}
+                          {line}
                         </Text>
-                        <Text
-                          style={styles.discoverProjectMenuMeta}
-                          numberOfLines={1}
-                        >
-                          {[trail, `${boxes} box`].filter(Boolean).join(" · ")}
+                      ))}
+                      <TouchableOpacity
+                        style={[
+                          styles.discoverProjectActivateBtn,
+                          !canActivate && styles.discoverProjectActivateBtnMuted,
+                        ]}
+                        disabled={!canActivate}
+                        onPress={() => {
+                          if (discoverProjectPreviewId === "none") {
+                            setSelectedRoutePlanId(null);
+                            setSelectedRoutePlanDetail(null);
+                          } else if (
+                            Number.isFinite(Number(discoverProjectPreviewId))
+                          ) {
+                            const pid = Number(discoverProjectPreviewId);
+                            setSelectedRoutePlanId(pid);
+                            actionsRef.current.loadRoutePlanDetail?.(pid);
+                          }
+                          setDiscoverProjectPickerOpen(false);
+                        }}
+                        activeOpacity={0.88}
+                      >
+                        <Text style={styles.discoverProjectActivateBtnText}>
+                          {discoverProjectPreviewId === "none"
+                            ? "Explorer sans projet"
+                            : canActivate
+                            ? "Activer ce projet"
+                            : "Déjà actif"}
                         </Text>
-                      </View>
-                      {on ? (
-                        <Ionicons
-                          name="checkmark"
-                          size={16}
-                          color={theme.primary}
-                        />
-                      ) : null}
-                    </TouchableOpacity>
+                      </TouchableOpacity>
+                    </View>
                   );
-                })}
+                })()}
+                <ScrollView
+                  style={styles.discoverProjectMenuScroll}
+                  nestedScrollEnabled
+                  keyboardShouldPersistTaps="handled"
+                >
+                  <TouchableOpacity
+                    style={[
+                      styles.discoverProjectMenuRow,
+                      discoverProjectPreviewId === "none" &&
+                        styles.discoverProjectMenuRowOn,
+                    ]}
+                    onPress={() => setDiscoverProjectPreviewId("none")}
+                    onMouseEnter={
+                      Platform.OS === "web"
+                        ? () => setDiscoverProjectPreviewId("none")
+                        : undefined
+                    }
+                    activeOpacity={0.85}
+                  >
+                    <Text
+                      style={[
+                        styles.discoverProjectMenuTitle,
+                        discoverProjectPreviewId === "none" &&
+                          styles.discoverProjectMenuTitleOn,
+                      ]}
+                    >
+                      Aucun
+                    </Text>
+                    <Text style={styles.discoverProjectMenuMeta}>
+                      Carte libre
+                    </Text>
+                  </TouchableOpacity>
+                  {routePlans.map((plan) => {
+                    const pid = Number(plan.id);
+                    const previewing =
+                      Number(discoverProjectPreviewId) === pid;
+                    const active = Number(selectedRoutePlanId) === pid;
+                    const recap = planPreviewRecap(plan);
+                    return (
+                      <TouchableOpacity
+                        key={`xp-${pid}`}
+                        style={[
+                          styles.discoverProjectMenuRow,
+                          previewing && styles.discoverProjectMenuRowOn,
+                        ]}
+                        onPress={() => setDiscoverProjectPreviewId(pid)}
+                        onMouseEnter={
+                          Platform.OS === "web"
+                            ? () => setDiscoverProjectPreviewId(pid)
+                            : undefined
+                        }
+                        activeOpacity={0.85}
+                      >
+                        <View style={{ flex: 1, minWidth: 0 }}>
+                          <Text
+                            style={[
+                              styles.discoverProjectMenuTitle,
+                              previewing && styles.discoverProjectMenuTitleOn,
+                            ]}
+                            numberOfLines={1}
+                          >
+                            {recap.title}
+                            {active ? " · actif" : ""}
+                          </Text>
+                          <Text
+                            style={styles.discoverProjectMenuMeta}
+                            numberOfLines={1}
+                          >
+                            {recap.lines[0]}
+                          </Text>
+                        </View>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </ScrollView>
               </View>
             ) : null}
           </View>
@@ -4874,7 +4996,21 @@ function ExplorerScreen() {
           </TouchableOpacity>
         ) : null}
       </View>
-      {!simpleUi ? (
+      <TouchableOpacity
+        style={styles.discoverToolsToggle}
+        onPress={() => setDiscoverToolsOpen((v) => !v)}
+        activeOpacity={0.85}
+      >
+        <Text style={styles.discoverToolsToggleText}>
+          {discoverToolsOpen ? "Masquer outils" : "Outils & listes"}
+        </Text>
+        <Ionicons
+          name={discoverToolsOpen ? "chevron-up" : "chevron-down"}
+          size={16}
+          color={theme.inkMuted}
+        />
+      </TouchableOpacity>
+      {discoverToolsOpen && !simpleUi ? (
         <OutlineButton
           compact
           stretch
@@ -6058,6 +6194,7 @@ function ExplorerScreen() {
         </>
       ) : null}
 
+      {discoverToolsOpen ? (
       <Section flat title="Box à proximité">
         {explorerCompactFilters ? (
           <View style={styles.explorerFilterSummary}>
@@ -6375,8 +6512,9 @@ function ExplorerScreen() {
             </View>
         </Modal>
       </Section>
+      ) : null}
 
-      {!simpleUi ? (
+      {!simpleUi && discoverToolsOpen ? (
       <Section
         flat
         title="Traces"
@@ -6707,6 +6845,7 @@ function ExplorerScreen() {
       return (
         <SafeAreaView style={styles.screen} edges={["left", "right"]}>
           <View style={styles.explorerWebSplitRow}>
+            {discoverPanelOpen ? (
             <View style={styles.explorerWebPanel}>
               <ScrollView
                 ref={explorerScrollRef}
@@ -6718,6 +6857,7 @@ function ExplorerScreen() {
                 {explorerScrollContent}
               </ScrollView>
             </View>
+            ) : null}
             {selectedTrail ? (
               <View style={styles.explorerWebProfileRail}>
                 <TrailProfileRail
@@ -6836,6 +6976,30 @@ function ExplorerScreen() {
                   styles.explorerWebMapHostDesktop,
                 ]}
               >
+                {!discoverPanelOpen ? (
+                  <View style={styles.discoverMapHud} pointerEvents="box-none">
+                    <TouchableOpacity
+                      style={styles.discoverMapHudBtn}
+                      onPress={() => setDiscoverPanelOpen(true)}
+                      activeOpacity={0.88}
+                    >
+                      <Ionicons name="options-outline" size={16} color="#fff" />
+                      <Text style={styles.discoverMapHudBtnText}>Panneau</Text>
+                    </TouchableOpacity>
+                    {canBook && selectedRoutePlanId ? (
+                      <View style={styles.discoverMapHudChip}>
+                        <Text
+                          style={styles.discoverMapHudChipText}
+                          numberOfLines={1}
+                        >
+                          {routePlans.find(
+                            (p) => Number(p.id) === Number(selectedRoutePlanId)
+                          )?.name || "Projet"}
+                        </Text>
+                      </View>
+                    ) : null}
+                  </View>
+                ) : null}
                 {!selectedTrail ? (
                   <Text style={styles.webMapPaneCaption}>
                     Carte — molette : zoom · glisser : déplacer
@@ -16172,9 +16336,9 @@ const styles = StyleSheet.create({
     paddingBottom: 0,
   },
   explorerWebPanel: {
-    width: 248,
-    minWidth: 232,
-    maxWidth: 260,
+    width: 300,
+    minWidth: 280,
+    maxWidth: 320,
     minHeight: 0,
     borderRadius: 0,
     overflow: "hidden",
@@ -16188,19 +16352,89 @@ const styles = StyleSheet.create({
     minHeight: 0,
   },
   discoverCoach: {
-    marginBottom: 14,
+    marginBottom: 12,
     paddingVertical: 12,
     paddingHorizontal: 12,
     borderRadius: 0,
     backgroundColor: theme.hero,
     overflow: "visible",
-    marginHorizontal: -14,
-    marginTop: -14,
+    marginHorizontal: -12,
+    marginTop: -12,
     paddingTop: 14,
     zIndex: 4,
   },
   discoverCoachTop: {
     marginBottom: 10,
+  },
+  discoverCoachTopRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 8,
+    marginBottom: 10,
+  },
+  discoverPanelToggle: {
+    width: 32,
+    height: 32,
+    borderRadius: theme.radius.sm,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(255,255,255,0.12)",
+  },
+  discoverMapHud: {
+    position: "absolute",
+    top: 12,
+    left: 12,
+    zIndex: 20,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    maxWidth: "70%",
+  },
+  discoverMapHudBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingVertical: 9,
+    paddingHorizontal: 12,
+    borderRadius: theme.radius.sm,
+    backgroundColor: theme.hero,
+  },
+  discoverMapHudBtnText: {
+    color: "#fff",
+    fontSize: 12,
+    fontWeight: "700",
+    fontFamily: theme.font,
+  },
+  discoverMapHudChip: {
+    paddingVertical: 9,
+    paddingHorizontal: 12,
+    borderRadius: theme.radius.sm,
+    backgroundColor: "rgba(255,255,255,0.92)",
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: theme.border,
+    maxWidth: 220,
+  },
+  discoverMapHudChipText: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: theme.ink,
+    fontFamily: theme.font,
+  },
+  discoverToolsToggle: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingVertical: 10,
+    paddingHorizontal: 2,
+    marginBottom: 8,
+  },
+  discoverToolsToggleText: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: theme.inkMuted,
+    letterSpacing: 0.3,
+    textTransform: "uppercase",
+    fontFamily: theme.font,
   },
   discoverCoachKicker: {
     fontSize: 9,
@@ -16275,13 +16509,60 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: "rgba(250,250,250,0.18)",
     backgroundColor: "#1A1F1D",
-    maxHeight: 200,
     overflow: "hidden",
   },
-  discoverProjectMenuRow: {
-    flexDirection: "row",
+  discoverProjectPreview: {
+    padding: 12,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: "rgba(250,250,250,0.14)",
+    backgroundColor: "rgba(15, 122, 101, 0.18)",
+  },
+  discoverProjectPreviewKicker: {
+    fontSize: 9,
+    fontWeight: "800",
+    color: theme.heroAccent,
+    letterSpacing: 1.2,
+    textTransform: "uppercase",
+    marginBottom: 4,
+  },
+  discoverProjectPreviewTitle: {
+    color: "#FAFAFA",
+    fontSize: 15,
+    fontWeight: "800",
+    fontFamily: theme.fontDisplay,
+    marginBottom: 4,
+  },
+  discoverProjectPreviewLine: {
+    color: "rgba(250,250,250,0.72)",
+    fontSize: 12,
+    lineHeight: 17,
+    fontFamily: theme.font,
+  },
+  discoverProjectActivateBtn: {
+    marginTop: 10,
+    backgroundColor: theme.primary,
+    borderRadius: theme.radius.sm,
+    paddingVertical: 10,
     alignItems: "center",
-    gap: 8,
+  },
+  discoverProjectActivateBtnMuted: {
+    backgroundColor: "rgba(250,250,250,0.14)",
+  },
+  discoverProjectActivateBtnText: {
+    color: "#fff",
+    fontSize: 12,
+    fontWeight: "800",
+    letterSpacing: 0.4,
+    textTransform: "uppercase",
+    fontFamily: theme.fontDisplay,
+  },
+  discoverProjectMenuScroll: {
+    maxHeight: 160,
+  },
+  discoverProjectMenuRow: {
+    flexDirection: "column",
+    alignItems: "flex-start",
+    gap: 2,
     paddingVertical: 10,
     paddingHorizontal: 10,
     borderBottomWidth: StyleSheet.hairlineWidth,
