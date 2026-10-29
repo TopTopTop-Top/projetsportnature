@@ -2209,6 +2209,7 @@ function ExplorerScreen() {
     selectedRoutePlanId,
     setSelectedRoutePlanId,
     selectedRoutePlanDetail,
+    setSelectedRoutePlanDetail,
     routePlanBusy,
     updateRoutePlan,
     deleteRoutePlan,
@@ -4718,12 +4719,85 @@ function ExplorerScreen() {
 
   const explorerScrollContent = (
     <>
+      <View style={styles.discoverCoach}>
+        <Text style={styles.discoverCoachTitle}>Découvrir → réserver</Text>
+        <Text style={styles.discoverCoachText}>
+          1) Choisis un projet (optionnel) · 2) Touche une box sur la carte · 3)
+          Créneau + besoins · 4) Envoie la demande (paiement après validation)
+        </Text>
+        {canBook && Array.isArray(routePlans) && routePlans.length > 0 ? (
+          <>
+            <Text style={styles.discoverCoachLabel}>Projet actif</Text>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.discoverProjectRow}
+            >
+              <TouchableOpacity
+                style={[
+                  styles.roleChip,
+                  !selectedRoutePlanId && styles.roleChipActive,
+                ]}
+                onPress={() => {
+                  setSelectedRoutePlanId(null);
+                  setSelectedRoutePlanDetail(null);
+                }}
+                activeOpacity={0.85}
+              >
+                <Text
+                  style={[
+                    styles.roleChipText,
+                    !selectedRoutePlanId && styles.roleChipTextActive,
+                  ]}
+                >
+                  Aucun
+                </Text>
+              </TouchableOpacity>
+              {routePlans.slice(0, 12).map((plan) => {
+                const pid = Number(plan.id);
+                const on = Number(selectedRoutePlanId) === pid;
+                return (
+                  <TouchableOpacity
+                    key={`xp-${pid}`}
+                    style={[styles.roleChip, on && styles.roleChipActive]}
+                    onPress={() => {
+                      setSelectedRoutePlanId(pid);
+                      actionsRef.current.loadRoutePlanDetail?.(pid);
+                    }}
+                    activeOpacity={0.85}
+                  >
+                    <Text
+                      style={[
+                        styles.roleChipText,
+                        on && styles.roleChipTextActive,
+                      ]}
+                      numberOfLines={1}
+                    >
+                      {plan.name || `Projet #${pid}`}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+          </>
+        ) : canBook ? (
+          <OutlineButton
+            compact
+            stretch
+            label="Créer un projet (onglet Projets)"
+            icon="add-outline"
+            onPress={() =>
+              mainTabNavigationRef.current?.navigate?.("Plans")
+            }
+          />
+        ) : null}
+      </View>
       <IntentGuideBanner
         guideId="decouvrir"
         title="Découvrir"
         lines={[
-          "Carte → focus une box ou une trace. Long-press ou « Ajouter au plan » pour composer.",
-          "Réserver : box → créneau ci-dessous → confirmer. Suivi dans Réserver.",
+          "Carte → box ou trace. Réserve avec créneau + besoins.",
+          "Suivi dans Réservations. Projets pour composer l’aventure.",
         ]}
       />
       {!simpleUi ? (
@@ -4737,11 +4811,7 @@ function ExplorerScreen() {
       ) : null}
       <Section
         title="Carte"
-        subtitle={
-          simpleUi
-            ? "Choisis une box, puis réserve."
-            : "Explore les box et traces. Touche Filtrer pour la zone ou la ville."
-        }
+        subtitle="Touche une box pour ouvrir la réservation ci-dessous."
         icon="map-outline"
       >
         <View style={styles.explorerMapSearchRow}>
@@ -5715,21 +5785,32 @@ function ExplorerScreen() {
       {canBook ? (
         <>
           <Section
-            title="Créneau & demande"
-            subtitle="Horaires et message optionnel pour l’hôte (allergies, groupe, etc.)."
+            title={
+              selectedBox
+                ? "Réserver cette étape"
+                : "Créneau & besoins"
+            }
+            subtitle={
+              selectedBox
+                ? "Tout est ici : offre, horaires, besoins, envoi."
+                : "Choisis d’abord une box sur la carte, puis précise ici."
+            }
             icon="time-outline"
             onLayout={(event) => {
               bookingSectionYRef.current = event?.nativeEvent?.layout?.y || 0;
             }}
           >
-            <DateTimeSelector
-              dateValue={bookingDate}
-              onDateChange={setBookingDate}
-              startValue={startTime}
-              onStartChange={setStartTime}
-              endValue={endTime}
-              onEndChange={setEndTime}
-            />
+            {!selectedBox ? (
+              <DateTimeSelector
+                dateValue={bookingDate}
+                onDateChange={setBookingDate}
+                startValue={startTime}
+                onStartChange={setStartTime}
+                endValue={endTime}
+                onEndChange={setEndTime}
+              />
+            ) : null}
+            {!simpleUi ? (
             <Text style={styles.fieldLabel}>
               Box sur la carte & dans la liste
             </Text>
@@ -5780,7 +5861,8 @@ function ExplorerScreen() {
                 heure de fin après l’heure de début.
               </Text>
             ) : null}
-            {selectedBox ? (
+            ) : null}
+            {selectedBox && !simpleUi ? (
               <View style={[styles.infoBanner, { marginBottom: 10 }]}>
                 <View style={{ flex: 1 }}>
                   <Text style={styles.infoBannerTitle}>
@@ -5839,7 +5921,9 @@ function ExplorerScreen() {
             {selectedBox ? (
               <View style={styles.bookingConfirmCard}>
                 <Text style={styles.bookingConfirmTitle}>
-                  Étape sélectionnée
+                  {selectedRoutePlanId
+                    ? `Étape du projet #${selectedRoutePlanId}`
+                    : "Box sélectionnée"}
                 </Text>
                 <Text style={styles.bookingConfirmMeta}>
                   {selectedBox.title}
@@ -5854,10 +5938,17 @@ function ExplorerScreen() {
                       • {line}
                     </Text>
                   ))}
-                <Text style={styles.helperText}>
-                  Créneau : {formatDateLongFr(bookingDate)} · {startTime} →{" "}
-                  {endTime}
+                <Text style={[styles.fieldLabel, { marginTop: 10 }]}>
+                  Créneau d’arrivée
                 </Text>
+                <DateTimeSelector
+                  dateValue={bookingDate}
+                  onDateChange={setBookingDate}
+                  startValue={startTime}
+                  onStartChange={setStartTime}
+                  endValue={endTime}
+                  onEndChange={setEndTime}
+                />
                 <Text style={styles.helperText}>
                   Besoins : {bookingSpecialRequestLabel(specialRequest)}
                 </Text>
@@ -5866,16 +5957,41 @@ function ExplorerScreen() {
                   icon="send-outline"
                   onPress={() => confirmBookingFromExplorer(selectedBox.id)}
                 />
+                <OutlineButton
+                  compact
+                  stretch
+                  label="Demander un ravito GPS ici"
+                  icon="navigate-outline"
+                  onPress={() => {
+                    const lat = Number(selectedBox.latitude);
+                    const lon = Number(selectedBox.longitude);
+                    if (Number.isFinite(lat) && Number.isFinite(lon)) {
+                      openRavitoRequestAtPoint?.({
+                        lat,
+                        lon,
+                        source: "box",
+                      });
+                    } else {
+                      openRavitoRequestAtPoint?.({ source: "map" });
+                    }
+                  }}
+                />
                 <Text style={styles.helperText}>
-                  Ensuite : validation hôte → paiement. Suivi dans Projets /
-                  Réserver.
+                  Ensuite : validation → paiement. Suivi dans Réservations.
                 </Text>
               </View>
             ) : (
-              <Text style={styles.helperText}>
-                Sur la carte : choisis une box près de ton tracé, puis précise
-                créneau + besoins ici.
-              </Text>
+              <View style={styles.discoverEmptyPick}>
+                <Ionicons
+                  name="hand-left-outline"
+                  size={22}
+                  color={theme.primary}
+                />
+                <Text style={styles.helperText}>
+                  Touche une box sur la carte (à droite) : le créneau et tes
+                  besoins apparaissent ici.
+                </Text>
+              </View>
             )}
           </Section>
         </>
@@ -10033,14 +10149,14 @@ function ProfileScreen() {
           title="Compte"
           lines={[
             "Import GPX, rôle athlète/hôte, mot de passe.",
-            "Réservations : onglet Réserver.",
+            "Suivi : onglet Réservations.",
           ]}
         />
         <Section
           title="Interface"
           subtitle={
             simpleUi
-              ? "Mode simple : Découvrir → Projets → Réserver."
+              ? "Mode simple : Découvrir → Projets → Réservations."
               : "Mode complet : tous les outils avancés visibles."
           }
           icon="options-outline"
@@ -11534,7 +11650,7 @@ function MainTabs() {
     { key: "Plans", label: "Projets" },
     ...(!simpleUi ? [{ key: "Trails", label: "Traces GPX" }] : []),
     ...(canHost ? [{ key: "Host", label: "Mes box" }] : []),
-    { key: "Reservations", label: "Réserver" },
+    { key: "Reservations", label: "Réservations" },
     { key: "Profil", label: "Compte" },
   ];
   const openTabPicker = useCallback(
@@ -11664,7 +11780,7 @@ function MainTabs() {
         <Tab.Screen
           name="Reservations"
           component={ReservationsScreen}
-          options={{ title: "Réserver", tabBarLabel: "Réserver" }}
+          options={{ title: "Réservations", tabBarLabel: "Réservations" }}
         />
         <Tab.Screen
           name="Profil"
@@ -14226,7 +14342,7 @@ function RavitoApp() {
           : "";
       userAlert(
         "Demande envoyée",
-        `Les hôtes proches seront notifiés. Consulte l’onglet Réserver pour les propositions.${planHint}`
+        `Les hôtes proches seront notifiés. Consulte l’onglet Réservations pour les propositions.${planHint}`
       );
       return created;
     },
@@ -14794,7 +14910,7 @@ function RavitoApp() {
       userAlert(
         decision === "accept" ? "Réservation acceptée" : "Réservation refusée",
         decision === "accept"
-          ? "L’athlète verra le statut mis à jour dans l’onglet Réserver."
+          ? "L’athlète verra le statut mis à jour dans l’onglet Réservations."
           : "La demande a été annulée côté athlète."
       );
     } catch (error) {
@@ -15633,6 +15749,7 @@ function RavitoApp() {
       selectedRoutePlanId,
       setSelectedRoutePlanId,
       selectedRoutePlanDetail,
+      setSelectedRoutePlanDetail,
       routePlanBusy,
       upsertRoutePlanBoxes,
       updateRoutePlan,
@@ -15988,6 +16105,50 @@ const styles = StyleSheet.create({
   explorerWebPanelScroll: {
     flex: 1,
     minHeight: 0,
+  },
+  discoverCoach: {
+    marginBottom: 12,
+    padding: 14,
+    borderRadius: theme.radius.lg,
+    backgroundColor: theme.hero,
+  },
+  discoverCoachTitle: {
+    fontSize: 17,
+    fontWeight: "800",
+    color: "#fff",
+    letterSpacing: -0.2,
+  },
+  discoverCoachText: {
+    marginTop: 6,
+    fontSize: 13,
+    lineHeight: 18,
+    color: "rgba(255,255,255,0.88)",
+  },
+  discoverCoachLabel: {
+    marginTop: 12,
+    marginBottom: 6,
+    fontSize: 11,
+    fontWeight: "800",
+    color: theme.heroAccent,
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+  },
+  discoverProjectRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingVertical: 4,
+  },
+  discoverEmptyPick: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 10,
+    marginTop: 8,
+    padding: 12,
+    borderRadius: theme.radius.md,
+    borderWidth: 1,
+    borderColor: theme.borderSoft,
+    backgroundColor: theme.surfaceMuted,
   },
   explorerWebPanelContent: {
     padding: 14,

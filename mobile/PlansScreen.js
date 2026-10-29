@@ -9,6 +9,7 @@ import {
   ActivityIndicator,
   StyleSheet,
   useWindowDimensions,
+  Alert,
 } from "react-native";
 import { useIsFocused } from "@react-navigation/native";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -402,7 +403,21 @@ function PlanDetailPanel({
   onFocusMapCoords,
   onTogglePlanNoteMapVisible,
   onDeletePlanNote,
+  onSaveProject,
+  onDeleteProject,
+  busy = false,
 }) {
+  const [editing, setEditing] = useState(false);
+  const [editName, setEditName] = useState("");
+  const [editNotes, setEditNotes] = useState("");
+
+  useEffect(() => {
+    if (!detail) return;
+    setEditName(String(detail.name || ""));
+    setEditNotes(String(detail.notes || ""));
+    setEditing(false);
+  }, [detail?.id]);
+
   if (loading) {
     return (
       <View style={styles.detailPanel}>
@@ -419,10 +434,11 @@ function PlanDetailPanel({
   const isSharedPreview = selectedKind === "discover";
   const gpsSource = planGpsSource(selectedKind);
   const isCommunityPlan = selectedKind === "discover";
+  const isOwnProject = isAuthed && !isCommunityPlan;
 
   return (
     <View style={styles.detailPanel}>
-      <Text style={styles.detailTitle}>{detail.name || "Plan"}</Text>
+      <Text style={styles.detailTitle}>{detail.name || "Projet"}</Text>
       <Text style={styles.detailMeta}>
         {detail.trail_name || "Trace"}
         {detail.territory ? ` · ${detail.territory}` : ""}
@@ -434,7 +450,65 @@ function PlanDetailPanel({
           detail.relevance_count
         )}
       </Text>
-      {String(detail.notes || "").trim() ? (
+      {isOwnProject ? (
+        <View style={styles.projectManageRow}>
+          <TouchableOpacity
+            style={styles.cardActionBtn}
+            disabled={busy}
+            onPress={() => setEditing((v) => !v)}
+          >
+            <Ionicons name="create-outline" size={14} color={theme.primary} />
+            <Text style={styles.cardActionText}>
+              {editing ? "Fermer" : "Modifier"}
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.cardActionBtn, styles.cardActionDanger]}
+            disabled={busy}
+            onPress={() => onDeleteProject?.(detail)}
+          >
+            <Ionicons name="trash-outline" size={14} color="#DC2626" />
+            <Text style={[styles.cardActionText, { color: "#DC2626" }]}>
+              Supprimer
+            </Text>
+          </TouchableOpacity>
+        </View>
+      ) : null}
+      {editing && isOwnProject ? (
+        <View style={styles.editBox}>
+          <Text style={styles.noteKind}>Nom</Text>
+          <TextInput
+            style={styles.editInput}
+            value={editName}
+            onChangeText={setEditName}
+            placeholder="Nom du projet"
+            placeholderTextColor="#94A3B8"
+          />
+          <Text style={[styles.noteKind, { marginTop: 8 }]}>Notes</Text>
+          <TextInput
+            style={[styles.editInput, styles.editArea]}
+            value={editNotes}
+            onChangeText={setEditNotes}
+            multiline
+            placeholder="Besoins, dates, remarques…"
+            placeholderTextColor="#94A3B8"
+          />
+          <TouchableOpacity
+            style={styles.primaryBtn}
+            disabled={busy}
+            onPress={async () => {
+              await onSaveProject?.({
+                id: detail.id,
+                name: editName.trim(),
+                notes: editNotes,
+              });
+              setEditing(false);
+            }}
+          >
+            <Text style={styles.primaryBtnText}>Enregistrer</Text>
+          </TouchableOpacity>
+        </View>
+      ) : String(detail.notes || "").trim() ? (
         <Text style={styles.detailBody}>{String(detail.notes).trim()}</Text>
       ) : null}
       {isAuthed && isCommunityPlan ? (
@@ -1269,6 +1343,63 @@ export default function PlansScreen({ appMain = {} }) {
                       }
                     : undefined
                 }
+                busy={!!routePlanBusy}
+                onSaveProject={
+                  isAuthed
+                    ? async ({ id, name, notes }) => {
+                        await actionsRef.current.updateRoutePlan?.(id, {
+                          name,
+                          notes,
+                        });
+                        await loadDetail(Number(id), "mine");
+                        await refreshMine();
+                      }
+                    : undefined
+                }
+                onDeleteProject={
+                  isAuthed
+                    ? async (plan) => {
+                        const doDelete = async () => {
+                          const deleted =
+                            await actionsRef.current.deleteRoutePlan?.(plan.id);
+                          if (deleted) {
+                            setSelectedId(null);
+                            setSelectedKind(null);
+                            setDetail(null);
+                            await refreshMine();
+                          }
+                        };
+                        if (Platform.OS === "web") {
+                          if (
+                            typeof globalThis.confirm === "function" &&
+                            !globalThis.confirm(
+                              `Supprimer le projet « ${
+                                plan.name || "sans nom"
+                              } » ?`
+                            )
+                          ) {
+                            return;
+                          }
+                          await doDelete();
+                          return;
+                        }
+                        Alert.alert(
+                          "Supprimer le projet ?",
+                          `« ${plan.name || "sans nom"} » sera définitivement retiré.`,
+                          [
+                            { text: "Annuler", style: "cancel" },
+                            {
+                              text: "Supprimer",
+                              style: "destructive",
+                              onPress: () => {
+                                void doDelete();
+                              },
+                            },
+                          ]
+                        );
+                      }
+                    : undefined
+                }
               />
           ) : null}
         </ScrollView>
@@ -1347,14 +1478,15 @@ const styles = StyleSheet.create({
   rootWide: { flexDirection: "row" },
   mapColumn: {
     flex: 1,
-    maxWidth: 480,
+    maxWidth: 520,
     minWidth: 300,
+    minHeight: 0,
     borderRightWidth: 1,
     borderRightColor: theme.border,
     backgroundColor: theme.surface,
     padding: 12,
   },
-  scroll: { flex: 1 },
+  scroll: { flex: 1, minHeight: 0 },
   content: {
     padding: 16,
     maxWidth: 720,
@@ -1375,7 +1507,13 @@ const styles = StyleSheet.create({
     backgroundColor: theme.surface,
     overflow: "hidden",
   },
-  mapPaneWide: { flex: 1, marginBottom: 0 },
+  mapPaneWide: {
+    flex: 1,
+    marginBottom: 0,
+    minHeight: 0,
+    display: "flex",
+    flexDirection: "column",
+  },
   mapPaneTitle: {
     fontSize: 12,
     fontWeight: "800",
@@ -1388,13 +1526,15 @@ const styles = StyleSheet.create({
     width: "100%",
     borderTopWidth: 1,
     borderTopColor: theme.border,
+    height: Platform.OS === "web" ? 320 : 240,
   },
   mapWrapTall: {
     flex: 1,
-    minHeight: 240,
+    minHeight: 360,
+    height: Platform.OS === "web" ? "100%" : 360,
   },
   mapLoading: {
-    height: 220,
+    height: 240,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -1516,6 +1656,42 @@ const styles = StyleSheet.create({
   cardActions: { flexDirection: "row", flexWrap: "wrap", gap: 12, marginTop: 10 },
   cardActionBtn: { flexDirection: "row", alignItems: "center", gap: 4 },
   cardActionText: { fontSize: 12, fontWeight: "700", color: theme.primary },
+  cardActionDanger: { borderColor: "#FECACA" },
+  projectManageRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 10,
+    marginTop: 10,
+    marginBottom: 4,
+  },
+  editBox: {
+    marginTop: 8,
+    marginBottom: 8,
+    padding: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: theme.borderSoft || theme.border,
+    backgroundColor: "#fff",
+  },
+  editInput: {
+    borderWidth: 1,
+    borderColor: theme.border,
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    fontSize: 14,
+    color: theme.ink,
+    backgroundColor: theme.surfaceMuted || "#F8FAFC",
+  },
+  editArea: { minHeight: 72, textAlignVertical: "top" },
+  primaryBtn: {
+    marginTop: 10,
+    backgroundColor: theme.primary,
+    borderRadius: 10,
+    paddingVertical: 10,
+    alignItems: "center",
+  },
+  primaryBtnText: { color: "#fff", fontWeight: "800", fontSize: 14 },
   detailPanel: {
     marginTop: 12,
     padding: 14,
