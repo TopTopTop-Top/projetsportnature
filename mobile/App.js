@@ -745,8 +745,11 @@ function cleanTrailLabel(name) {
 function planPreviewRecap(plan) {
   if (!plan) {
     return {
-      title: "Choisis un projet",
-      lines: ["Ou crée-en un dans l’onglet Projets."],
+      title: "Curiosité",
+      lines: [
+        "Sans projet — tu regardes la carte librement.",
+        "Choisis un projet pour voir traces, box et ravito liés.",
+      ],
     };
   }
   const boxes = Number(
@@ -771,9 +774,17 @@ function planPreviewRecap(plan) {
   };
 }
 
-/** CTA sélecteur projet — uniquement activer / garder un projet. */
+/** CTA sélecteur projet — activer / curiosité / garder. */
 function projectPickerCta(previewId, selectedId) {
   const selected = selectedId == null ? null : Number(selectedId);
+  const isCuriosity =
+    previewId == null || previewId === "none" || previewId === "";
+  if (isCuriosity) {
+    if (selected == null) {
+      return { label: "OK — curiosité", mode: "close" };
+    }
+    return { label: "Passer en curiosité", mode: "clear" };
+  }
   const pid = Number(previewId);
   if (!Number.isFinite(pid)) {
     return { label: "Choisir un projet", mode: "close" };
@@ -2322,8 +2333,9 @@ function ExplorerScreen() {
   const [discoverPanelOpen, setDiscoverPanelOpen] = useState(true);
   const [discoverToolsOpen, setDiscoverToolsOpen] = useState(false);
   /**
-   * Après projet : null = pas encore choisi, "box" | "ravito".
+   * Type d’aide : null = pas encore choisi, "box" | "ravito".
    * Funnel box : 1 box → 2 créneau → 3 besoins → 4 récap.
+   * Sans projet = curiosité (carte libre) ; la réservation gagne avec un projet.
    */
   const [discoverReserveMode, setDiscoverReserveMode] = useState(null);
   const [discoverBookStep, setDiscoverBookStep] = useState(1);
@@ -2765,22 +2777,22 @@ function ExplorerScreen() {
 
   useEffect(() => {
     if (!selectedRoutePlanId) {
-      setDiscoverReserveMode(null);
       setDiscoverBookStep(1);
     }
   }, [selectedRoutePlanId]);
 
-  /** Pas d’exploration libre : si des projets existent, en activer un. */
-  useEffect(() => {
-    if (!canBook) return;
-    const plans = Array.isArray(routePlans) ? routePlans : [];
-    if (plans.length === 0) return;
-    if (selectedRoutePlanId != null) return;
-    const firstId = Number(plans[0]?.id);
-    if (!Number.isFinite(firstId)) return;
-    setSelectedRoutePlanId(firstId);
-    actionsRef.current.loadRoutePlanDetail?.(firstId);
-  }, [canBook, routePlans, selectedRoutePlanId, actionsRef]);
+  const applyProjectPickerCta = (cta) => {
+    if (cta?.mode === "activate" && Number.isFinite(cta.planId)) {
+      setSelectedRoutePlanId(cta.planId);
+      actionsRef.current.loadRoutePlanDetail?.(cta.planId);
+    } else if (cta?.mode === "clear") {
+      setSelectedRoutePlanId(null);
+      setSelectedRoutePlanDetail(null);
+      setDiscoverBookStep(1);
+    }
+    setDiscoverProjectPickerOpen(false);
+  };
+
   const pickedBoxesForExplorer = useMemo(() => {
     const planSet = activePlanBoxIdSet;
     const findBox = (id) =>
@@ -4888,7 +4900,7 @@ function ExplorerScreen() {
             </TouchableOpacity>
           ) : null}
         </View>
-        {canBook && Array.isArray(routePlans) && routePlans.length > 0 ? (
+        {canBook ? (
           <View style={styles.discoverProjectBlock}>
             <Text style={styles.discoverCoachLabel}>Projet</Text>
             <TouchableOpacity
@@ -4897,12 +4909,9 @@ function ExplorerScreen() {
                 setDiscoverProjectPickerOpen((v) => {
                   const next = !v;
                   if (next) {
-                    const fallback = Number(routePlans[0]?.id);
                     setDiscoverProjectPreviewId(
                       selectedRoutePlanId != null
                         ? Number(selectedRoutePlanId)
-                        : Number.isFinite(fallback)
-                        ? fallback
                         : null
                     );
                   }
@@ -4916,31 +4925,34 @@ function ExplorerScreen() {
               <View style={{ flex: 1, minWidth: 0 }}>
                 <Text style={styles.discoverProjectSelectValue} numberOfLines={1}>
                   {selectedRoutePlanId
-                    ? routePlans.find(
+                    ? (Array.isArray(routePlans) ? routePlans : []).find(
                         (p) => Number(p.id) === Number(selectedRoutePlanId)
                       )?.name || `Projet #${selectedRoutePlanId}`
-                    : "Choisir un projet"}
+                    : "Curiosité (sans projet)"}
                 </Text>
-                {selectedRoutePlanId ? (
-                  <Text
-                    style={styles.discoverProjectSelectMeta}
-                    numberOfLines={1}
-                  >
-                    {(() => {
-                      const cur = routePlans.find(
-                        (p) => Number(p.id) === Number(selectedRoutePlanId)
-                      );
-                      const recap = planPreviewRecap(
-                        selectedRoutePlanDetail &&
-                          Number(selectedRoutePlanDetail.id) ===
-                            Number(selectedRoutePlanId)
-                          ? selectedRoutePlanDetail
-                          : cur
-                      );
-                      return recap.lines.slice(0, 2).join(" · ") || null;
-                    })()}
-                  </Text>
-                ) : null}
+                <Text
+                  style={styles.discoverProjectSelectMeta}
+                  numberOfLines={1}
+                >
+                  {selectedRoutePlanId
+                    ? (() => {
+                        const plans = Array.isArray(routePlans)
+                          ? routePlans
+                          : [];
+                        const cur = plans.find(
+                          (p) => Number(p.id) === Number(selectedRoutePlanId)
+                        );
+                        const recap = planPreviewRecap(
+                          selectedRoutePlanDetail &&
+                            Number(selectedRoutePlanDetail.id) ===
+                              Number(selectedRoutePlanId)
+                            ? selectedRoutePlanDetail
+                            : cur
+                        );
+                        return recap.lines.slice(0, 2).join(" · ") || null;
+                      })()
+                    : "Regarder la carte librement"}
+                </Text>
               </View>
               <Ionicons
                 name={discoverProjectPickerOpen ? "chevron-up" : "chevron-down"}
@@ -4951,10 +4963,11 @@ function ExplorerScreen() {
             {discoverProjectPickerOpen ? (
               <View style={styles.discoverProjectMenu}>
                 {(() => {
+                  const plans = Array.isArray(routePlans) ? routePlans : [];
                   const previewPlan =
                     discoverProjectPreviewId == null
                       ? null
-                      : routePlans.find(
+                      : plans.find(
                           (p) =>
                             Number(p.id) === Number(discoverProjectPreviewId)
                         ) ||
@@ -4989,16 +5002,7 @@ function ExplorerScreen() {
                       ))}
                       <TouchableOpacity
                         style={styles.discoverProjectActivateBtn}
-                        onPress={() => {
-                          if (
-                            cta.mode === "activate" &&
-                            Number.isFinite(cta.planId)
-                          ) {
-                            setSelectedRoutePlanId(cta.planId);
-                            actionsRef.current.loadRoutePlanDetail?.(cta.planId);
-                          }
-                          setDiscoverProjectPickerOpen(false);
-                        }}
+                        onPress={() => applyProjectPickerCta(cta)}
                         activeOpacity={0.88}
                       >
                         <Text style={styles.discoverProjectActivateBtnText}>
@@ -5013,7 +5017,41 @@ function ExplorerScreen() {
                   nestedScrollEnabled
                   keyboardShouldPersistTaps="handled"
                 >
-                  {routePlans.map((plan) => {
+                  <TouchableOpacity
+                    style={[
+                      styles.discoverProjectMenuRow,
+                      discoverProjectPreviewId == null &&
+                        styles.discoverProjectMenuRowOn,
+                    ]}
+                    onPress={() => setDiscoverProjectPreviewId(null)}
+                    onMouseEnter={
+                      Platform.OS === "web"
+                        ? () => setDiscoverProjectPreviewId(null)
+                        : undefined
+                    }
+                    activeOpacity={0.85}
+                  >
+                    <View style={{ flex: 1, minWidth: 0 }}>
+                      <Text
+                        style={[
+                          styles.discoverProjectMenuTitle,
+                          discoverProjectPreviewId == null &&
+                            styles.discoverProjectMenuTitleOn,
+                        ]}
+                        numberOfLines={1}
+                      >
+                        Curiosité
+                        {selectedRoutePlanId == null ? " · actif" : ""}
+                      </Text>
+                      <Text
+                        style={styles.discoverProjectMenuMeta}
+                        numberOfLines={1}
+                      >
+                        Sans projet — regarder la carte
+                      </Text>
+                    </View>
+                  </TouchableOpacity>
+                  {(Array.isArray(routePlans) ? routePlans : []).map((plan) => {
                     const pid = Number(plan.id);
                     const previewing =
                       Number(discoverProjectPreviewId) === pid;
@@ -5056,6 +5094,24 @@ function ExplorerScreen() {
                     );
                   })}
                 </ScrollView>
+                <TouchableOpacity
+                  style={{ paddingVertical: 10, paddingHorizontal: 4 }}
+                  onPress={() => {
+                    setDiscoverProjectPickerOpen(false);
+                    mainTabNavigationRef.current?.navigate?.("Plans");
+                  }}
+                  activeOpacity={0.85}
+                >
+                  <Text
+                    style={{
+                      textAlign: "center",
+                      fontWeight: "700",
+                      color: theme.primary,
+                    }}
+                  >
+                    + Créer un projet
+                  </Text>
+                </TouchableOpacity>
               </View>
             ) : null}
             {projectDiscoverRecap ? (
@@ -5117,24 +5173,18 @@ function ExplorerScreen() {
               </View>
             ) : null}
           </View>
-        ) : canBook ? (
-          <TouchableOpacity
-            style={styles.discoverChipOn}
-            onPress={() =>
-              mainTabNavigationRef.current?.navigate?.("Plans")
-            }
-            activeOpacity={0.85}
-          >
-            <Text style={styles.discoverChipTextOn}>+ Créer un projet</Text>
-          </TouchableOpacity>
         ) : null}
       </View>
 
-      {canBook && selectedRoutePlanId ? (
+      {canBook ? (
         <Section
           flat
           title="Réserver"
-          subtitle="Choisis d’abord le type d’aide."
+          subtitle={
+            selectedRoutePlanId
+              ? "Choisis d’abord le type d’aide."
+              : "Curiosité : regarde librement, ou active un projet pour réserver."
+          }
         >
           <View style={styles.discoverReserveModeRow}>
             <TouchableOpacity
@@ -5196,14 +5246,13 @@ function ExplorerScreen() {
               Box = point fixe (eau/nourriture). Ravito humain = quelqu’un te
               rejoint au GPS.
             </Text>
+          ) : !selectedRoutePlanId ? (
+            <Text style={styles.helperText}>
+              Mode curiosité : tu peux explorer. Active un projet pour finaliser
+              une réservation.
+            </Text>
           ) : null}
         </Section>
-      ) : canBook && !selectedRoutePlanId ? (
-        <View style={styles.discoverEmptyPick}>
-          <Text style={styles.helperText}>
-            Crée ou active un projet ci-dessus pour réserver box ou ravito.
-          </Text>
-        </View>
       ) : null}
 
       <TouchableOpacity
@@ -7097,131 +7146,130 @@ function ExplorerScreen() {
   );
 
   const activeProjectLabel = selectedRoutePlanId
-    ? routePlans.find((p) => Number(p.id) === Number(selectedRoutePlanId))
-        ?.name || `Projet #${selectedRoutePlanId}`
-    : null;
+    ? (Array.isArray(routePlans) ? routePlans : []).find(
+        (p) => Number(p.id) === Number(selectedRoutePlanId)
+      )?.name || `Projet #${selectedRoutePlanId}`
+    : "Curiosité";
 
   const openMobileProjectPicker = () => {
-    const fallback = Number(routePlans?.[0]?.id);
     setDiscoverProjectPreviewId(
-      selectedRoutePlanId != null
-        ? Number(selectedRoutePlanId)
-        : Number.isFinite(fallback)
-        ? fallback
-        : null
+      selectedRoutePlanId != null ? Number(selectedRoutePlanId) : null
     );
     setDiscoverProjectPickerOpen(true);
   };
 
-  const mobileProjectPickerModal =
-    canBook && Array.isArray(routePlans) && routePlans.length > 0 ? (
-      <Modal
-        visible={discoverProjectPickerOpen}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setDiscoverProjectPickerOpen(false)}
-      >
-        <View style={styles.discoverMobilePickerBackdrop}>
-          <TouchableOpacity
-            style={{ flex: 1 }}
-            activeOpacity={1}
-            onPress={() => setDiscoverProjectPickerOpen(false)}
-          />
-          <View style={styles.discoverMobilePickerSheet}>
-            <View style={styles.discoverMobilePickerGrabber} />
-            <Text style={styles.discoverMobilePickerTitle}>Projet</Text>
-            {(() => {
-              const previewPlan =
-                discoverProjectPreviewId == null
-                  ? null
-                  : routePlans.find(
-                      (p) => Number(p.id) === Number(discoverProjectPreviewId)
-                    ) ||
-                    (selectedRoutePlanDetail &&
-                    Number(selectedRoutePlanDetail.id) ===
-                      Number(discoverProjectPreviewId)
-                      ? selectedRoutePlanDetail
-                      : null);
-              const recap = planPreviewRecap(previewPlan);
-              const cta = projectPickerCta(
-                discoverProjectPreviewId,
-                selectedRoutePlanId
-              );
-              return (
-                <View style={styles.discoverMobilePreviewCard}>
-                  <Text style={styles.discoverProjectPreviewKicker}>
-                    Aperçu
+  const mobileProjectPickerModal = canBook ? (
+    <Modal
+      visible={discoverProjectPickerOpen}
+      transparent
+      animationType="slide"
+      onRequestClose={() => setDiscoverProjectPickerOpen(false)}
+    >
+      <View style={styles.discoverMobilePickerBackdrop}>
+        <TouchableOpacity
+          style={{ flex: 1 }}
+          activeOpacity={1}
+          onPress={() => setDiscoverProjectPickerOpen(false)}
+        />
+        <View style={styles.discoverMobilePickerSheet}>
+          <View style={styles.discoverMobilePickerGrabber} />
+          <Text style={styles.discoverMobilePickerTitle}>Projet</Text>
+          {(() => {
+            const plans = Array.isArray(routePlans) ? routePlans : [];
+            const previewPlan =
+              discoverProjectPreviewId == null
+                ? null
+                : plans.find(
+                    (p) => Number(p.id) === Number(discoverProjectPreviewId)
+                  ) ||
+                  (selectedRoutePlanDetail &&
+                  Number(selectedRoutePlanDetail.id) ===
+                    Number(discoverProjectPreviewId)
+                    ? selectedRoutePlanDetail
+                    : null);
+            const recap = planPreviewRecap(previewPlan);
+            const cta = projectPickerCta(
+              discoverProjectPreviewId,
+              selectedRoutePlanId
+            );
+            return (
+              <View style={styles.discoverMobilePreviewCard}>
+                <Text style={styles.discoverProjectPreviewKicker}>Aperçu</Text>
+                <Text style={styles.discoverMobilePreviewTitle}>
+                  {recap.title}
+                </Text>
+                {recap.lines.map((line, i) => (
+                  <Text key={`mp-${i}`} style={styles.discoverMobilePreviewLine}>
+                    {line}
                   </Text>
-                  <Text style={styles.discoverMobilePreviewTitle}>
-                    {recap.title}
+                ))}
+                <TouchableOpacity
+                  style={styles.discoverProjectActivateBtn}
+                  onPress={() => applyProjectPickerCta(cta)}
+                  activeOpacity={0.88}
+                >
+                  <Text style={styles.discoverProjectActivateBtnText}>
+                    {cta.label}
                   </Text>
-                  {recap.lines.map((line, i) => (
-                    <Text key={`mp-${i}`} style={styles.discoverMobilePreviewLine}>
-                      {line}
-                    </Text>
-                  ))}
-                  <TouchableOpacity
-                    style={styles.discoverProjectActivateBtn}
-                    onPress={() => {
-                      if (
-                        cta.mode === "activate" &&
-                        Number.isFinite(cta.planId)
-                      ) {
-                        setSelectedRoutePlanId(cta.planId);
-                        actionsRef.current.loadRoutePlanDetail?.(cta.planId);
-                      }
-                      setDiscoverProjectPickerOpen(false);
-                    }}
-                    activeOpacity={0.88}
-                  >
-                    <Text style={styles.discoverProjectActivateBtnText}>
-                      {cta.label}
-                    </Text>
-                  </TouchableOpacity>
-                </View>
-              );
-            })()}
-            <ScrollView style={{ maxHeight: 220 }}>
-              {routePlans.map((plan) => {
-                const pid = Number(plan.id);
-                const recap = planPreviewRecap(plan);
-                return (
-                  <TouchableOpacity
-                    key={`mproj-${pid}`}
-                    style={styles.discoverMobilePickerRow}
-                    onPress={() => setDiscoverProjectPreviewId(pid)}
-                  >
-                    <Text style={styles.discoverMobilePickerRowTitle}>
-                      {recap.title}
-                    </Text>
-                    <Text style={styles.discoverMobilePickerRowMeta}>
-                      {recap.lines.slice(0, 2).join(" · ")}
-                    </Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </ScrollView>
+                </TouchableOpacity>
+              </View>
+            );
+          })()}
+          <ScrollView style={{ maxHeight: 220 }}>
             <TouchableOpacity
-              style={{ marginTop: 10, paddingVertical: 10 }}
-              onPress={() => {
-                setDiscoverProjectPickerOpen(false);
-                mainTabNavigationRef.current?.navigate?.("Plans");
-              }}
+              style={styles.discoverMobilePickerRow}
+              onPress={() => setDiscoverProjectPreviewId(null)}
             >
-              <Text
-                style={{
-                  textAlign: "center",
-                  fontWeight: "700",
-                  color: theme.primary,
-                }}
-              >
-                + Créer un projet
+              <Text style={styles.discoverMobilePickerRowTitle}>
+                Curiosité
+                {selectedRoutePlanId == null ? " · actif" : ""}
+              </Text>
+              <Text style={styles.discoverMobilePickerRowMeta}>
+                Sans projet — regarder la carte librement
               </Text>
             </TouchableOpacity>
-          </View>
+            {(Array.isArray(routePlans) ? routePlans : []).map((plan) => {
+              const pid = Number(plan.id);
+              const recap = planPreviewRecap(plan);
+              const active = Number(selectedRoutePlanId) === pid;
+              return (
+                <TouchableOpacity
+                  key={`mproj-${pid}`}
+                  style={styles.discoverMobilePickerRow}
+                  onPress={() => setDiscoverProjectPreviewId(pid)}
+                >
+                  <Text style={styles.discoverMobilePickerRowTitle}>
+                    {recap.title}
+                    {active ? " · actif" : ""}
+                  </Text>
+                  <Text style={styles.discoverMobilePickerRowMeta}>
+                    {recap.lines.slice(0, 2).join(" · ")}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </ScrollView>
+          <TouchableOpacity
+            style={{ marginTop: 10, paddingVertical: 10 }}
+            onPress={() => {
+              setDiscoverProjectPickerOpen(false);
+              mainTabNavigationRef.current?.navigate?.("Plans");
+            }}
+          >
+            <Text
+              style={{
+                textAlign: "center",
+                fontWeight: "700",
+                color: theme.primary,
+              }}
+            >
+              + Créer un projet
+            </Text>
+          </TouchableOpacity>
         </View>
-      </Modal>
-    ) : null;
+      </View>
+    </Modal>
+  ) : null;
 
   const mobileBookingSheet = canBook ? (
     <DiscoverMobileBookingSheet
@@ -7284,14 +7332,12 @@ function ExplorerScreen() {
   const mobilePeekHint =
     !selectedBox && !selectedTrail && canBook ? (
       <View style={styles.discoverMobilePeek} pointerEvents="box-none">
-        {!selectedRoutePlanId ? (
-          <Text style={styles.discoverMobilePeekText}>
-            Crée un projet pour voir traces, box et ravito
-          </Text>
-        ) : !discoverReserveMode ? (
+        {!discoverReserveMode ? (
           <>
             <Text style={styles.discoverMobilePeekText}>
-              Que veux-tu réserver ?
+              {selectedRoutePlanId
+                ? "Que veux-tu réserver ?"
+                : "Curiosité — ou choisis box / ravito"}
             </Text>
             <View style={styles.discoverReserveModeRow}>
               <TouchableOpacity
@@ -7326,7 +7372,8 @@ function ExplorerScreen() {
           </>
         ) : (
           <Text style={styles.discoverMobilePeekText}>
-            1/4 · Touche une box sur la carte
+            {selectedRoutePlanId ? "1/4 · " : ""}
+            Touche une box sur la carte
             {boxes.length ? ` · ${boxes.length} visibles` : ""}
           </Text>
         )}
