@@ -23,17 +23,28 @@ export function buildTrailMapPoints({
     const lat = Number(n.point_lat);
     const lon = Number(n.point_lon);
     if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
+    if (Math.abs(lat) < 0.05 && Math.abs(lon) < 0.05) return;
     const noteId = n.id ?? index;
+    const noteText = String(n.note || "");
+    const isRavito =
+      Number(n.ravito_request_id) > 0 ||
+      noteText.startsWith("🟣") ||
+      /ravito/i.test(noteText);
     out.push({
       id: trailMapPointId(source, noteId, index),
       noteId: n.id,
       lat,
       lon,
-      note: n.note || "",
-      label:
-        source === "shared_preview"
-          ? `Plan partagé · point ${index + 1}`
-          : `Mon plan · point ${index + 1}`,
+      note: noteText,
+      isRavito,
+      kind: isRavito ? "ravito" : "note",
+      label: isRavito
+        ? source === "shared_preview"
+          ? `Ravito · point ${index + 1}`
+          : `Ravito humain · ${index + 1}`
+        : source === "shared_preview"
+        ? `Plan partagé · point ${index + 1}`
+        : `Mon plan · point ${index + 1}`,
       source,
     });
   };

@@ -18,6 +18,9 @@ export const MAP_SEL = {
   pointDraft: theme.primary,
   pointShared: "#B45309",
   pointTip: theme.mapTeal || "#0D8F78",
+  /** Ravito humain — distinct des box (maison). */
+  ravito: "#C2410C",
+  ravitoSoft: "rgba(194, 65, 12, 0.18)",
   boxPlan: theme.mapTeal || "#0D8F78",
   boxDefault: theme.picked || "#0B6B58",
 };

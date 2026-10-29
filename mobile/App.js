@@ -76,6 +76,7 @@ import MoreActions from "./MoreActions";
 import CapabilityCards from "./CapabilityCards";
 import FunnelSteps from "./FunnelSteps";
 import theme from "./theme";
+import { parseMapCoords } from "./geoMap";
 import useAthleticFonts from "./useAthleticFonts";
 import { getDevicePosition } from "./liveLocation";
 import {
@@ -2685,8 +2686,6 @@ function ExplorerScreen() {
     const pid = Number(detail.id);
     if (!Number.isFinite(pid) || Number(selectedRoutePlanId) !== pid)
       return null;
-    const boxes = Array.isArray(detail.boxes) ? detail.boxes : [];
-    if (boxes.length === 0) return null;
     return detail;
   }, [selectedRoutePlanDetail, selectedRoutePlanId]);
   const activePlanBoxIds = useMemo(() => {
@@ -2739,10 +2738,8 @@ function ExplorerScreen() {
     athleteBookings,
   ]);
 
+  /** N’avance le funnel que si l’utilisateur a déjà choisi « Box fixe ». */
   useEffect(() => {
-    if (selectedBox && !discoverReserveMode) {
-      setDiscoverReserveMode("box");
-    }
     if (
       discoverReserveMode === "box" &&
       discoverBookStep === 1 &&
@@ -2764,11 +2761,18 @@ function ExplorerScreen() {
       setSelectedRoutePlanId(null);
       setSelectedRoutePlanDetail(null);
       setDiscoverBookStep(1);
+      setDiscoverReserveMode(null);
     } else {
       const pid = Number(planId);
       if (!Number.isFinite(pid)) return;
       setSelectedRoutePlanId(pid);
-      actionsRef.current.loadRoutePlanDetail?.(pid);
+      Promise.resolve(actionsRef.current.loadRoutePlanDetail?.(pid)).then(
+        (detail) => {
+          if (detail) {
+            actionsRef.current.showRoutePlanOnMap?.(detail, { silent: true });
+          }
+        }
+      );
     }
     setDiscoverProjectPickerOpen(false);
   };
@@ -2916,13 +2920,12 @@ function ExplorerScreen() {
       const box =
         boxes.find((b) => Number(b.id) === bid) ||
         boxesOnMap.find((b) => Number(b.id) === bid);
-      const lat = Number(box?.latitude);
-      const lng = Number(box?.longitude);
+      const coords = parseMapCoords(box?.latitude, box?.longitude);
       // Si une trace est déjà en focus, on évite de "sauter" la caméra vers
       // la box : ça perturbe le contexte carte + rail trace.
-      if (selectedTrailId == null && Number.isFinite(lat) && Number.isFinite(lng)) {
-        setMapLat(lat.toFixed(6));
-        setMapLon(lng.toFixed(6));
+      if (selectedTrailId == null && coords) {
+        setMapLat(coords.lat.toFixed(6));
+        setMapLon(coords.lon.toFixed(6));
         setMapExplorerRecenterNonce((n) => n + 1);
       }
     },
@@ -2943,11 +2946,10 @@ function ExplorerScreen() {
     setHighlightedPlanBoxId(bid);
     setSelectedBoxId(bid);
     const box = boxes.find((b) => Number(b.id) === bid);
-    const bl = Number(box?.latitude);
-    const bLng = Number(box?.longitude);
-    if (Number.isFinite(bl) && Number.isFinite(bLng)) {
-      setMapLat(bl.toFixed(6));
-      setMapLon(bLng.toFixed(6));
+    const coords = parseMapCoords(box?.latitude, box?.longitude);
+    if (coords) {
+      setMapLat(coords.lat.toFixed(6));
+      setMapLon(coords.lon.toFixed(6));
       setMapExplorerRecenterNonce((n) => n + 1);
     }
   }, [
@@ -3174,16 +3176,31 @@ function ExplorerScreen() {
   const [sharedPlanPreviewBusy, setSharedPlanPreviewBusy] = useState(false);
 
   const trailMapPoints = useMemo(() => {
-    if (explorerWorkspaceTab !== "plan") return [];
+    // Toujours montrer les points du projet actif (ravito / notes) sur Découvrir.
+    const projectPlan =
+      selectedRoutePlanDetail &&
+      Number(selectedRoutePlanDetail.id) === Number(selectedRoutePlanId)
+        ? selectedRoutePlanDetail
+        : null;
+    const plan =
+      projectPlan ||
+      (explorerWorkspaceTab === "plan" ? activePlanForSelectedTrail : null);
+    const trailId =
+      Number(plan?.trail_id) ||
+      Number(selectedTrailId) ||
+      null;
+    if (!plan || !Number.isFinite(Number(trailId))) return [];
     return buildTrailMapPoints({
-      trailId: selectedTrailId,
-      plan: activePlanForSelectedTrail,
+      trailId,
+      plan,
       sharedPreview: null,
     });
   }, [
     explorerWorkspaceTab,
     selectedTrailId,
     activePlanForSelectedTrail,
+    selectedRoutePlanId,
+    selectedRoutePlanDetail,
   ]);
   const communityTipsForMap = useMemo(
     () => (explorerWorkspaceTab === "community" ? trailTips : []),
@@ -4866,8 +4883,12 @@ function ExplorerScreen() {
       <View style={styles.discoverCoach}>
         <View style={styles.discoverCoachTopRow}>
           <View style={{ flex: 1, minWidth: 0 }}>
-            <Text style={styles.discoverCoachKicker}>RavitoBox</Text>
+            <Text style={styles.discoverCoachKicker}>RavitoBox · carte</Text>
             <Text style={styles.discoverCoachTitle}>Découvrir</Text>
+            <Text style={styles.discoverCoachLabel}>
+              1. Projet ou curiosité · 2. Box ou ravito · 3. Créneau. Gérer /
+              créer un projet en détail → onglet Projets. Suivi → Réservations.
+            </Text>
           </View>
           {webDesktopSplit ? (
             <TouchableOpacity
@@ -5088,10 +5109,20 @@ function ExplorerScreen() {
           title="Réserver"
           subtitle={
             selectedRoutePlanId
-              ? "Choisis d’abord le type d’aide."
-              : "Curiosité : regarde librement, ou active un projet pour réserver."
+              ? "Choisis box fixe ou ravito humain (icônes différentes sur la carte)."
+              : "Curiosité : regarde librement. Active un projet pour réserver."
           }
         >
+          <View style={styles.discoverMapLegendRow}>
+            <View style={styles.discoverMapLegendItem}>
+              <Ionicons name="home" size={14} color={theme.primary} />
+              <Text style={styles.discoverMapLegendText}>Box fixe</Text>
+            </View>
+            <View style={styles.discoverMapLegendItem}>
+              <Ionicons name="walk" size={14} color="#C2410C" />
+              <Text style={styles.discoverMapLegendText}>Ravito humain</Text>
+            </View>
+          </View>
           <View style={styles.discoverReserveModeRow}>
             <TouchableOpacity
               style={[
@@ -5105,7 +5136,7 @@ function ExplorerScreen() {
               activeOpacity={0.88}
             >
               <Ionicons
-                name="cube-outline"
+                name="home-outline"
                 size={18}
                 color={discoverReserveMode === "box" ? "#fff" : theme.ink}
               />
@@ -5149,8 +5180,7 @@ function ExplorerScreen() {
           </View>
           {!discoverReserveMode ? (
             <Text style={styles.helperText}>
-              Box = point fixe (eau/nourriture). Ravito humain = quelqu’un te
-              rejoint au GPS.
+              Maison = box fixe. Marcheur = ravito humain au GPS.
             </Text>
           ) : !selectedRoutePlanId ? (
             <Text style={styles.helperText}>
@@ -5323,6 +5353,7 @@ function ExplorerScreen() {
             )}
             trailCorridorKm={Number(mapTrailProximityKm) || 2}
             dimIncompatibleBoxes={mapBoxesNearTrailsOnly && mapNearShowAllOnMap}
+            trailMapPoints={trailMapPoints}
             onSelectBox={focusExplorerBox}
             onSelectTrail={focusExplorerTrail}
             onTrailProbe={setExplorerTrailProbe}
@@ -7718,6 +7749,7 @@ function ExplorerScreen() {
             dimIncompatibleBoxes={
               mapBoxesNearTrailsOnly && mapNearShowAllOnMap
             }
+            trailMapPoints={trailMapPoints}
             onSelectBox={focusExplorerBox}
             onSelectTrail={focusExplorerTrail}
             onTrailProbe={setExplorerTrailProbe}
@@ -11462,11 +11494,11 @@ function ReservationsScreen() {
           guideId="reserver"
           title="Réserver — suivi"
           lines={[
-            "Funnel unique : Découvrir → créneau → confirmer → suivi ici.",
-            "Statut, code d’accès, modifications et notifications.",
+            "Ici : box et ravito réservés, en attente, reçus ou envoyés.",
+            "Découvrir = carte & demande. Projets = créer / affiner un plan.",
             canHost
-              ? "Bascule « Reçues (hôte) » pour valider les demandes sur tes box."
-              : "Les demandes en attente apparaissent avec le statut « pending ».",
+              ? "Bascule « Reçues » pour valider les demandes sur tes box."
+              : "Les demandes en attente apparaissent avec le statut pending.",
           ]}
         />
         {canHost && canBook ? (
@@ -14842,31 +14874,56 @@ function RavitoApp() {
     }
   };
 
-  const showRoutePlanOnMap = useCallback((routePlan) => {
+  const showRoutePlanOnMap = useCallback((routePlan, { silent = false } = {}) => {
     const boxesList = Array.isArray(routePlan?.boxes) ? routePlan.boxes : [];
     const boxIds = boxesList
       .map((b) => Number(b.id))
       .filter((id) => Number.isFinite(id));
-    if (boxIds.length === 0) {
-      userAlert("Plan", "Aucune box trouvée dans ce plan.");
+    const tid = Number(routePlan?.trail_id);
+    const hasTrail = Number.isFinite(tid) && tid > 0;
+    if (boxIds.length === 0 && !hasTrail) {
+      if (!silent) {
+        userAlert(
+          "Projet",
+          "Aucune trace ni box dans ce projet pour l’instant."
+        );
+      }
       return;
     }
     setMapShowBoxes(true);
     setMapBoxesNearTrailsOnly(false);
     setMapShowTrails(true);
-    setMapTrailsScope("picked");
-    setMapBoxSelectionMode("picked");
-    setMapPickedBoxIds(boxIds);
-    if (Number.isFinite(Number(routePlan?.trail_id))) {
-      const tid = Number(routePlan.trail_id);
+    setMapTrailsScope(hasTrail ? "picked" : "all");
+    if (boxIds.length > 0) {
+      setMapBoxSelectionMode("picked");
+      setMapPickedBoxIds(boxIds);
+      setSelectedBoxId(boxIds[0]);
+      const first = boxesList.find((b) => Number(b.id) === boxIds[0]);
+      const coords = parseMapCoords(first?.latitude, first?.longitude);
+      if (coords) {
+        setMapLat(coords.lat.toFixed(6));
+        setMapLon(coords.lon.toFixed(6));
+        setMapExplorerRecenterNonce((n) => n + 1);
+      }
+    } else {
+      setMapBoxSelectionMode("all");
+    }
+    if (hasTrail) {
       setSelectedTrailId(tid);
       setMapTrailPickIds([tid]);
     }
-    setSelectedBoxId(boxIds[0]);
-    userAlert(
-      "Plan affiché",
-      "Les box du plan sont maintenant sélectionnées sur la carte."
-    );
+    if (!silent) {
+      const parts = [
+        hasTrail ? "trace projet" : null,
+        boxIds.length ? `${boxIds.length} box` : null,
+      ].filter(Boolean);
+      userAlert(
+        "Projet sur la carte",
+        parts.length
+          ? `Affiché : ${parts.join(" · ")}.`
+          : "Projet affiché sur la carte."
+      );
+    }
   }, []);
 
   const downloadRoutePlanGpx = async (
@@ -15222,10 +15279,15 @@ function RavitoApp() {
           : "Étape 1/3 : en attente de validation par l’hôte (puis paiement).",
         "Modifiable tant que tu n’as pas payé.",
       ].filter(Boolean);
-      userAlert("Demande envoyée", receiptLines.join("\n"));
+      userAlert(
+        "Demande envoyée",
+        [...receiptLines, "Suivi : onglet Réservations (sans quitter la carte)."].join(
+          "\n"
+        )
+      );
       await loadAthleteBookings();
       await refreshRoutePlanBookingLinks();
-      mainTabNavigationRef.current?.navigate?.("Reservations");
+      // Reste sur Découvrir — évite le saut forcé vers Réservations.
     } catch (error) {
       userAlert("Erreur", error.message);
     } finally {
@@ -17035,6 +17097,22 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     color: "#fff",
     textDecorationLine: "underline",
+  },
+  discoverMapLegendRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 12,
+    marginBottom: 10,
+  },
+  discoverMapLegendItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  discoverMapLegendText: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: theme.inkMuted,
   },
   discoverReserveModeRow: {
     flexDirection: "row",

@@ -24,6 +24,7 @@ import {
   mapPointSourceFromMeta,
   selectionAccent,
 } from "./mapSelectionVisual";
+import { parseMapCoords } from "./geoMap";
 
 function drawTrailProbeOnMap(L, probeLayer, probe, trail, lineColor, locked) {
   try {
@@ -401,6 +402,25 @@ function syncMapPointSelectionVisual(
   });
 }
 
+/** Icône ravito humain (silhouette) — distincte de la maison box. */
+function buildRavitoPersonDivIcon(L, { emphasized = false } = {}) {
+  const w = emphasized ? 30 : 26;
+  const fill = MAP_SEL.ravito;
+  const html = `<div style="width:${w}px;height:${w}px;">
+    <svg width="${w}" height="${w}" viewBox="0 0 24 24" aria-hidden="true">
+      <circle cx="12" cy="12" r="11" fill="${fill}" stroke="${MAP_SEL.white}" stroke-width="2"/>
+      <circle cx="12" cy="8" r="2.2" fill="${MAP_SEL.white}"/>
+      <path d="M7.5 18.5c1.2-2.4 2.8-3.6 4.5-3.6s3.3 1.2 4.5 3.6" fill="none" stroke="${MAP_SEL.white}" stroke-width="1.8" stroke-linecap="round"/>
+    </svg>
+  </div>`;
+  return L.divIcon({
+    className: "ravitobox-ravito-pin",
+    html,
+    iconSize: [w, w],
+    iconAnchor: [Math.round(w / 2), Math.round(w / 2)],
+  });
+}
+
 function drawTrailMapPointsOnMap(
   L,
   layer,
@@ -410,25 +430,41 @@ function drawTrailMapPointsOnMap(
   if (!Array.isArray(points) || !points.length) return;
   if (markerRegistry) markerRegistry.clear();
   points.forEach((pt, index) => {
-    if (!Number.isFinite(pt.lat) || !Number.isFinite(pt.lon)) return;
+    const coords = parseMapCoords(pt.lat, pt.lon);
+    if (!coords) return;
     const isShared = pt.source === "shared_preview";
+    const isRavito = Boolean(pt.isRavito || pt.kind === "ravito");
     const noteText = pt.note ? String(pt.note).trim() : "";
     const shortNote =
       noteText.length > 48 ? `${noteText.slice(0, 45)}…` : noteText;
-    const marker = L.circleMarker([pt.lat, pt.lon], {
-      pane: PROBE_MARKER_PANE,
-      ...mapPointCircleStyle(isShared ? "shared_preview" : "plan", "idle"),
-    });
     const tip = [
-      `<strong>${index + 1}. ${escapeHtml(pt.label || "Point GPS")}</strong>`,
+      `<strong>${index + 1}. ${escapeHtml(
+        pt.label || (isRavito ? "Ravito humain" : "Point GPS")
+      )}</strong>`,
       noteText ? escapeHtml(noteText) : "<em>Sans texte</em>",
-      `${Number(pt.lat).toFixed(5)}°, ${Number(pt.lon).toFixed(5)}°`,
+      `${coords.lat.toFixed(5)}°, ${coords.lon.toFixed(5)}°`,
     ]
       .filter(Boolean)
       .join("<br/>");
     const permanentLabel = shortNote
       ? `${index + 1}. ${escapeHtml(shortNote)}`
-      : `${index + 1}. ${escapeHtml(pt.label || "GPS")}`;
+      : `${index + 1}. ${escapeHtml(
+          pt.label || (isRavito ? "Ravito" : "GPS")
+        )}`;
+
+    let marker;
+    if (isRavito) {
+      marker = L.marker([coords.lat, coords.lon], {
+        pane: PROBE_MARKER_PANE,
+        icon: buildRavitoPersonDivIcon(L),
+        riseOnHover: true,
+      });
+    } else {
+      marker = L.circleMarker([coords.lat, coords.lon], {
+        pane: PROBE_MARKER_PANE,
+        ...mapPointCircleStyle(isShared ? "shared_preview" : "plan", "idle"),
+      });
+    }
     marker.bindTooltip(permanentTooltips ? permanentLabel : tip, {
       permanent: permanentTooltips,
       interactive: Boolean(permanentTooltips && (onHover || onClick)),
@@ -449,7 +485,8 @@ function drawTrailMapPointsOnMap(
       markerRegistry.set(pt.id, {
         marker,
         meta: {
-          source: pt.source,
+          source: isRavito ? "ravito" : pt.source,
+          kind: isRavito ? "ravito" : "note",
           baseRadius: 9,
           baseWeight: 2.5,
         },
@@ -871,15 +908,15 @@ function buildBoxHouseDivIcon(L, opts) {
 
 function normalizePoint(point) {
   if (Array.isArray(point) && point.length >= 2) {
-    const lat = Number(point[0]);
-    const lng = Number(point[1]);
-    if (Number.isFinite(lat) && Number.isFinite(lng)) return [lat, lng];
-    return null;
+    const c = parseMapCoords(point[0], point[1]);
+    return c ? [c.lat, c.lon] : null;
   }
   if (point && typeof point === "object") {
-    const lat = Number(point.lat ?? point.latitude);
-    const lng = Number(point.lng ?? point.longitude);
-    if (Number.isFinite(lat) && Number.isFinite(lng)) return [lat, lng];
+    const c = parseMapCoords(
+      point.lat ?? point.latitude,
+      point.lng ?? point.longitude
+    );
+    return c ? [c.lat, c.lon] : null;
   }
   return null;
 }
@@ -1917,9 +1954,10 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
     } else {
       boxes.forEach((box) => {
         try {
-          const lat = Number(box.latitude);
-          const lng = Number(box.longitude);
-          if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+          const coords = parseMapCoords(box.latitude, box.longitude);
+          if (!coords) return;
+          const lat = coords.lat;
+          const lng = coords.lon;
           const bid = Number(box.id);
           const isHighlighted =
             Number.isFinite(bid) &&

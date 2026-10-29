@@ -3,6 +3,8 @@ import { StyleSheet, View } from "react-native";
 import MapView, { Marker, Polyline } from "react-native-maps";
 import { Ionicons } from "@expo/vector-icons";
 import { probeTrailAt } from "./trailProfile";
+import { parseMapCoords } from "./geoMap";
+import { MAP_SEL } from "./mapSelectionVisual";
 
 const TRAIL_DIFFICULTY_COLORS = {
   easy: "#16A34A",
@@ -76,9 +78,11 @@ export default function NativeExplorerMap({
   proximityTrailIds = [],
   trailCorridorKm = 2,
   dimIncompatibleBoxes = false,
+  trailMapPoints = [],
   onSelectBox,
   onSelectTrail,
   onTrailProbe,
+  onMapPointClick,
   onMapLongPress,
   onPickLocation,
   onVisibleBoundsChange,
@@ -324,7 +328,9 @@ export default function NativeExplorerMap({
         onPickLocation?.(lat, lng);
       }}
     >
-      {boxes.map((box) => {
+      {(Array.isArray(boxes) ? boxes : []).map((box) => {
+        const coords = parseMapCoords(box.latitude, box.longitude);
+        if (!coords) return null;
         const isCompatible =
           compatibleBoxSet.size === 0 || compatibleBoxSet.has(Number(box.id));
         const isPlanBox = planBoxSet.has(Number(box.id));
@@ -333,37 +339,35 @@ export default function NativeExplorerMap({
           selectedBoxSet.has(Number(box.id));
         const borderColor = isSelected
           ? isPlanBox
-            ? "#4C1D95"
+            ? "#0F766E"
             : "#0F172A"
           : isPlanBox
-          ? "#7C3AED"
+          ? MAP_SEL.boxPlan
           : dimIncompatibleBoxes && !isCompatible
           ? "#94A3B8"
           : "#10B981";
         const bg = isSelected
           ? isPlanBox
-            ? "#A78BFA"
+            ? "#99F6E4"
             : "#14B8A6"
           : isPlanBox
-          ? "#F5F3FF"
+          ? "#F0FDFA"
           : dimIncompatibleBoxes && !isCompatible
           ? "#E2E8F0"
           : "#FFFFFF";
         const iconColor = isSelected
-          ? isPlanBox
-            ? "#4C1D95"
-            : "#0F172A"
+          ? "#0F172A"
           : isPlanBox
-          ? "#5B21B6"
+          ? "#0F766E"
           : dimIncompatibleBoxes && !isCompatible
           ? "#64748B"
           : "#0F766E";
         return (
           <Marker
-            key={box.id}
+            key={`box-${box.id}`}
             coordinate={{
-              latitude: box.latitude,
-              longitude: box.longitude,
+              latitude: coords.lat,
+              longitude: coords.lon,
             }}
             tracksViewChanges={false}
             anchor={{ x: 0.5, y: 1 }}
@@ -385,6 +389,37 @@ export default function NativeExplorerMap({
                 name="home"
                 size={isSelected ? 20 : 17}
                 color={iconColor}
+              />
+            </View>
+          </Marker>
+        );
+      })}
+      {(Array.isArray(trailMapPoints) ? trailMapPoints : []).map((pt) => {
+        const coords = parseMapCoords(pt.lat, pt.lon);
+        if (!coords) return null;
+        const isRavito = Boolean(pt.isRavito || pt.kind === "ravito");
+        return (
+          <Marker
+            key={`pt-${pt.id}`}
+            coordinate={{
+              latitude: coords.lat,
+              longitude: coords.lon,
+            }}
+            tracksViewChanges={false}
+            anchor={{ x: 0.5, y: 0.5 }}
+            zIndex={isRavito ? 480 : 350}
+            onPress={() => onMapPointClick?.(pt)}
+          >
+            <View
+              style={[
+                styles.mapPointOuter,
+                isRavito ? styles.ravitoOuter : styles.noteOuter,
+              ]}
+            >
+              <Ionicons
+                name={isRavito ? "walk" : "location"}
+                size={isRavito ? 16 : 14}
+                color="#fff"
               />
             </View>
           </Marker>
@@ -542,6 +577,26 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 2 },
     shadowRadius: 5,
     elevation: 5,
+  },
+  mapPointOuter: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    borderWidth: 2,
+    borderColor: "#fff",
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: "#0F172A",
+    shadowOpacity: 0.25,
+    shadowOffset: { width: 0, height: 2 },
+    shadowRadius: 4,
+    elevation: 5,
+  },
+  ravitoOuter: {
+    backgroundColor: MAP_SEL.ravito,
+  },
+  noteOuter: {
+    backgroundColor: MAP_SEL.pointPlan,
   },
   trailPointEnd: {
     width: 10,

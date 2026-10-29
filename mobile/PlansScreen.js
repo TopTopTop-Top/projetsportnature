@@ -40,6 +40,7 @@ import {
   bookingPaymentLabel,
 } from "./planBoxReservation";
 import theme from "./theme";
+import { parseMapCoords } from "./geoMap";
 
 const TABBAR_SCROLL_PADDING = Platform.OS === "web" ? 120 : 48;
 
@@ -77,15 +78,13 @@ function computePlanMapCenter(detail, trails, fallbackLat, fallbackLon) {
   const pts = [];
   const boxes = Array.isArray(detail?.boxes) ? detail.boxes : [];
   for (const b of boxes) {
-    const lat = Number(b.latitude);
-    const lng = Number(b.longitude);
-    if (Number.isFinite(lat) && Number.isFinite(lng)) pts.push([lat, lng]);
+    const c = parseMapCoords(b.latitude, b.longitude);
+    if (c) pts.push([c.lat, c.lon]);
   }
   const trailNotes = Array.isArray(detail?.trail_notes) ? detail.trail_notes : [];
   for (const n of trailNotes) {
-    const lat = Number(n.point_lat);
-    const lng = Number(n.point_lon);
-    if (Number.isFinite(lat) && Number.isFinite(lng)) pts.push([lat, lng]);
+    const c = parseMapCoords(n.point_lat, n.point_lon);
+    if (c) pts.push([c.lat, c.lon]);
   }
   const tid = Number(detail?.trail_id);
   const trail = (trails || []).find((t) => Number(t.id) === tid);
@@ -95,9 +94,8 @@ function computePlanMapCenter(detail, trails, fallbackLat, fallbackLon) {
       if (Array.isArray(positions)) {
         for (const p of positions) {
           if (Array.isArray(p) && p.length >= 2) {
-            const lat = Number(p[0]);
-            const lng = Number(p[1]);
-            if (Number.isFinite(lat) && Number.isFinite(lng)) pts.push([lat, lng]);
+            const c = parseMapCoords(p[0], p[1]);
+            if (c) pts.push([c.lat, c.lon]);
           }
         }
       }
@@ -106,10 +104,8 @@ function computePlanMapCenter(detail, trails, fallbackLat, fallbackLon) {
     }
   }
   if (pts.length === 0) {
-    return [
-      Number(fallbackLat) || 45.8992,
-      Number(fallbackLon) || 6.1294,
-    ];
+    const fb = parseMapCoords(fallbackLat, fallbackLon);
+    return fb ? [fb.lat, fb.lon] : [45.8992, 6.1294];
   }
   let sumLat = 0;
   let sumLng = 0;
@@ -158,9 +154,8 @@ function PlanPreviewMap({
     [detail, trails, mapLat, mapLon]
   );
   const center = useMemo(() => {
-    const fl = Number(mapFocusLat);
-    const fn = Number(mapFocusLon);
-    if (Number.isFinite(fl) && Number.isFinite(fn)) return [fl, fn];
+    const focused = parseMapCoords(mapFocusLat, mapFocusLon);
+    if (focused) return [focused.lat, focused.lon];
     return defaultCenter;
   }, [defaultCenter, mapFocusLat, mapFocusLon]);
   const trailMapPoints = useMemo(
@@ -223,6 +218,8 @@ function PlanPreviewMap({
       ) : (
         <NativeExplorerMap
           {...common}
+          trailMapPoints={trailMapPoints}
+          onMapPointClick={onMapPointClick}
           onSelectBox={(boxId) => {
             const bid = Number(boxId);
             if (Number.isFinite(bid)) onSelectBox?.(bid);
@@ -800,10 +797,9 @@ export default function PlansScreen({ appMain = {} }) {
   }, []);
 
   const focusMapOnCoords = useCallback((lat, lon) => {
-    const la = Number(lat);
-    const lo = Number(lon);
-    if (!Number.isFinite(la) || !Number.isFinite(lo)) return;
-    setMapFocus({ lat: la, lon: lo, nonce: Date.now() });
+    const c = parseMapCoords(lat, lon);
+    if (!c) return;
+    setMapFocus({ lat: c.lat, lon: c.lon, nonce: Date.now() });
   }, []);
 
   const handleMapPointClick = useCallback(
@@ -1139,7 +1135,9 @@ export default function PlansScreen({ appMain = {} }) {
           <Text style={styles.projectHeroKicker}>RavitoBox</Text>
           <Text style={styles.projectHeroTitle}>Projets</Text>
           <Text style={styles.projectHeroText}>
-            Trace + box / ravito. Demande → validation → paiement.
+            Créer, affiner ou supprimer tes projets (et voir les publics). La
+            réservation sur carte se fait dans Découvrir ; le suivi dans
+            Réservations.
           </Text>
           <FunnelSteps activeId="ask" compact />
           {isAuthed ? (
