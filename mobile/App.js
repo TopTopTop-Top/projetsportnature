@@ -71,6 +71,7 @@ import {
 } from "./explorerSavedProbesStorage";
 import IntentGuideBanner from "./IntentGuideBanner";
 import ExplorerFocusSheet from "./ExplorerFocusSheet";
+import DiscoverMobileBookingSheet from "./DiscoverMobileBookingSheet";
 import MoreActions from "./MoreActions";
 import CapabilityCards from "./CapabilityCards";
 import FunnelSteps from "./FunnelSteps";
@@ -3953,6 +3954,8 @@ function ExplorerScreen() {
 
   const webSplit = Platform.OS === "web";
   const webDesktopSplit = webSplit && viewportWidth >= 1080;
+  /** Portable / tablette étroite : carte plein écran + bottom sheets. */
+  const mobileMapFirst = !webDesktopSplit;
 
   const EXPLORER_COMPACT_FILTERS_W = 720;
   const explorerCompactFilters = viewportWidth < EXPLORER_COMPACT_FILTERS_W;
@@ -5137,7 +5140,7 @@ function ExplorerScreen() {
             </View>
           </View>
         ) : null}
-        {!webSplit ? (
+        {!webSplit && !mobileMapFirst ? (
           <NativeExplorerMap
             center={webMapCenter}
             boxes={boxesOnMap}
@@ -6840,6 +6843,191 @@ function ExplorerScreen() {
     </>
   );
 
+  const activeProjectLabel = selectedRoutePlanId
+    ? routePlans.find((p) => Number(p.id) === Number(selectedRoutePlanId))
+        ?.name || `Projet #${selectedRoutePlanId}`
+    : null;
+
+  const openMobileProjectPicker = () => {
+    setDiscoverProjectPreviewId(
+      selectedRoutePlanId == null ? "none" : Number(selectedRoutePlanId)
+    );
+    setDiscoverProjectPickerOpen(true);
+  };
+
+  const mobileProjectPickerModal =
+    canBook && Array.isArray(routePlans) && routePlans.length > 0 ? (
+      <Modal
+        visible={discoverProjectPickerOpen}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setDiscoverProjectPickerOpen(false)}
+      >
+        <View style={styles.discoverMobilePickerBackdrop}>
+          <TouchableOpacity
+            style={{ flex: 1 }}
+            activeOpacity={1}
+            onPress={() => setDiscoverProjectPickerOpen(false)}
+          />
+          <View style={styles.discoverMobilePickerSheet}>
+            <View style={styles.discoverMobilePickerGrabber} />
+            <Text style={styles.discoverMobilePickerTitle}>Projet</Text>
+            {(() => {
+              const previewPlan =
+                discoverProjectPreviewId === "none" ||
+                discoverProjectPreviewId == null
+                  ? null
+                  : routePlans.find(
+                      (p) => Number(p.id) === Number(discoverProjectPreviewId)
+                    );
+              const recap = planPreviewRecap(previewPlan);
+              const canActivate =
+                discoverProjectPreviewId === "none"
+                  ? selectedRoutePlanId != null
+                  : Number(discoverProjectPreviewId) !==
+                    Number(selectedRoutePlanId);
+              return (
+                <View style={styles.discoverMobilePreviewCard}>
+                  <Text style={styles.discoverProjectPreviewKicker}>
+                    Aperçu
+                  </Text>
+                  <Text style={styles.discoverMobilePreviewTitle}>
+                    {recap.title}
+                  </Text>
+                  {recap.lines.map((line, i) => (
+                    <Text key={`mp-${i}`} style={styles.discoverMobilePreviewLine}>
+                      {line}
+                    </Text>
+                  ))}
+                  <TouchableOpacity
+                    style={[
+                      styles.discoverProjectActivateBtn,
+                      !canActivate && styles.discoverProjectActivateBtnMuted,
+                    ]}
+                    disabled={!canActivate}
+                    onPress={() => {
+                      if (discoverProjectPreviewId === "none") {
+                        setSelectedRoutePlanId(null);
+                        setSelectedRoutePlanDetail(null);
+                      } else if (
+                        Number.isFinite(Number(discoverProjectPreviewId))
+                      ) {
+                        const pid = Number(discoverProjectPreviewId);
+                        setSelectedRoutePlanId(pid);
+                        actionsRef.current.loadRoutePlanDetail?.(pid);
+                      }
+                      setDiscoverProjectPickerOpen(false);
+                    }}
+                    activeOpacity={0.88}
+                  >
+                    <Text style={styles.discoverProjectActivateBtnText}>
+                      {discoverProjectPreviewId === "none"
+                        ? "Explorer sans projet"
+                        : canActivate
+                        ? "Activer ce projet"
+                        : "Déjà actif"}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              );
+            })()}
+            <ScrollView style={{ maxHeight: 220 }}>
+              <TouchableOpacity
+                style={styles.discoverMobilePickerRow}
+                onPress={() => setDiscoverProjectPreviewId("none")}
+              >
+                <Text style={styles.discoverMobilePickerRowTitle}>Aucun</Text>
+                <Text style={styles.discoverMobilePickerRowMeta}>
+                  Carte libre
+                </Text>
+              </TouchableOpacity>
+              {routePlans.map((plan) => {
+                const pid = Number(plan.id);
+                const recap = planPreviewRecap(plan);
+                return (
+                  <TouchableOpacity
+                    key={`mproj-${pid}`}
+                    style={styles.discoverMobilePickerRow}
+                    onPress={() => setDiscoverProjectPreviewId(pid)}
+                  >
+                    <Text style={styles.discoverMobilePickerRowTitle}>
+                      {recap.title}
+                    </Text>
+                    <Text style={styles.discoverMobilePickerRowMeta}>
+                      {recap.lines[0]}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+    ) : null;
+
+  const mobileBookingSheet = canBook ? (
+    <DiscoverMobileBookingSheet
+      visible={Boolean(selectedBox)}
+      box={selectedBox}
+      projectLabel={activeProjectLabel}
+      bookingDate={bookingDate}
+      onDateChange={setBookingDate}
+      startTime={startTime}
+      onStartChange={setStartTime}
+      endTime={endTime}
+      onEndChange={setEndTime}
+      specialRequest={specialRequest}
+      onSpecialRequestChange={setSpecialRequest}
+      needChips={BOOKING_NEED_CHIPS}
+      DateTimeSelector={DateTimeSelector}
+      formatOfferLines={formatBoxOfferLines}
+      onClose={() => setSelectedBoxId(null)}
+      onSubmit={() => confirmBookingFromExplorer(selectedBox.id)}
+      onRequestRavito={() => {
+        const lat = Number(selectedBox?.latitude);
+        const lon = Number(selectedBox?.longitude);
+        if (Number.isFinite(lat) && Number.isFinite(lon)) {
+          openRavitoRequestAtPoint?.({ lat, lon, source: "box" });
+        } else {
+          openRavitoRequestAtPoint?.({ source: "map" });
+        }
+      }}
+    />
+  ) : null;
+
+  const mobileDiscoverHud = (
+    <View style={styles.discoverMobileHud} pointerEvents="box-none">
+      <TouchableOpacity
+        style={styles.discoverMobileHudBtn}
+        onPress={openMobileProjectPicker}
+        activeOpacity={0.88}
+      >
+        <Ionicons name="flag-outline" size={16} color="#fff" />
+        <Text style={styles.discoverMobileHudBtnText} numberOfLines={1}>
+          {activeProjectLabel || "Projet"}
+        </Text>
+        <Ionicons name="chevron-down" size={14} color="rgba(255,255,255,0.7)" />
+      </TouchableOpacity>
+      <TouchableOpacity
+        style={styles.discoverMobileHudGhost}
+        onPress={() => setShowBoxFilters(true)}
+        activeOpacity={0.88}
+      >
+        <Ionicons name="options-outline" size={16} color={theme.ink} />
+        <Text style={styles.discoverMobileHudGhostText}>Filtres</Text>
+      </TouchableOpacity>
+    </View>
+  );
+
+  const mobilePeekHint =
+    !selectedBox && !selectedTrail ? (
+      <View style={styles.discoverMobilePeek} pointerEvents="none">
+        <Text style={styles.discoverMobilePeekText}>
+          Touche une box sur la carte pour réserver
+        </Text>
+      </View>
+    ) : null;
+
   if (webSplit) {
     if (webDesktopSplit) {
       return (
@@ -7111,175 +7299,225 @@ function ExplorerScreen() {
       );
     }
 
+    // Web mobile / tablette : carte plein écran + sheets
     return (
       <SafeAreaView style={styles.screen} edges={["left", "right"]}>
-        <View style={styles.explorerWebColumn}>
-          <ScrollView
-            ref={explorerScrollRef}
-            style={styles.explorerWebScroll}
-            contentContainerStyle={[
-              styles.content,
-              WEB_READABLE,
-              { paddingBottom: 12 },
-            ]}
-            showsVerticalScrollIndicator
-            keyboardShouldPersistTaps="handled"
-          >
-            {explorerScrollContent}
-          </ScrollView>
-          <View style={styles.explorerWebMapHost}>
-            <Text style={styles.webMapPaneCaption}>
-              Carte — molette : zoom · glisser : déplacer
-            </Text>
-            <View
-              style={[
-                styles.explorerWebMapInner,
-                selectedTrail && styles.explorerWebMapInnerRelative,
-              ]}
-            >
-              <ExplorerWebMap
-                center={webMapCenter}
-                boxes={boxesOnMap}
-                trails={trailsOnMapDisplay}
-                selectedTrailIds={mapTrailPickIds}
-                selectedTrailId={selectedTrailId}
-                hoveredTrailId={explorerHoveredTrailId}
-                onHoverTrail={setExplorerHoveredTrailId}
-                selectedBoxId={selectedBoxId}
-                spotlightBoxId={spotlightBoxId}
-                selectedBoxIds={mapPickedBoxIds}
-                planBoxIds={activePlanBoxIds}
-                compatibleBoxIds={nearTrailCompatibleBoxIds}
-                proximityTrailIds={nearTrailReferenceTrails.map((t) =>
-                  Number(t.id)
-                )}
-                trailCorridorKm={Number(mapTrailProximityKm) || 2}
-                dimIncompatibleBoxes={
-                  mapBoxesNearTrailsOnly && mapNearShowAllOnMap
-                }
-                onSelectBox={focusExplorerBox}
-                onSelectTrail={focusExplorerTrail}
-                onTrailProbe={setExplorerTrailProbe}
-                trailProbe={
-                  selectedTrail &&
-                  explorerTrailProbe &&
-                  Number(explorerTrailProbe.trailId) ===
-                    Number(selectedTrail.id)
-                    ? explorerTrailProbe
-                    : null
-                }
-                savedTrailProbes={savedProbesForMap}
-                communityTrailTips={communityTipsForMap}
-                trailMapPoints={trailMapPoints}
-                mapPointHoverEnabled={false}
-                highlightedMapPointId={highlightedMapPointId}
-                onMapPointHover={handleMapPointHover}
-                onMapPointClick={handleTrailMapPointClick}
-                highlightedPlanBoxId={highlightedPlanBoxId}
-                onPlanBoxHover={handlePlanBoxHover}
-                lockTrailProbe={explorerProbeLocked || chartProbeHover}
-                onTrailProbeLock={setExplorerProbeLock}
-                onRequestExitTrailSelection={handleRequestExitExplorerTrail}
-                onMapLongPress={handleExplorerMapLongPress}
-                onPickLocation={handleExplorerMapTap}
-                onVisibleBoundsChange={setMapViewportBounds}
-                onUserMapGesture={() =>
-                  actionsRef.current.markExplorerMapUserGesture?.()
-                }
-                autoFitToData={false}
-                followExternalCenter={
-                  mapExplorerCameraFollowSearch &&
-                  !(mapListSource === "viewport" && selectedBoxId == null)
-                }
-                recenterNonce={mapExplorerRecenterNonce}
-                pickedMapPoint={lastMapTapCoords || undefined}
-                staticOrigin={API_STATIC_ORIGIN}
-                inFixedPane
-              />
-              {selectedTrail && explorerProbeLocked ? (
-                <ExplorerMapChrome
-                  probe={
-                    explorerTrailProbe &&
-                    Number(explorerTrailProbe.trailId) ===
-                      Number(selectedTrail.id)
-                      ? explorerTrailProbe
-                      : null
-                  }
-                  probeLocked={explorerProbeLocked}
-                  onToggleProbeLock={(locked) => {
-                    if (locked) {
-                      if (
-                        !explorerTrailProbe ||
-                        Number(explorerTrailProbe.trailId) !==
-                          Number(selectedTrail.id)
-                      ) {
-                        userAlert(
-                          "Point sur la trace",
-                          "Survole la trace ou clique dessus pour figer un point."
-                        );
-                        return;
-                      }
-                      setExplorerProbeLock(true);
-                      return;
-                    }
-                    setExplorerProbeLock(false);
-                    setExplorerTrailProbe(null);
-                  }}
-                  onExitTrail={handleRequestExitExplorerTrail}
-                />
-              ) : null}
-            </View>
+        <View style={styles.discoverMobileRoot}>
+          <View style={styles.discoverMobileMapFill}>
+            <ExplorerWebMap
+              center={webMapCenter}
+              boxes={boxesOnMap}
+              trails={trailsOnMapDisplay}
+              selectedTrailIds={mapTrailPickIds}
+              selectedTrailId={selectedTrailId}
+              hoveredTrailId={explorerHoveredTrailId}
+              onHoverTrail={setExplorerHoveredTrailId}
+              selectedBoxId={selectedBoxId}
+              spotlightBoxId={spotlightBoxId}
+              selectedBoxIds={mapPickedBoxIds}
+              planBoxIds={activePlanBoxIds}
+              compatibleBoxIds={nearTrailCompatibleBoxIds}
+              proximityTrailIds={nearTrailReferenceTrails.map((t) =>
+                Number(t.id)
+              )}
+              trailCorridorKm={Number(mapTrailProximityKm) || 2}
+              dimIncompatibleBoxes={
+                mapBoxesNearTrailsOnly && mapNearShowAllOnMap
+              }
+              onSelectBox={focusExplorerBox}
+              onSelectTrail={focusExplorerTrail}
+              onTrailProbe={setExplorerTrailProbe}
+              trailProbe={
+                selectedTrail &&
+                explorerTrailProbe &&
+                Number(explorerTrailProbe.trailId) === Number(selectedTrail.id)
+                  ? explorerTrailProbe
+                  : null
+              }
+              savedTrailProbes={savedProbesForMap}
+              communityTrailTips={communityTipsForMap}
+              trailMapPoints={trailMapPoints}
+              mapPointHoverEnabled={false}
+              highlightedMapPointId={highlightedMapPointId}
+              onMapPointHover={handleMapPointHover}
+              onMapPointClick={handleTrailMapPointClick}
+              highlightedPlanBoxId={highlightedPlanBoxId}
+              onPlanBoxHover={handlePlanBoxHover}
+              lockTrailProbe={explorerProbeLocked || chartProbeHover}
+              onTrailProbeLock={setExplorerProbeLock}
+              onRequestExitTrailSelection={handleRequestExitExplorerTrail}
+              onMapLongPress={handleExplorerMapLongPress}
+              onPickLocation={handleExplorerMapTap}
+              onVisibleBoundsChange={setMapViewportBounds}
+              onUserMapGesture={() =>
+                actionsRef.current.markExplorerMapUserGesture?.()
+              }
+              autoFitToData={false}
+              followExternalCenter={
+                mapExplorerCameraFollowSearch &&
+                !(mapListSource === "viewport" && selectedBoxId == null)
+              }
+              recenterNonce={mapExplorerRecenterNonce}
+              pickedMapPoint={lastMapTapCoords || undefined}
+              staticOrigin={API_STATIC_ORIGIN}
+              inFixedPane
+            />
           </View>
+          {mobileDiscoverHud}
+          {mobilePeekHint}
+          {mobileProjectPickerModal}
+          {mobileBookingSheet}
+          <ExplorerFocusSheet
+            visible={Boolean(selectedTrail) && !selectedBox}
+            kind="trail"
+            title={selectedTrail?.name || ""}
+            subtitle={
+              selectedTrail
+                ? `${selectedTrail.territory || ""} · ${
+                    selectedTrail.distance_km || "?"
+                  } km`
+                : ""
+            }
+            metaLines={
+              selectedTrail
+                ? [
+                    `${DIFFICULTY_LABELS[selectedTrail.difficulty] || selectedTrail.difficulty}`,
+                    formatTrailElevationSummary(selectedTrail),
+                  ].filter(Boolean)
+                : []
+            }
+            picked={
+              selectedTrail
+                ? mapTrailPickIds.includes(Number(selectedTrail.id))
+                : false
+            }
+            canBook={false}
+            onClose={() => handleRequestExitExplorerTrail()}
+            onTogglePick={
+              selectedTrail
+                ? () => toggleExplorerPickedTrail(Number(selectedTrail.id))
+                : undefined
+            }
+            onSavePlan={
+              selectedTrail
+                ? () => {
+                    setExplorerWorkspaceTab("plan");
+                    saveExplorerRoutePlan();
+                  }
+                : undefined
+            }
+            onCenterMap={
+              selectedTrail
+                ? () => actionsRef.current.centerMapOnTrail?.(selectedTrail.id)
+                : undefined
+            }
+          />
+          {showBoxFilters ? (
+            <Modal
+              visible
+              transparent
+              animationType="slide"
+              onRequestClose={() => setShowBoxFilters(false)}
+            >
+              <View style={styles.explorerFilterModalBackdrop}>
+                <TouchableOpacity
+                  style={styles.explorerFilterModalDismiss}
+                  activeOpacity={1}
+                  onPress={() => setShowBoxFilters(false)}
+                />
+                <View style={styles.explorerFilterModalSheet}>
+                  <View style={styles.dateTimeSheetHeader}>
+                    <Text style={styles.dateTimeSheetTitle}>Filtres box</Text>
+                    <TouchableOpacity
+                      onPress={() => setShowBoxFilters(false)}
+                      hitSlop={12}
+                      style={styles.dateTimeCloseBtn}
+                    >
+                      <Ionicons name="close" size={22} color={theme.inkMuted} />
+                    </TouchableOpacity>
+                  </View>
+                  <ScrollView
+                    style={styles.explorerFilterModalScroll}
+                    keyboardShouldPersistTaps="handled"
+                  >
+                    {explorerBoxFiltersChildren}
+                    {explorerBoxSortChildren}
+                  </ScrollView>
+                  <View style={styles.dateTimeSheetFooter}>
+                    <PrimaryButton
+                      compact
+                      stretch
+                      label="Terminé"
+                      icon="checkmark-outline"
+                      onPress={() => setShowBoxFilters(false)}
+                    />
+                  </View>
+                </View>
+              </View>
+            </Modal>
+          ) : null}
         </View>
       </SafeAreaView>
     );
   }
 
+  // Native : carte plein écran + sheets
   return (
     <SafeAreaView style={styles.screen} edges={["left", "right"]}>
-      <ScrollView
-        ref={explorerScrollRef}
-        style={styles.scrollFlex}
-        contentContainerStyle={[
-          styles.content,
-          WEB_READABLE,
-          { paddingBottom: TABBAR_SCROLL_PADDING },
-        ]}
-        showsVerticalScrollIndicator={false}
-        keyboardShouldPersistTaps="handled"
+      <View
+        style={[styles.discoverMobileRoot, { paddingBottom: TABBAR_SCROLL_PADDING }]}
       >
-        {explorerScrollContent}
-      </ScrollView>
-      {!webSplit ? (
+        <View style={styles.discoverMobileMapFill}>
+          <NativeExplorerMap
+            center={webMapCenter}
+            boxes={boxesOnMap}
+            trails={trailsOnMap}
+            selectedTrailIds={mapTrailPickIds}
+            selectedTrailId={selectedTrailId}
+            selectedBoxId={selectedBoxId}
+            spotlightBoxId={spotlightBoxId}
+            selectedBoxIds={mapPickedBoxIds}
+            planBoxIds={activePlanBoxIds}
+            compatibleBoxIds={nearTrailCompatibleBoxIds}
+            proximityTrailIds={nearTrailReferenceTrails.map((t) =>
+              Number(t.id)
+            )}
+            trailCorridorKm={Number(mapTrailProximityKm) || 2}
+            dimIncompatibleBoxes={
+              mapBoxesNearTrailsOnly && mapNearShowAllOnMap
+            }
+            onSelectBox={focusExplorerBox}
+            onSelectTrail={focusExplorerTrail}
+            onTrailProbe={setExplorerTrailProbe}
+            onMapLongPress={handleExplorerMapLongPress}
+            onPickLocation={handleExplorerMapTap}
+            onVisibleBoundsChange={setMapViewportBounds}
+            onPanDrag={() => actionsRef.current.markExplorerMapUserGesture?.()}
+            followExternalCenter={
+              mapExplorerCameraFollowSearch &&
+              !(mapListSource === "viewport" && selectedBoxId == null)
+            }
+            recenterNonce={mapExplorerRecenterNonce}
+            pickedMapPoint={lastMapTapCoords || undefined}
+          />
+        </View>
+        {mobileDiscoverHud}
+        {mobilePeekHint}
+        {mobileProjectPickerModal}
+        {mobileBookingSheet}
         <ExplorerFocusSheet
-          visible={Boolean(selectedBox || selectedTrail)}
-          kind={selectedBox ? "box" : "trail"}
-          title={
-            selectedBox
-              ? selectedBox.title
-              : selectedTrail
-              ? selectedTrail.name
-              : ""
-          }
+          visible={Boolean(selectedTrail) && !selectedBox}
+          kind="trail"
+          title={selectedTrail?.name || ""}
           subtitle={
-            selectedBox
-              ? `${selectedBox.city || ""} · ${(
-                  Number(selectedBox.price_cents || 0) / 100
-                ).toFixed(2)} €`
-              : selectedTrail
+            selectedTrail
               ? `${selectedTrail.territory || ""} · ${
                   selectedTrail.distance_km || "?"
                 } km`
               : ""
           }
           metaLines={
-            selectedBox
-              ? [
-                  boxWaterLabel(selectedBox),
-                  formatHostRatingShort(selectedBox) ||
-                    "Hôte sans avis réservation",
-                ].filter(Boolean)
-              : selectedTrail
+            selectedTrail
               ? [
                   `${DIFFICULTY_LABELS[selectedTrail.difficulty] || selectedTrail.difficulty}`,
                   formatTrailElevationSummary(selectedTrail),
@@ -7287,25 +7525,15 @@ function ExplorerScreen() {
               : []
           }
           picked={
-            selectedBox
-              ? safePickedBoxIds.includes(Number(selectedBox.id))
-              : selectedTrail
+            selectedTrail
               ? mapTrailPickIds.includes(Number(selectedTrail.id))
               : false
           }
-          canBook={canBook}
-          onClose={() => {
-            if (selectedBox) setSelectedBoxId(null);
-            else if (selectedTrail) handleRequestExitExplorerTrail();
-          }}
-          onTogglePick={() => {
-            if (selectedBox) toggleExplorerPickedBox(Number(selectedBox.id));
-            else if (selectedTrail)
-              toggleExplorerPickedTrail(Number(selectedTrail.id));
-          }}
-          onBook={
-            selectedBox
-              ? () => startBookingFromExplorer(selectedBox.id)
+          canBook={false}
+          onClose={() => handleRequestExitExplorerTrail()}
+          onTogglePick={
+            selectedTrail
+              ? () => toggleExplorerPickedTrail(Number(selectedTrail.id))
               : undefined
           }
           onSavePlan={
@@ -7317,14 +7545,56 @@ function ExplorerScreen() {
               : undefined
           }
           onCenterMap={
-            selectedBox
-              ? () => focusExplorerBox(selectedBox.id)
-              : selectedTrail
+            selectedTrail
               ? () => actionsRef.current.centerMapOnTrail?.(selectedTrail.id)
               : undefined
           }
         />
-      ) : null}
+        {showBoxFilters ? (
+          <Modal
+            visible
+            transparent
+            animationType="slide"
+            onRequestClose={() => setShowBoxFilters(false)}
+          >
+            <View style={styles.explorerFilterModalBackdrop}>
+              <TouchableOpacity
+                style={styles.explorerFilterModalDismiss}
+                activeOpacity={1}
+                onPress={() => setShowBoxFilters(false)}
+              />
+              <View style={styles.explorerFilterModalSheet}>
+                <View style={styles.dateTimeSheetHeader}>
+                  <Text style={styles.dateTimeSheetTitle}>Filtres box</Text>
+                  <TouchableOpacity
+                    onPress={() => setShowBoxFilters(false)}
+                    hitSlop={12}
+                    style={styles.dateTimeCloseBtn}
+                  >
+                    <Ionicons name="close" size={22} color={theme.inkMuted} />
+                  </TouchableOpacity>
+                </View>
+                <ScrollView
+                  style={styles.explorerFilterModalScroll}
+                  keyboardShouldPersistTaps="handled"
+                >
+                  {explorerBoxFiltersChildren}
+                  {explorerBoxSortChildren}
+                </ScrollView>
+                <View style={styles.dateTimeSheetFooter}>
+                  <PrimaryButton
+                    compact
+                    stretch
+                    label="Terminé"
+                    icon="checkmark-outline"
+                    onPress={() => setShowBoxFilters(false)}
+                  />
+                </View>
+              </View>
+            </View>
+          </Modal>
+        ) : null}
+      </View>
     </SafeAreaView>
   );
 }
@@ -16379,6 +16649,141 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: "rgba(255,255,255,0.12)",
+  },
+  discoverMobileRoot: {
+    flex: 1,
+    minHeight: 0,
+    position: "relative",
+    backgroundColor: theme.bg,
+  },
+  discoverMobileMapFill: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  discoverMobileHud: {
+    position: "absolute",
+    top: 10,
+    left: 10,
+    right: 10,
+    zIndex: 30,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  discoverMobileHudBtn: {
+    flex: 1,
+    minWidth: 0,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: theme.radius.sm,
+    backgroundColor: theme.hero,
+  },
+  discoverMobileHudBtnText: {
+    flex: 1,
+    color: "#fff",
+    fontSize: 13,
+    fontWeight: "700",
+    fontFamily: theme.font,
+  },
+  discoverMobileHudGhost: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: theme.radius.sm,
+    backgroundColor: "rgba(255,255,255,0.94)",
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: theme.border,
+  },
+  discoverMobileHudGhostText: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: theme.ink,
+  },
+  discoverMobilePeek: {
+    position: "absolute",
+    left: 12,
+    right: 12,
+    bottom: 18,
+    zIndex: 25,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderRadius: theme.radius.md,
+    backgroundColor: "rgba(16, 22, 20, 0.88)",
+  },
+  discoverMobilePeekText: {
+    color: "#FAFAFA",
+    fontSize: 13,
+    fontWeight: "600",
+    textAlign: "center",
+    fontFamily: theme.font,
+  },
+  discoverMobilePickerBackdrop: {
+    flex: 1,
+    justifyContent: "flex-end",
+    backgroundColor: "rgba(16, 22, 20, 0.45)",
+  },
+  discoverMobilePickerSheet: {
+    backgroundColor: theme.surface,
+    borderTopLeftRadius: 18,
+    borderTopRightRadius: 18,
+    paddingHorizontal: 14,
+    paddingBottom: Platform.OS === "ios" ? 28 : 16,
+    maxHeight: "78%",
+  },
+  discoverMobilePickerGrabber: {
+    alignSelf: "center",
+    width: 40,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: theme.border,
+    marginTop: 10,
+    marginBottom: 8,
+  },
+  discoverMobilePickerTitle: {
+    fontSize: 16,
+    fontWeight: "800",
+    color: theme.ink,
+    fontFamily: theme.fontDisplay,
+    textTransform: "uppercase",
+    marginBottom: 10,
+  },
+  discoverMobilePreviewCard: {
+    padding: 12,
+    borderRadius: theme.radius.sm,
+    backgroundColor: theme.primarySoft,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: theme.border,
+    marginBottom: 10,
+  },
+  discoverMobilePreviewTitle: {
+    fontSize: 15,
+    fontWeight: "800",
+    color: theme.ink,
+    marginBottom: 4,
+  },
+  discoverMobilePreviewLine: {
+    fontSize: 12,
+    color: theme.inkMuted,
+    lineHeight: 17,
+  },
+  discoverMobilePickerRow: {
+    paddingVertical: 12,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: theme.borderSoft,
+  },
+  discoverMobilePickerRowTitle: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: theme.ink,
+  },
+  discoverMobilePickerRowMeta: {
+    marginTop: 2,
+    fontSize: 12,
+    color: theme.inkMuted,
   },
   discoverMapHud: {
     position: "absolute",
