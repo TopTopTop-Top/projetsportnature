@@ -1,25 +1,25 @@
 /**
  * Langage visuel commun — sélection carte (waypoints, box, survol panneau).
- * Aligné sur le thème outdoor (teal forêt), anneaux doux, pas de flash.
+ * Accent orange athletic + teal pour traces / box nature.
  */
 import { theme } from "./theme";
 
 export const MAP_SEL = {
   focus: theme.focus,
   focusSoft: theme.focusSoft,
-  focusMid: "rgba(13, 115, 119, 0.28)",
+  focusMid: "rgba(234, 88, 12, 0.28)",
   spotlight: theme.accent,
-  spotlightSoft: "rgba(194, 65, 12, 0.14)",
-  spotlightMid: "rgba(194, 65, 12, 0.26)",
+  spotlightSoft: "rgba(234, 88, 12, 0.14)",
+  spotlightMid: "rgba(234, 88, 12, 0.26)",
   white: theme.white,
   ink: theme.ink,
   muted: theme.inkMuted,
-  pointPlan: "#64748B",
+  pointPlan: "#71717A",
   pointDraft: theme.primary,
   pointShared: "#B45309",
-  pointTip: "#0F766E",
-  boxPlan: "#0F766E",
-  boxDefault: "#0D7377",
+  pointTip: theme.mapTeal || "#0D9488",
+  boxPlan: theme.mapTeal || "#0D9488",
+  boxDefault: theme.picked || "#0F766E",
 };
 
 /** @typedef {'idle' | 'hover' | 'focus' | 'spotlight'} MapSelectionTier */

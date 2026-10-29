@@ -340,13 +340,13 @@ export default function CreateProjectWizard({
 const styles = StyleSheet.create({
   backdrop: {
     flex: 1,
-    backgroundColor: "rgba(11, 31, 24, 0.45)",
+    backgroundColor: "rgba(24, 24, 27, 0.55)",
     justifyContent: "flex-end",
   },
   sheet: {
     backgroundColor: theme.surface,
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
+    borderTopLeftRadius: theme.radius?.lg || 22,
+    borderTopRightRadius: theme.radius?.lg || 22,
     maxHeight: "92%",
     paddingBottom: Platform.OS === "web" ? 16 : 28,
   },
@@ -359,9 +359,11 @@ const styles = StyleSheet.create({
     paddingBottom: 8,
   },
   title: {
-    fontSize: 18,
+    fontSize: 20,
     fontWeight: "800",
     color: theme.ink,
+    letterSpacing: -0.4,
+    fontFamily: theme.fontDisplay,
   },
   body: {
     paddingHorizontal: 16,
