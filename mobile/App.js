@@ -1232,19 +1232,31 @@ function confirmExitTrailSelection() {
   });
 }
 
-function Section({ title, subtitle, icon, children, onLayout }) {
+function Section({ title, subtitle, icon, children, onLayout, flat }) {
   return (
-    <View style={styles.section} onLayout={onLayout}>
-      <View style={styles.sectionHeader}>
-        {icon ? (
+    <View
+      style={[styles.section, flat && styles.sectionFlat]}
+      onLayout={onLayout}
+    >
+      <View style={[styles.sectionHeader, flat && styles.sectionHeaderFlat]}>
+        {icon && !flat ? (
           <View style={styles.sectionIconWrap}>
             <Ionicons name={icon} size={20} color={theme.primary} />
           </View>
         ) : null}
         <View style={styles.sectionHeaderText}>
-          <Text style={styles.sectionTitle}>{title}</Text>
+          <Text style={[styles.sectionTitle, flat && styles.sectionTitleFlat]}>
+            {title}
+          </Text>
           {subtitle ? (
-            <Text style={styles.sectionSubtitle}>{subtitle}</Text>
+            <Text
+              style={[
+                styles.sectionSubtitle,
+                flat && styles.sectionSubtitleFlat,
+              ]}
+            >
+              {subtitle}
+            </Text>
           ) : null}
         </View>
       </View>
@@ -4721,10 +4733,11 @@ function ExplorerScreen() {
   const explorerScrollContent = (
     <>
       <View style={styles.discoverCoach}>
-        <Text style={styles.discoverCoachTitle}>Découvrir → réserver</Text>
+        <Text style={styles.discoverCoachKicker}>RavitoBox</Text>
+        <Text style={styles.discoverCoachTitle}>Découvrir</Text>
         <Text style={styles.discoverCoachText}>
-          1) Choisis un projet (optionnel) · 2) Touche une box sur la carte · 3)
-          Créneau + besoins · 4) Envoie la demande (paiement après validation)
+          Projet → box sur la carte → créneau → demande. Paiement après
+          validation.
         </Text>
         {canBook && Array.isArray(routePlans) && routePlans.length > 0 ? (
           <>
@@ -4736,8 +4749,8 @@ function ExplorerScreen() {
             >
               <TouchableOpacity
                 style={[
-                  styles.roleChip,
-                  !selectedRoutePlanId && styles.roleChipActive,
+                  styles.discoverChip,
+                  !selectedRoutePlanId && styles.discoverChipOn,
                 ]}
                 onPress={() => {
                   setSelectedRoutePlanId(null);
@@ -4747,8 +4760,8 @@ function ExplorerScreen() {
               >
                 <Text
                   style={[
-                    styles.roleChipText,
-                    !selectedRoutePlanId && styles.roleChipTextActive,
+                    styles.discoverChipText,
+                    !selectedRoutePlanId && styles.discoverChipTextOn,
                   ]}
                 >
                   Aucun
@@ -4760,7 +4773,10 @@ function ExplorerScreen() {
                 return (
                   <TouchableOpacity
                     key={`xp-${pid}`}
-                    style={[styles.roleChip, on && styles.roleChipActive]}
+                    style={[
+                      styles.discoverChip,
+                      on && styles.discoverChipOn,
+                    ]}
                     onPress={() => {
                       setSelectedRoutePlanId(pid);
                       actionsRef.current.loadRoutePlanDetail?.(pid);
@@ -4769,8 +4785,8 @@ function ExplorerScreen() {
                   >
                     <Text
                       style={[
-                        styles.roleChipText,
-                        on && styles.roleChipTextActive,
+                        styles.discoverChipText,
+                        on && styles.discoverChipTextOn,
                       ]}
                       numberOfLines={1}
                     >
@@ -4782,25 +4798,17 @@ function ExplorerScreen() {
             </ScrollView>
           </>
         ) : canBook ? (
-          <OutlineButton
-            compact
-            stretch
-            label="Créer un projet (onglet Projets)"
-            icon="add-outline"
+          <TouchableOpacity
+            style={styles.discoverChipOn}
             onPress={() =>
               mainTabNavigationRef.current?.navigate?.("Plans")
             }
-          />
+            activeOpacity={0.85}
+          >
+            <Text style={styles.discoverChipTextOn}>+ Créer un projet</Text>
+          </TouchableOpacity>
         ) : null}
       </View>
-      <IntentGuideBanner
-        guideId="decouvrir"
-        title="Découvrir"
-        lines={[
-          "Carte → box ou trace. Réserve avec créneau + besoins.",
-          "Suivi dans Réservations. Projets pour composer l’aventure.",
-        ]}
-      />
       {!simpleUi ? (
         <OutlineButton
           compact
@@ -4811,9 +4819,9 @@ function ExplorerScreen() {
         />
       ) : null}
       <Section
-        title="Carte"
-        subtitle="Touche une box pour ouvrir la réservation ci-dessous."
-        icon="map-outline"
+        flat
+        title="Sur la carte"
+        subtitle="Touche une box pour réserver."
       >
         <View style={styles.explorerMapSearchRow}>
           <TouchableOpacity
@@ -4821,7 +4829,7 @@ function ExplorerScreen() {
             onPress={() => setShowBoxFilters(true)}
             activeOpacity={0.85}
           >
-            <Ionicons name="options-outline" size={20} color="#fff" />
+            <Ionicons name="options-outline" size={18} color={theme.ink} />
             <Text style={styles.explorerFilterCTAText}>
               {mapListSource === "city"
                 ? "Zone : ville"
@@ -4845,26 +4853,23 @@ function ExplorerScreen() {
           ) : null}
         </View>
         <View style={styles.statBanner}>
-          <View style={styles.statBannerIcon}>
-            <Ionicons name="cube-outline" size={22} color={theme.primary} />
-          </View>
+          <Ionicons
+            name="cube-outline"
+            size={18}
+            color={theme.inkMuted}
+            style={styles.statBannerIcon}
+          />
           <View style={{ flex: 1 }}>
             <Text style={styles.statBannerTitle}>
               {boxes.length === 0
                 ? "Aucune box dans cette zone"
-                : `${boxes.length} box · ${
-                    mapTrailPickIds.length
-                  } trace${mapTrailPickIds.length > 1 ? "s" : ""} au plan`}
+                : `${boxes.length} box dans la zone`}
             </Text>
-            {!simpleUi ? (
+            {boxes.length === 0 ? (
               <Text style={styles.statBannerText}>
-                Focus = regarder · Plan = long-press ou bouton « Ajouter »
+                Déplace la carte ou change la zone.
               </Text>
-            ) : (
-              <Text style={styles.statBannerText}>
-                Touche une box pour la réserver
-              </Text>
-            )}
+            ) : null}
           </View>
         </View>
         {!simpleUi ||
@@ -5694,98 +5699,101 @@ function ExplorerScreen() {
             ) : null}
           </View>
         ) : null}
-        <View style={[styles.selectedHostCard, { marginTop: 8 }]}>
-          <Text style={styles.selectedLabel}>Mes plans enregistrés</Text>
-          <Text style={styles.helperText}>
-            Retrouve un plan même si tu n'es plus sur la même trace.
-          </Text>
-          <TextInput
-            style={styles.input}
-            placeholder="Rechercher un plan (nom, trace, territoire)"
-            placeholderTextColor={theme.inkMuted}
-            value={planSearchQuery}
-            onChangeText={setPlanSearchQuery}
-          />
-          {filteredRoutePlans.length === 0 ? (
-            <Text style={styles.emptyText}>
-              Aucun plan trouvé avec ce filtre.
+        {!simpleUi ? (
+          <View style={[styles.selectedHostCard, { marginTop: 8 }]}>
+            <Text style={styles.selectedLabel}>Mes plans enregistrés</Text>
+            <Text style={styles.helperText}>
+              Retrouve un plan même si tu n'es plus sur la même trace.
             </Text>
-          ) : (
-            <ScrollView
-              style={styles.trailPickScroll}
-              nestedScrollEnabled
-              keyboardShouldPersistTaps="handled"
-            >
-              {filteredRoutePlans.map((plan) => {
-                const active = Number(selectedRoutePlanId) === Number(plan.id);
-                return (
-                  <View
-                    key={`saved-plan-${plan.id}`}
-                    style={[
-                      styles.trailPickRow,
-                      active ? styles.trailPickRowActive : null,
-                    ]}
-                  >
-                    <TouchableOpacity
-                      style={{
-                        flex: 1,
-                        flexDirection: "row",
-                        alignItems: "center",
-                      }}
-                      onPress={() => {
-                        setSelectedRoutePlanId(Number(plan.id));
-                        actionsRef.current.loadRoutePlanDetail?.(plan.id);
-                        if (Number.isFinite(Number(plan.trail_id))) {
-                          setSelectedTrailId(Number(plan.trail_id));
-                        }
-                      }}
-                      activeOpacity={0.85}
+            <TextInput
+              style={styles.input}
+              placeholder="Rechercher un plan (nom, trace, territoire)"
+              placeholderTextColor={theme.inkMuted}
+              value={planSearchQuery}
+              onChangeText={setPlanSearchQuery}
+            />
+            {filteredRoutePlans.length === 0 ? (
+              <Text style={styles.emptyText}>
+                Aucun plan trouvé avec ce filtre.
+              </Text>
+            ) : (
+              <ScrollView
+                style={styles.trailPickScroll}
+                nestedScrollEnabled
+                keyboardShouldPersistTaps="handled"
+              >
+                {filteredRoutePlans.map((plan) => {
+                  const active =
+                    Number(selectedRoutePlanId) === Number(plan.id);
+                  return (
+                    <View
+                      key={`saved-plan-${plan.id}`}
+                      style={[
+                        styles.trailPickRow,
+                        active ? styles.trailPickRowActive : null,
+                      ]}
                     >
-                      <Ionicons
-                        name={active ? "bookmark" : "bookmark-outline"}
-                        size={20}
-                        color={theme.primary}
-                      />
-                      <View style={{ flex: 1, marginLeft: 10 }}>
-                        <Text style={styles.cardTitle}>{plan.name}</Text>
-                        <Text style={styles.cardMeta}>
-                          {plan.trail_name || "Trace"} ·{" "}
-                          {plan.territory || "Territoire inconnu"} ·{" "}
-                          {plan.selected_box_count || 0} box
-                        </Text>
-                      </View>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      onPress={async () => {
-                        const ok = await confirmDestructive(
-                          "Supprimer ce plan ?",
-                          `Le plan « ${
-                            plan.name || "sans nom"
-                          } » sera supprimé.`
-                        );
-                        if (!ok) return;
-                        await deleteRoutePlan?.(plan.id);
-                      }}
-                      style={{ marginLeft: 8, padding: 6 }}
-                      activeOpacity={0.8}
-                    >
-                      <Ionicons
-                        name="trash-outline"
-                        size={18}
-                        color="#DC2626"
-                      />
-                    </TouchableOpacity>
-                  </View>
-                );
-              })}
-            </ScrollView>
-          )}
-        </View>
+                      <TouchableOpacity
+                        style={{
+                          flex: 1,
+                          flexDirection: "row",
+                          alignItems: "center",
+                        }}
+                        onPress={() => {
+                          setSelectedRoutePlanId(Number(plan.id));
+                          actionsRef.current.loadRoutePlanDetail?.(plan.id);
+                          if (Number.isFinite(Number(plan.trail_id))) {
+                            setSelectedTrailId(Number(plan.trail_id));
+                          }
+                        }}
+                        activeOpacity={0.85}
+                      >
+                        <Ionicons
+                          name={active ? "bookmark" : "bookmark-outline"}
+                          size={20}
+                          color={theme.primary}
+                        />
+                        <View style={{ flex: 1, marginLeft: 10 }}>
+                          <Text style={styles.cardTitle}>{plan.name}</Text>
+                          <Text style={styles.cardMeta}>
+                            {plan.trail_name || "Trace"} ·{" "}
+                            {plan.selected_box_count || 0} box
+                          </Text>
+                        </View>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        onPress={async () => {
+                          const ok = await confirmDestructive(
+                            "Supprimer ce plan ?",
+                            `Le plan « ${
+                              plan.name || "sans nom"
+                            } » sera supprimé.`
+                          );
+                          if (!ok) return;
+                          await deleteRoutePlan?.(plan.id);
+                        }}
+                        style={{ marginLeft: 8, padding: 6 }}
+                        activeOpacity={0.8}
+                      >
+                        <Ionicons
+                          name="trash-outline"
+                          size={18}
+                          color="#DC2626"
+                        />
+                      </TouchableOpacity>
+                    </View>
+                  );
+                })}
+              </ScrollView>
+            )}
+          </View>
+        ) : null}
       </Section>
 
       {canBook ? (
         <>
           <Section
+            flat
             title={
               selectedBox
                 ? "Réserver cette étape"
@@ -5793,10 +5801,9 @@ function ExplorerScreen() {
             }
             subtitle={
               selectedBox
-                ? "Tout est ici : offre, horaires, besoins, envoi."
-                : "Choisis d’abord une box sur la carte, puis précise ici."
+                ? "Offre, horaires, besoins, envoi."
+                : "Choisis une box sur la carte, puis précise ici."
             }
-            icon="time-outline"
             onLayout={(event) => {
               bookingSectionYRef.current = event?.nativeEvent?.layout?.y || 0;
             }}
@@ -6000,18 +6007,18 @@ function ExplorerScreen() {
         </>
       ) : null}
 
-      <Section title="Liste des box" icon="list-outline">
+      <Section flat title="Box à proximité">
         {explorerCompactFilters ? (
           <View style={styles.explorerFilterSummary}>
             <View style={{ flex: 1, minWidth: 0 }}>
-              <Text style={styles.explorerFilterSummaryKicker}>Liste des box</Text>
+              <Text style={styles.explorerFilterSummaryKicker}>Liste</Text>
               <Text style={styles.explorerFilterSummaryTitle} numberOfLines={2}>
                 Tri : {MAP_BOX_SORT_LABELS[mapBoxSort] ?? mapBoxSort}
               </Text>
               <Text style={styles.explorerFilterSummaryMeta}>
                 {explorerBoxFilterBadgeCount > 0
-                  ? `${explorerBoxFilterBadgeCount} filtre(s) ou mode(s) actif(s)`
-                  : "Résumé du tri · touche « Filtrer » pour affiner la liste"}
+                  ? `${explorerBoxFilterBadgeCount} filtre(s) actif(s)`
+                  : "Touche Filtrer pour affiner"}
               </Text>
             </View>
             <TouchableOpacity
@@ -6019,7 +6026,7 @@ function ExplorerScreen() {
               onPress={() => setShowBoxFilters(true)}
               activeOpacity={0.85}
             >
-              <Ionicons name="options-outline" size={22} color="#fff" />
+              <Ionicons name="options-outline" size={18} color={theme.ink} />
               <Text style={styles.explorerFilterCTAText}>Filtrer</Text>
               {explorerBoxFilterBadgeCount > 0 ? (
                 <View style={styles.explorerFilterBadge}>
@@ -6318,22 +6325,23 @@ function ExplorerScreen() {
         </Modal>
       </Section>
 
+      {!simpleUi ? (
       <Section
-        title="Liste des traces"
-        subtitle="Même ensemble que sur la carte. Sélection et filtres ici."
-        icon="navigate-outline"
+        flat
+        title="Traces"
+        subtitle="Même ensemble que sur la carte."
       >
         {explorerCompactFilters ? (
           <View style={styles.explorerFilterSummary}>
             <View style={{ flex: 1, minWidth: 0 }}>
-              <Text style={styles.explorerFilterSummaryKicker}>Liste des traces</Text>
+              <Text style={styles.explorerFilterSummaryKicker}>Liste</Text>
               <Text style={styles.explorerFilterSummaryTitle} numberOfLines={2}>
                 Tri : {MAP_TRAIL_SORT_LABELS[mapTrailListSort] ?? mapTrailListSort}
               </Text>
               <Text style={styles.explorerFilterSummaryMeta}>
                 {explorerTrailFilterBadgeCount > 0
-                  ? `${explorerTrailFilterBadgeCount} filtre(s) ou mode(s) actif(s)`
-                  : "Résumé du tri · touche « Filtrer » pour affiner la liste"}
+                  ? `${explorerTrailFilterBadgeCount} filtre(s) actif(s)`
+                  : "Touche Filtrer pour affiner"}
               </Text>
             </View>
             <TouchableOpacity
@@ -6341,7 +6349,7 @@ function ExplorerScreen() {
               onPress={() => setShowTrailFilters(true)}
               activeOpacity={0.85}
             >
-              <Ionicons name="options-outline" size={22} color="#fff" />
+              <Ionicons name="options-outline" size={18} color={theme.ink} />
               <Text style={styles.explorerFilterCTAText}>Filtrer</Text>
               {explorerTrailFilterBadgeCount > 0 ? (
                 <View style={styles.explorerFilterBadge}>
@@ -6639,6 +6647,7 @@ function ExplorerScreen() {
           </Modal>
         ) : null}
       </Section>
+      ) : null}
     </>
   );
 
@@ -16105,20 +16114,21 @@ const styles = StyleSheet.create({
     flex: 1,
     minHeight: 0,
     flexDirection: "row",
-    gap: 12,
-    paddingHorizontal: 12,
-    paddingTop: 8,
-    paddingBottom: 10,
+    gap: 0,
+    paddingHorizontal: 0,
+    paddingTop: 0,
+    paddingBottom: 0,
   },
   explorerWebPanel: {
-    width: "34%",
-    minWidth: 300,
-    maxWidth: 480,
+    width: "32%",
+    minWidth: 280,
+    maxWidth: 420,
     minHeight: 0,
-    borderRadius: 20,
+    borderRadius: 0,
     overflow: "hidden",
-    borderWidth: 1,
-    borderColor: theme.borderSoft,
+    borderWidth: 0,
+    borderRightWidth: 1,
+    borderRightColor: theme.border,
     backgroundColor: theme.bg,
   },
   explorerWebPanelScroll: {
@@ -16126,32 +16136,46 @@ const styles = StyleSheet.create({
     minHeight: 0,
   },
   discoverCoach: {
-    marginBottom: 14,
-    padding: 16,
-    borderRadius: theme.radius.lg,
+    marginBottom: 18,
+    paddingVertical: 18,
+    paddingHorizontal: 16,
+    borderRadius: 0,
     backgroundColor: theme.hero,
     overflow: "hidden",
+    marginHorizontal: -14,
+    marginTop: -14,
+    paddingTop: 20,
+  },
+  discoverCoachKicker: {
+    fontSize: 11,
+    fontWeight: "800",
+    color: theme.heroAccent,
+    textTransform: "uppercase",
+    letterSpacing: 1.4,
+    marginBottom: 4,
+    fontFamily: theme.font,
   },
   discoverCoachTitle: {
-    fontSize: 20,
+    fontSize: 28,
     fontWeight: "800",
     color: "#FAFAFA",
-    letterSpacing: -0.5,
+    letterSpacing: -0.8,
     fontFamily: theme.fontDisplay,
   },
   discoverCoachText: {
     marginTop: 8,
     fontSize: 13,
     lineHeight: 19,
-    color: "rgba(250,250,250,0.78)",
+    color: "rgba(250,250,250,0.72)",
     fontFamily: theme.font,
+    maxWidth: 340,
   },
   discoverCoachLabel: {
     marginTop: 14,
-    marginBottom: 6,
+    marginBottom: 8,
     fontSize: 11,
     fontWeight: "800",
-    color: theme.heroAccent,
+    color: "rgba(250,250,250,0.55)",
     textTransform: "uppercase",
     letterSpacing: 1,
   },
@@ -16159,7 +16183,36 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
-    paddingVertical: 4,
+    paddingVertical: 2,
+    paddingRight: 8,
+  },
+  discoverChip: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: "rgba(250,250,250,0.22)",
+    backgroundColor: "rgba(250,250,250,0.08)",
+    maxWidth: 140,
+  },
+  discoverChipOn: {
+    backgroundColor: theme.primary,
+    borderColor: theme.primary,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 999,
+    alignSelf: "flex-start",
+    marginTop: 4,
+  },
+  discoverChipText: {
+    color: "rgba(250,250,250,0.82)",
+    fontWeight: "700",
+    fontSize: 13,
+  },
+  discoverChipTextOn: {
+    color: "#fff",
+    fontWeight: "800",
+    fontSize: 13,
   },
   discoverEmptyPick: {
     flexDirection: "row",
@@ -16174,7 +16227,7 @@ const styles = StyleSheet.create({
   },
   explorerWebPanelContent: {
     padding: 14,
-    paddingBottom: 28,
+    paddingBottom: 36,
   },
   explorerWebProfileRail: {
     width: 300,
@@ -16222,7 +16275,7 @@ const styles = StyleSheet.create({
     flex: 1,
     minHeight: 300,
     maxHeight: "68vh",
-    borderRadius: 20,
+    borderRadius: 16,
     overflow: "hidden",
     backgroundColor: theme.surface,
     borderWidth: 1,
@@ -16237,6 +16290,10 @@ const styles = StyleSheet.create({
     minHeight: 0,
     height: "100%",
     maxHeight: undefined,
+    borderRadius: 0,
+    borderWidth: 0,
+    shadowOpacity: 0,
+    elevation: 0,
   },
   explorerWebMapInnerRelative: {
     position: "relative",
@@ -16729,18 +16786,14 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
-    paddingVertical: 12,
-    paddingHorizontal: 14,
-    borderRadius: 18,
-    backgroundColor: theme.surface,
-    borderWidth: 1,
-    borderColor: theme.borderSoft,
-    marginBottom: 10,
-    shadowColor: theme.shadow,
-    shadowOpacity: 0.35,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 3 },
-    elevation: 2,
+    paddingVertical: 8,
+    paddingHorizontal: 0,
+    borderRadius: 0,
+    backgroundColor: "transparent",
+    borderWidth: 0,
+    marginBottom: 8,
+    shadowOpacity: 0,
+    elevation: 0,
   },
   explorerFilterSummaryKicker: {
     fontSize: 11,
@@ -16766,16 +16819,18 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
-    paddingVertical: 11,
-    paddingHorizontal: 16,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
     borderRadius: 999,
-    backgroundColor: theme.primary,
+    backgroundColor: theme.surface,
+    borderWidth: 1,
+    borderColor: theme.border,
     position: "relative",
   },
   explorerFilterCTAText: {
-    fontSize: 15,
+    fontSize: 13,
     fontWeight: "700",
-    color: "#fff",
+    color: theme.ink,
   },
   explorerFilterBadge: {
     position: "absolute",
@@ -17019,11 +17074,25 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 4 },
     elevation: 2,
   },
+  sectionFlat: {
+    backgroundColor: "transparent",
+    borderRadius: 0,
+    padding: 0,
+    marginBottom: 22,
+    borderWidth: 0,
+    shadowOpacity: 0,
+    shadowRadius: 0,
+    elevation: 0,
+  },
   sectionHeader: {
     flexDirection: "row",
     alignItems: "flex-start",
     marginBottom: 14,
     gap: 12,
+  },
+  sectionHeaderFlat: {
+    marginBottom: 10,
+    gap: 0,
   },
   sectionIconWrap: {
     width: 40,
@@ -17045,12 +17114,25 @@ const styles = StyleSheet.create({
     letterSpacing: -0.4,
     fontFamily: theme.fontDisplay,
   },
+  sectionTitleFlat: {
+    fontSize: 13,
+    fontWeight: "800",
+    letterSpacing: 0.8,
+    textTransform: "uppercase",
+    color: theme.inkMuted,
+    fontFamily: theme.font,
+  },
   sectionSubtitle: {
     color: theme.inkMuted,
     marginTop: 4,
     fontSize: 14,
     lineHeight: 20,
     fontFamily: theme.font,
+  },
+  sectionSubtitleFlat: {
+    marginTop: 2,
+    fontSize: 13,
+    lineHeight: 18,
   },
   input: {
     borderWidth: 1,
@@ -17213,28 +17295,29 @@ const styles = StyleSheet.create({
     color: "#B91C1C",
   },
   statBanner: {
-    marginTop: 4,
+    marginTop: 2,
     flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: theme.infoBg,
-    borderRadius: 14,
-    padding: 14,
-    borderWidth: 1,
-    borderColor: theme.infoBorder,
+    alignItems: "flex-start",
+    backgroundColor: "transparent",
+    borderRadius: 0,
+    paddingVertical: 8,
+    paddingHorizontal: 0,
+    borderWidth: 0,
+    gap: 10,
   },
   statBannerIcon: {
-    marginRight: 4,
+    marginTop: 2,
   },
   statBannerTitle: {
     color: theme.ink,
     fontWeight: "700",
-    fontSize: 15,
+    fontSize: 14,
   },
   statBannerText: {
     marginTop: 2,
     color: theme.inkMuted,
-    fontSize: 13,
-    lineHeight: 18,
+    fontSize: 12,
+    lineHeight: 17,
   },
   explorerSearchMeta: {
     marginTop: 10,
@@ -17342,11 +17425,11 @@ const styles = StyleSheet.create({
   },
   selectedHostCard: {
     marginTop: 14,
-    backgroundColor: theme.infoBg,
-    borderRadius: 16,
-    padding: 16,
+    backgroundColor: theme.surfaceMuted,
+    borderRadius: 12,
+    padding: 12,
     borderWidth: 1,
-    borderColor: theme.infoBorder,
+    borderColor: theme.borderSoft,
   },
   selectedLabel: {
     fontSize: 11,
