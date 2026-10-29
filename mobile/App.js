@@ -745,8 +745,8 @@ function cleanTrailLabel(name) {
 function planPreviewRecap(plan) {
   if (!plan) {
     return {
-      title: "Aucun projet",
-      lines: ["Exploration libre de la carte, sans box liées à un projet."],
+      title: "Exploration libre",
+      lines: ["Sans projet lié — tu explores la carte librement."],
     };
   }
   const boxes = Number(plan.selected_box_count || 0);
@@ -761,6 +761,25 @@ function planPreviewRecap(plan) {
     title: plan.name || `Projet #${plan.id}`,
     lines: lines.length ? lines : ["Projet sans détail"],
   };
+}
+
+/**
+ * CTA du sélecteur projet — jamais bloqué sur « Déjà actif ».
+ * previewId: "none" | number | null
+ */
+function projectPickerCta(previewId, selectedId) {
+  const selected = selectedId == null ? null : Number(selectedId);
+  if (previewId === "none" || previewId == null) {
+    if (selected == null) {
+      return { label: "OK — exploration libre", mode: "close" };
+    }
+    return { label: "Passer en exploration libre", mode: "clear" };
+  }
+  const pid = Number(previewId);
+  if (Number.isFinite(selected) && pid === selected) {
+    return { label: "OK — garder ce projet", mode: "close" };
+  }
+  return { label: "Activer ce projet", mode: "activate", planId: pid };
 }
 
 const AuthUiContext = createContext(null);
@@ -2300,6 +2319,8 @@ function ExplorerScreen() {
     useState(null); // null | "none" | number
   const [discoverPanelOpen, setDiscoverPanelOpen] = useState(true);
   const [discoverToolsOpen, setDiscoverToolsOpen] = useState(false);
+  /** Funnel dégrossissage : 1 créneau → 2 besoins → 3 choisir box */
+  const [discoverPrepStep, setDiscoverPrepStep] = useState(1);
   const [explorerTrailProbe, setExplorerTrailProbe] = useState(null);
   const [lastMapTapCoords, setLastMapTapCoords] = useState(null);
   const [chartProbeHover, setChartProbeHover] = useState(false);
@@ -3953,7 +3974,7 @@ function ExplorerScreen() {
   }, []);
 
   const webSplit = Platform.OS === "web";
-  const webDesktopSplit = webSplit && viewportWidth >= 1080;
+  const webDesktopSplit = webSplit && viewportWidth >= 960;
   /** Portable / tablette étroite : carte plein écran + bottom sheets. */
   const mobileMapFirst = !webDesktopSplit;
 
@@ -4853,11 +4874,10 @@ function ExplorerScreen() {
                             Number(p.id) === Number(discoverProjectPreviewId)
                         );
                   const recap = planPreviewRecap(previewPlan);
-                  const canActivate =
-                    discoverProjectPreviewId === "none"
-                      ? selectedRoutePlanId != null
-                      : Number(discoverProjectPreviewId) !==
-                        Number(selectedRoutePlanId);
+                  const cta = projectPickerCta(
+                    discoverProjectPreviewId,
+                    selectedRoutePlanId
+                  );
                   return (
                     <View style={styles.discoverProjectPreview}>
                       <Text style={styles.discoverProjectPreviewKicker}>
@@ -4878,32 +4898,24 @@ function ExplorerScreen() {
                         </Text>
                       ))}
                       <TouchableOpacity
-                        style={[
-                          styles.discoverProjectActivateBtn,
-                          !canActivate && styles.discoverProjectActivateBtnMuted,
-                        ]}
-                        disabled={!canActivate}
+                        style={styles.discoverProjectActivateBtn}
                         onPress={() => {
-                          if (discoverProjectPreviewId === "none") {
+                          if (cta.mode === "clear") {
                             setSelectedRoutePlanId(null);
                             setSelectedRoutePlanDetail(null);
                           } else if (
-                            Number.isFinite(Number(discoverProjectPreviewId))
+                            cta.mode === "activate" &&
+                            Number.isFinite(cta.planId)
                           ) {
-                            const pid = Number(discoverProjectPreviewId);
-                            setSelectedRoutePlanId(pid);
-                            actionsRef.current.loadRoutePlanDetail?.(pid);
+                            setSelectedRoutePlanId(cta.planId);
+                            actionsRef.current.loadRoutePlanDetail?.(cta.planId);
                           }
                           setDiscoverProjectPickerOpen(false);
                         }}
                         activeOpacity={0.88}
                       >
                         <Text style={styles.discoverProjectActivateBtnText}>
-                          {discoverProjectPreviewId === "none"
-                            ? "Explorer sans projet"
-                            : canActivate
-                            ? "Activer ce projet"
-                            : "Déjà actif"}
+                          {cta.label}
                         </Text>
                       </TouchableOpacity>
                     </View>
@@ -4935,10 +4947,10 @@ function ExplorerScreen() {
                           styles.discoverProjectMenuTitleOn,
                       ]}
                     >
-                      Aucun
+                      Exploration libre
                     </Text>
                     <Text style={styles.discoverProjectMenuMeta}>
-                      Carte libre
+                      Sans projet lié
                     </Text>
                   </TouchableOpacity>
                   {routePlans.map((plan) => {
@@ -5987,159 +5999,201 @@ function ExplorerScreen() {
             title={
               selectedBox
                 ? "Réserver cette étape"
-                : "Créneau & besoins"
+                : discoverPrepStep === 1
+                ? "1 · Créneau"
+                : discoverPrepStep === 2
+                ? "2 · Besoins"
+                : "3 · Choisir une box"
             }
             subtitle={
               selectedBox
-                ? "Offre, horaires, besoins, envoi."
-                : "Choisis une box sur la carte, puis précise ici."
+                ? "Vérifie puis envoie la demande."
+                : discoverPrepStep === 1
+                ? "D’abord ton horaire — on dégrossit la carte."
+                : discoverPrepStep === 2
+                ? "Ce que tu veux trouver (optionnel)."
+                : "Touche une box compatible sur la carte."
             }
             onLayout={(event) => {
               bookingSectionYRef.current = event?.nativeEvent?.layout?.y || 0;
             }}
           >
             {!selectedBox ? (
-              <DateTimeSelector
-                dateValue={bookingDate}
-                onDateChange={setBookingDate}
-                startValue={startTime}
-                onStartChange={setStartTime}
-                endValue={endTime}
-                onEndChange={setEndTime}
-              />
-            ) : null}
-            {!simpleUi ? (
               <>
-                <Text style={styles.fieldLabel}>
-                  Box sur la carte & dans la liste
-                </Text>
-                <View style={styles.roleRow}>
-                  <TouchableOpacity
-                    style={[
-                      styles.roleChip,
-                      !mapBoxesSlotCompatibleOnly && styles.roleChipActive,
-                    ]}
-                    onPress={() => setMapBoxesSlotCompatibleOnly(false)}
-                    activeOpacity={0.85}
-                  >
-                    <Text
+                <View style={styles.discoverPrepSteps}>
+                  {[1, 2, 3].map((n) => (
+                    <View
+                      key={`prep-${n}`}
                       style={[
-                        styles.roleChipText,
-                        !mapBoxesSlotCompatibleOnly && styles.roleChipTextActive,
+                        styles.discoverPrepDotLight,
+                        discoverPrepStep === n && styles.discoverPrepDotOn,
+                        discoverPrepStep > n && styles.discoverPrepDotDoneLight,
                       ]}
                     >
-                      Tous
-                    </Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={[
-                      styles.roleChip,
-                      mapBoxesSlotCompatibleOnly && styles.roleChipActive,
-                    ]}
-                    onPress={() => setMapBoxesSlotCompatibleOnly(true)}
-                    activeOpacity={0.85}
-                  >
-                    <Text
-                      style={[
-                        styles.roleChipText,
-                        mapBoxesSlotCompatibleOnly && styles.roleChipTextActive,
-                      ]}
-                    >
-                      Créneau compatible uniquement
-                    </Text>
-                  </TouchableOpacity>
-                </View>
-                <Text style={styles.helperText}>
-                  Le filtre utilise la date et les heures ci-dessus (comme le tri «
-                  Créneau »).
-                </Text>
-                {mapBoxesSlotCompatibleOnly &&
-                !explorerSlotWellFormed(bookingDate, startTime, endTime) ? (
-                  <Text style={[styles.helperText, { marginTop: 6 }]}>
-                    Pour masquer les box incompatibles, choisis une date valide et une
-                    heure de fin après l’heure de début.
-                  </Text>
-                ) : null}
-              </>
-            ) : null}
-            {selectedBox && !simpleUi ? (
-              <View style={[styles.infoBanner, { marginBottom: 10 }]}>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.infoBannerTitle}>
-                    Offre de « {selectedBox.title} »
-                  </Text>
-                  {formatBoxOfferLines(selectedBox).map((line, i) => (
-                    <Text key={`sel-offer-${i}`} style={styles.infoBannerText}>
-                      • {line}
-                    </Text>
+                      <Text
+                        style={[
+                          styles.discoverPrepDotTextLight,
+                          discoverPrepStep >= n && styles.discoverPrepDotTextOn,
+                        ]}
+                      >
+                        {n}
+                      </Text>
+                    </View>
                   ))}
                 </View>
-              </View>
-            ) : null}
-            <FunnelSteps activeId="ask" compact />
-            <Text style={styles.inputLabel}>
-              Tes besoins (allègement du sac)
-            </Text>
-            <Text style={styles.helperText}>
-              Eau, snacks, régimes… l’hôte voit ça avant d’accepter.
-            </Text>
-            <View style={[styles.roleRow, { flexWrap: "wrap", marginBottom: 8 }]}>
-              {BOOKING_NEED_CHIPS.map((chip) => {
-                const active = textHasTag(specialRequest, chip);
-                return (
-                  <TouchableOpacity
-                    key={`need-${chip}`}
-                    style={[
-                      styles.roleChip,
-                      active && styles.roleChipActive,
-                    ]}
-                    onPress={() => {
-                      setSpecialRequest((prev) => toggleTagInText(prev, chip));
-                    }}
-                    activeOpacity={0.85}
-                  >
-                    <Text
+
+                {discoverPrepStep === 1 ? (
+                  <>
+                    <DateTimeSelector
+                      dateValue={bookingDate}
+                      onDateChange={setBookingDate}
+                      startValue={startTime}
+                      onStartChange={setStartTime}
+                      endValue={endTime}
+                      onEndChange={setEndTime}
+                    />
+                    <PrimaryButton
+                      compact
+                      stretch
+                      label="Continuer — besoins"
+                      icon="arrow-forward-outline"
+                      disabled={
+                        !explorerSlotWellFormed(bookingDate, startTime, endTime)
+                      }
+                      onPress={() => {
+                        setMapBoxesSlotCompatibleOnly(true);
+                        setDiscoverPrepStep(2);
+                      }}
+                    />
+                  </>
+                ) : null}
+
+                {discoverPrepStep === 2 ? (
+                  <>
+                    <Text style={styles.helperText}>
+                      Eau, snacks… l’hôte voit ça avant d’accepter.
+                    </Text>
+                    <View
                       style={[
-                        styles.roleChipText,
-                        active && styles.roleChipTextActive,
+                        styles.roleRow,
+                        { flexWrap: "wrap", marginBottom: 8 },
                       ]}
                     >
-                      {chip}
+                      {BOOKING_NEED_CHIPS.map((chip) => {
+                        const active = textHasTag(specialRequest, chip);
+                        return (
+                          <TouchableOpacity
+                            key={`need-${chip}`}
+                            style={[
+                              styles.roleChip,
+                              active && styles.roleChipActive,
+                            ]}
+                            onPress={() => {
+                              setSpecialRequest((prev) =>
+                                toggleTagInText(prev, chip)
+                              );
+                            }}
+                            activeOpacity={0.85}
+                          >
+                            <Text
+                              style={[
+                                styles.roleChipText,
+                                active && styles.roleChipTextActive,
+                              ]}
+                            >
+                              {chip}
+                            </Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </View>
+                    <TextInput
+                      style={[styles.input, styles.textArea]}
+                      placeholder="Précisions (optionnel)"
+                      placeholderTextColor={theme.inkMuted}
+                      value={specialRequest}
+                      onChangeText={setSpecialRequest}
+                      multiline
+                    />
+                    <View style={styles.row}>
+                      <OutlineButton
+                        compact
+                        label="Retour"
+                        onPress={() => setDiscoverPrepStep(1)}
+                      />
+                      <PrimaryButton
+                        compact
+                        stretch
+                        label="Voir les box"
+                        icon="map-outline"
+                        onPress={() => {
+                          setMapBoxesSlotCompatibleOnly(true);
+                          setDiscoverPrepStep(3);
+                          setDiscoverToolsOpen(true);
+                        }}
+                      />
+                    </View>
+                  </>
+                ) : null}
+
+                {discoverPrepStep === 3 ? (
+                  <>
+                    <View style={styles.discoverEmptyPick}>
+                      <Ionicons
+                        name="hand-left-outline"
+                        size={22}
+                        color={theme.primary}
+                      />
+                      <Text style={styles.helperText}>
+                        Créneau OK
+                        {specialRequest
+                          ? ` · ${bookingSpecialRequestLabel(specialRequest)}`
+                          : ""}
+                        . Touche une box sur la carte.
+                      </Text>
+                    </View>
+                    <Text style={styles.helperText}>
+                      {boxes.length === 0
+                        ? "Aucune box dans la zone — déplace la carte."
+                        : `${boxes.length} box visibles (créneau filtré).`}
                     </Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </View>
-            <TextInput
-              style={[styles.input, styles.textArea]}
-              placeholder="Ex. 2 gourdes + barres, sans gluten, arrivée ~14h…"
-              placeholderTextColor={theme.inkMuted}
-              value={specialRequest}
-              onChangeText={setSpecialRequest}
-              multiline
-            />
-            {selectedBox ? (
+                    <OutlineButton
+                      compact
+                      stretch
+                      label="Modifier créneau / besoins"
+                      onPress={() => setDiscoverPrepStep(1)}
+                    />
+                  </>
+                ) : null}
+              </>
+            ) : (
               <View style={styles.bookingConfirmCard}>
+                <FunnelSteps activeId="ask" compact />
+                {selectedBox && !simpleUi ? (
+                  <View style={[styles.infoBanner, { marginBottom: 10 }]}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.infoBannerTitle}>
+                        Offre de « {selectedBox.title} »
+                      </Text>
+                      {formatBoxOfferLines(selectedBox).map((line, i) => (
+                        <Text
+                          key={`sel-offer-${i}`}
+                          style={styles.infoBannerText}
+                        >
+                          • {line}
+                        </Text>
+                      ))}
+                    </View>
+                  </View>
+                ) : null}
                 <Text style={styles.bookingConfirmTitle}>
-                  {selectedRoutePlanId
-                    ? `Étape du projet #${selectedRoutePlanId}`
-                    : "Box sélectionnée"}
-                </Text>
-                <Text style={styles.bookingConfirmMeta}>
                   {selectedBox.title}
                   {selectedBox.city ? ` · ${selectedBox.city}` : ""}
                   {" · "}
                   {(Number(selectedBox.price_cents || 0) / 100).toFixed(2)} €
                 </Text>
-                {formatBoxOfferLines(selectedBox)
-                  .slice(0, 3)
-                  .map((line, i) => (
-                    <Text key={`sel-sum-${i}`} style={styles.helperText}>
-                      • {line}
-                    </Text>
-                  ))}
                 <Text style={[styles.fieldLabel, { marginTop: 10 }]}>
-                  Créneau d’arrivée
+                  Créneau
                 </Text>
                 <DateTimeSelector
                   dateValue={bookingDate}
@@ -6176,21 +6230,6 @@ function ExplorerScreen() {
                     }
                   }}
                 />
-                <Text style={styles.helperText}>
-                  Ensuite : validation → paiement. Suivi dans Réservations.
-                </Text>
-              </View>
-            ) : (
-              <View style={styles.discoverEmptyPick}>
-                <Ionicons
-                  name="hand-left-outline"
-                  size={22}
-                  color={theme.primary}
-                />
-                <Text style={styles.helperText}>
-                  Touche une box sur la carte (à droite) : le créneau et tes
-                  besoins apparaissent ici.
-                </Text>
               </View>
             )}
           </Section>
@@ -6881,11 +6920,10 @@ function ExplorerScreen() {
                       (p) => Number(p.id) === Number(discoverProjectPreviewId)
                     );
               const recap = planPreviewRecap(previewPlan);
-              const canActivate =
-                discoverProjectPreviewId === "none"
-                  ? selectedRoutePlanId != null
-                  : Number(discoverProjectPreviewId) !==
-                    Number(selectedRoutePlanId);
+              const cta = projectPickerCta(
+                discoverProjectPreviewId,
+                selectedRoutePlanId
+              );
               return (
                 <View style={styles.discoverMobilePreviewCard}>
                   <Text style={styles.discoverProjectPreviewKicker}>
@@ -6900,32 +6938,24 @@ function ExplorerScreen() {
                     </Text>
                   ))}
                   <TouchableOpacity
-                    style={[
-                      styles.discoverProjectActivateBtn,
-                      !canActivate && styles.discoverProjectActivateBtnMuted,
-                    ]}
-                    disabled={!canActivate}
+                    style={styles.discoverProjectActivateBtn}
                     onPress={() => {
-                      if (discoverProjectPreviewId === "none") {
+                      if (cta.mode === "clear") {
                         setSelectedRoutePlanId(null);
                         setSelectedRoutePlanDetail(null);
                       } else if (
-                        Number.isFinite(Number(discoverProjectPreviewId))
+                        cta.mode === "activate" &&
+                        Number.isFinite(cta.planId)
                       ) {
-                        const pid = Number(discoverProjectPreviewId);
-                        setSelectedRoutePlanId(pid);
-                        actionsRef.current.loadRoutePlanDetail?.(pid);
+                        setSelectedRoutePlanId(cta.planId);
+                        actionsRef.current.loadRoutePlanDetail?.(cta.planId);
                       }
                       setDiscoverProjectPickerOpen(false);
                     }}
                     activeOpacity={0.88}
                   >
                     <Text style={styles.discoverProjectActivateBtnText}>
-                      {discoverProjectPreviewId === "none"
-                        ? "Explorer sans projet"
-                        : canActivate
-                        ? "Activer ce projet"
-                        : "Déjà actif"}
+                      {cta.label}
                     </Text>
                   </TouchableOpacity>
                 </View>
@@ -6936,9 +6966,11 @@ function ExplorerScreen() {
                 style={styles.discoverMobilePickerRow}
                 onPress={() => setDiscoverProjectPreviewId("none")}
               >
-                <Text style={styles.discoverMobilePickerRowTitle}>Aucun</Text>
+                <Text style={styles.discoverMobilePickerRowTitle}>
+                  Exploration libre
+                </Text>
                 <Text style={styles.discoverMobilePickerRowMeta}>
-                  Carte libre
+                  Sans projet lié
                 </Text>
               </TouchableOpacity>
               {routePlans.map((plan) => {
@@ -7020,10 +7052,122 @@ function ExplorerScreen() {
   );
 
   const mobilePeekHint =
-    !selectedBox && !selectedTrail ? (
+    !selectedBox && !selectedTrail && canBook ? (
+      <View style={styles.discoverMobilePeek} pointerEvents="box-none">
+        <View style={styles.discoverPrepSteps}>
+          {[1, 2, 3].map((n) => (
+            <View
+              key={`mprep-${n}`}
+              style={[
+                styles.discoverPrepDot,
+                discoverPrepStep === n && styles.discoverPrepDotOn,
+                discoverPrepStep > n && styles.discoverPrepDotDone,
+              ]}
+            >
+              <Text
+                style={[
+                  styles.discoverPrepDotText,
+                  discoverPrepStep >= n && styles.discoverPrepDotTextOn,
+                ]}
+              >
+                {n}
+              </Text>
+            </View>
+          ))}
+        </View>
+        {discoverPrepStep === 1 ? (
+          <>
+            <Text style={styles.discoverMobilePeekText}>1 · Ton créneau</Text>
+            <DateTimeSelector
+              dateValue={bookingDate}
+              onDateChange={setBookingDate}
+              startValue={startTime}
+              onStartChange={setStartTime}
+              endValue={endTime}
+              onEndChange={setEndTime}
+            />
+            <PrimaryButton
+              compact
+              stretch
+              label="Continuer"
+              icon="arrow-forward-outline"
+              disabled={
+                !explorerSlotWellFormed(bookingDate, startTime, endTime)
+              }
+              onPress={() => {
+                setMapBoxesSlotCompatibleOnly(true);
+                setDiscoverPrepStep(2);
+              }}
+            />
+          </>
+        ) : null}
+        {discoverPrepStep === 2 ? (
+          <>
+            <Text style={styles.discoverMobilePeekText}>2 · Besoins</Text>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={{ gap: 6, paddingVertical: 6 }}
+            >
+              {BOOKING_NEED_CHIPS.map((chip) => {
+                const active = textHasTag(specialRequest, chip);
+                return (
+                  <TouchableOpacity
+                    key={`mneed-${chip}`}
+                    style={[styles.roleChip, active && styles.roleChipActive]}
+                    onPress={() =>
+                      setSpecialRequest((prev) => toggleTagInText(prev, chip))
+                    }
+                  >
+                    <Text
+                      style={[
+                        styles.roleChipText,
+                        active && styles.roleChipTextActive,
+                      ]}
+                    >
+                      {chip}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+            <PrimaryButton
+              compact
+              stretch
+              label="Voir les box"
+              icon="map-outline"
+              onPress={() => {
+                setMapBoxesSlotCompatibleOnly(true);
+                setDiscoverPrepStep(3);
+              }}
+            />
+            <OutlineButton
+              compact
+              stretch
+              label="Retour créneau"
+              onPress={() => setDiscoverPrepStep(1)}
+            />
+          </>
+        ) : null}
+        {discoverPrepStep === 3 ? (
+          <>
+            <Text style={styles.discoverMobilePeekText}>
+              3 · Touche une box sur la carte
+              {boxes.length ? ` · ${boxes.length} visibles` : ""}
+            </Text>
+            <OutlineButton
+              compact
+              stretch
+              label="Modifier créneau / besoins"
+              onPress={() => setDiscoverPrepStep(1)}
+            />
+          </>
+        ) : null}
+      </View>
+    ) : !selectedBox && !selectedTrail ? (
       <View style={styles.discoverMobilePeek} pointerEvents="none">
         <Text style={styles.discoverMobilePeekText}>
-          Touche une box sur la carte pour réserver
+          Touche une box sur la carte
         </Text>
       </View>
     ) : null;
@@ -16705,21 +16849,73 @@ const styles = StyleSheet.create({
   },
   discoverMobilePeek: {
     position: "absolute",
-    left: 12,
-    right: 12,
-    bottom: 18,
+    left: 10,
+    right: 10,
+    bottom: 12,
     zIndex: 25,
     paddingVertical: 12,
-    paddingHorizontal: 14,
+    paddingHorizontal: 12,
     borderRadius: theme.radius.md,
-    backgroundColor: "rgba(16, 22, 20, 0.88)",
+    backgroundColor: "rgba(16, 22, 20, 0.94)",
+    maxHeight: "48%",
   },
   discoverMobilePeekText: {
     color: "#FAFAFA",
     fontSize: 13,
-    fontWeight: "600",
+    fontWeight: "700",
     textAlign: "center",
     fontFamily: theme.font,
+    marginBottom: 8,
+  },
+  discoverPrepSteps: {
+    flexDirection: "row",
+    justifyContent: "center",
+    gap: 8,
+    marginBottom: 10,
+  },
+  discoverPrepDot: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    borderWidth: 1.5,
+    borderColor: "rgba(250,250,250,0.35)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  discoverPrepDotOn: {
+    backgroundColor: theme.primary,
+    borderColor: theme.primary,
+  },
+  discoverPrepDotDone: {
+    backgroundColor: "rgba(250,250,250,0.2)",
+    borderColor: "rgba(250,250,250,0.45)",
+  },
+  discoverPrepDotText: {
+    fontSize: 12,
+    fontWeight: "800",
+    color: "rgba(250,250,250,0.55)",
+  },
+  discoverPrepDotTextOn: {
+    color: "#fff",
+  },
+  discoverPrepDotLight: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    borderWidth: 1.5,
+    borderColor: theme.border,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: theme.surface,
+  },
+  discoverPrepDotDoneLight: {
+    backgroundColor: theme.surfaceMuted,
+    borderColor: theme.inkMuted,
+  },
+  discoverPrepDotTextLight: {
+    fontSize: 12,
+    fontWeight: "800",
+    color: theme.inkMuted,
   },
   discoverMobilePickerBackdrop: {
     flex: 1,
