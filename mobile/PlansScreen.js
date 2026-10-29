@@ -29,6 +29,7 @@ import {
   formatRelevanceLine,
 } from "./relevanceIndicators";
 import IntentGuideBanner from "./IntentGuideBanner";
+import FunnelSteps from "./FunnelSteps";
 import {
   planBoxHasActiveBooking,
   formatPlanBoxSlot,
@@ -1052,6 +1053,18 @@ export default function PlansScreen({ appMain = {} }) {
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={Platform.OS === "web"}
         >
+        <View style={styles.projectHero}>
+          <Text style={styles.projectHeroTitle}>Mes projets d’aventure</Text>
+          <Text style={styles.projectHeroText}>
+            Trail, run, rando ou vélo : allège ton sac en réservant eau /
+            nourriture sur le parcours (box fixes ou ravito GPS).
+          </Text>
+          <FunnelSteps activeId="ask" compact />
+          <Text style={styles.projectHeroHint}>
+            Modifiable tant que non payé. Après validation fournisseur →
+            paiement. Un projet = tracé + étapes box / ravito.
+          </Text>
+        </View>
         <IntentGuideBanner
           guideId="planifier"
           title="Projets — ultra & ravito"
@@ -1246,6 +1259,30 @@ export default function PlansScreen({ appMain = {} }) {
 }
 
 const styles = StyleSheet.create({
+  projectHero: {
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 12,
+    backgroundColor: theme.hero,
+  },
+  projectHeroTitle: {
+    fontSize: 20,
+    fontWeight: "800",
+    color: "#fff",
+    letterSpacing: -0.3,
+  },
+  projectHeroText: {
+    marginTop: 8,
+    fontSize: 14,
+    lineHeight: 20,
+    color: "rgba(255,255,255,0.88)",
+  },
+  projectHeroHint: {
+    marginTop: 4,
+    fontSize: 12,
+    lineHeight: 17,
+    color: "rgba(255,255,255,0.7)",
+  },
   screen: { flex: 1, backgroundColor: theme.bg },
   root: { flex: 1 },
   rootWide: { flexDirection: "row" },

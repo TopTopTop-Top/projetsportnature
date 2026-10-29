@@ -11,6 +11,12 @@ import {
   Alert,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import {
+  ATHLETE_NEED_TAGS,
+  RAVITO_OFFER_TAGS,
+  toggleTagInText,
+  textHasTag,
+} from "./outdoorNeeds";
 
 const theme = {
   primary: "#0F766E",
@@ -199,28 +205,47 @@ export function RavitoRequestModal({
                 );
               })}
             </View>
-            <Text style={styles.label}>Besoin sur place</Text>
-            <TextInput
-              style={[styles.input, styles.area]}
-              value={note}
-              onChangeText={setNote}
-              multiline
-              placeholder="Eau, abri…"
-            />
-            <Text style={styles.label}>Message pour l’hôte (optionnel)</Text>
+            <Text style={styles.label}>Tes besoins (allègement sac)</Text>
+            <View style={styles.chipRow}>
+              {ATHLETE_NEED_TAGS.slice(0, 8).map((chip) => {
+                const on = textHasTag(specialRequest, chip);
+                return (
+                  <TouchableOpacity
+                    key={`need-${chip}`}
+                    style={[styles.chip, on && styles.chipOn]}
+                    onPress={() =>
+                      setSpecialRequest((prev) => toggleTagInText(prev, chip))
+                    }
+                    activeOpacity={0.85}
+                  >
+                    <Text style={[styles.chipText, on && styles.chipTextOn]}>
+                      {chip}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
             <TextInput
               style={[styles.input, styles.area]}
               value={specialRequest}
               onChangeText={setSpecialRequest}
               multiline
-              placeholder="Groupe, allergies, matériel…"
+              placeholder="Ex. 2 L d’eau + barres, sans gluten…"
+            />
+            <Text style={styles.label}>Note pour le ravitailleur</Text>
+            <TextInput
+              style={[styles.input, styles.area]}
+              value={note}
+              onChangeText={setNote}
+              multiline
+              placeholder="Groupe, allergies, couleur maillot, ETA…"
             />
             {error ? <Text style={styles.err}>{error}</Text> : null}
           </ScrollView>
           <View style={styles.footer}>
             <Btn label="Annuler" onPress={onClose} />
             <Btn
-              label="Publier"
+              label="Publier la demande"
               primary
               icon="megaphone-outline"
               loading={submitting}
@@ -570,6 +595,26 @@ export function RavitoHostRequestsSection({
                 Pas de box : passe en mode « Ravito mobile ».
               </Text>
             ) : null}
+            <Text style={styles.label}>Ce que tu apportes</Text>
+            <View style={styles.chipRow}>
+              {RAVITO_OFFER_TAGS.map((chip) => {
+                const on = textHasTag(message, chip);
+                return (
+                  <TouchableOpacity
+                    key={`offer-${chip}`}
+                    style={[styles.chip, on && styles.chipOn]}
+                    onPress={() =>
+                      setMessage((prev) => toggleTagInText(prev, chip))
+                    }
+                    activeOpacity={0.85}
+                  >
+                    <Text style={[styles.chipText, on && styles.chipTextOn]}>
+                      {chip}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
             <TextInput
               style={[styles.input, styles.area]}
               value={message}
@@ -577,8 +622,8 @@ export function RavitoHostRequestsSection({
               multiline
               placeholder={
                 mobileMode
-                  ? "Ex. je t’apporte 2 L d’eau + snacks, j’arrive ~10 min avant ton créneau…"
-                  : "Ex. accueil à ce point, eau chaude, transfert bagages…"
+                  ? "Ex. 2 L d’eau + snacks, j’arrive ~10 min avant…"
+                  : "Ex. accueil box, eau chaude, pause assise…"
               }
             />
             <View style={styles.footer}>
@@ -590,7 +635,7 @@ export function RavitoHostRequestsSection({
                 }}
               />
               <Btn
-                label="Envoyer"
+                label="Proposer mon aide"
                 primary
                 loading={submitting}
                 onPress={submitProposal}

@@ -73,8 +73,17 @@ import IntentGuideBanner from "./IntentGuideBanner";
 import ExplorerFocusSheet from "./ExplorerFocusSheet";
 import MoreActions from "./MoreActions";
 import CapabilityCards from "./CapabilityCards";
+import FunnelSteps from "./FunnelSteps";
 import theme from "./theme";
 import { getDevicePosition } from "./liveLocation";
+import {
+  BOX_OFFER_TAGS,
+  ATHLETE_NEED_TAGS,
+  formatBoxOfferLines as formatOutdoorBoxOffer,
+  boxWaterLabel as outdoorBoxWaterLabel,
+  toggleTagInText,
+  textHasTag,
+} from "./outdoorNeeds";
 import {
   isSimpleUi as readSimpleUiPref,
   setSimpleUi as writeSimpleUiPref,
@@ -470,8 +479,7 @@ class RootErrorBoundary extends React.Component {
 }
 
 function boxWaterLabel(box) {
-  const w = box.has_water;
-  return w === 1 || w === true || w === "1" ? "Oui" : "Non";
+  return outdoorBoxWaterLabel(box);
 }
 
 function parseBoxCriteria(box) {
@@ -487,34 +495,10 @@ function parseBoxCriteria(box) {
 
 /** Résumé lisible de l’offre d’une box (eau, snacks, notes hôte). */
 function formatBoxOfferLines(box) {
-  if (!box) return [];
-  const lines = [];
-  const liters = box.capacity_liters;
-  lines.push(
-    `Eau : ${boxWaterLabel(box)}${
-      liters != null && liters !== "" ? ` · ${liters} L` : ""
-    }`
-  );
-  const crit = parseBoxCriteria(box);
-  if (crit.length > 0) {
-    lines.push(`Services / nourriture : ${crit.join(" · ")}`);
-  }
-  const note = String(box.criteria_note || "").trim();
-  if (note) lines.push(`Précisions hôte : ${note}`);
-  const avail = String(box.availability_note || "").trim();
-  if (avail) lines.push(`Disponibilités : ${avail}`);
-  return lines;
+  return formatOutdoorBoxOffer(box);
 }
 
-const BOOKING_NEED_CHIPS = [
-  "Eau",
-  "Snacks sucrés",
-  "Snacks salés",
-  "Option vegan",
-  "Sans gluten",
-  "Douche",
-  "Abri",
-];
+const BOOKING_NEED_CHIPS = ATHLETE_NEED_TAGS;
 
 function parseBookingChangeRequest(booking) {
   try {
@@ -765,20 +749,7 @@ const DIFFICULTY_LABELS = {
   hard: "Difficile",
 };
 
-const HOST_CRITERIA_OPTIONS = [
-  "Douche",
-  "WC",
-  "Abri pluie",
-  "Prise électrique",
-  "Parking vélo",
-  "Pompe vélo",
-  "Kit réparation",
-  "Snacks sucrés",
-  "Snacks salés",
-  "Option vegan",
-  "Sans gluten",
-  "Eau fraîche",
-];
+const HOST_CRITERIA_OPTIONS = BOX_OFFER_TAGS;
 
 /** Tags affichés sur les traces (import + édition). */
 const TRAIL_CRITERIA_OPTIONS = [
@@ -1968,6 +1939,7 @@ function BookingConfirmModal({
   submitting,
   onClose,
   onConfirm,
+  routePlanId = null,
 }) {
   if (!box) return null;
   const { warnings, blocking } = buildBookingVigilances(
@@ -1982,6 +1954,8 @@ function BookingConfirmModal({
     endTime,
     unavailableSlots
   );
+  const offerLines = formatBoxOfferLines(box);
+  const price = (Number(box.price_cents || 0) / 100).toFixed(2);
   return (
     <Modal
       visible={visible}
@@ -1992,7 +1966,7 @@ function BookingConfirmModal({
       <View style={styles.modalBackdrop}>
         <View style={[styles.modalSheet, styles.bookingConfirmSheet]}>
           <View style={styles.modalSheetHeader}>
-            <Text style={styles.modalSheetTitle}>Confirmer la réservation</Text>
+            <Text style={styles.modalSheetTitle}>Demande de box</Text>
             <TouchableOpacity
               onPress={onClose}
               hitSlop={12}
@@ -2005,36 +1979,54 @@ function BookingConfirmModal({
             style={styles.modalSheetBody}
             keyboardShouldPersistTaps="handled"
           >
-            <Text style={styles.bookingRecapTitle}>Récapitulatif</Text>
+            <FunnelSteps activeId="ask" />
+            <Text style={styles.helperText}>
+              Tu n’es pas encore débité. L’hôte valide d’abord, puis tu pourras
+              payer. Modifiable tant que non payé.
+            </Text>
+
+            <Text style={styles.bookingRecapTitle}>Box étape</Text>
             <View style={styles.card}>
               <View style={styles.cardAccent} />
               <Text style={styles.cardTitle}>{box.title}</Text>
               <Text style={styles.cardMeta}>
-                {box.city} · {(Number(box.price_cents || 0) / 100).toFixed(2)} €
+                {[box.city, `${price} €`].filter(Boolean).join(" · ")}
               </Text>
               <Text style={styles.cardAvailability}>
                 {formatHostRatingLine(box)}
               </Text>
+              {routePlanId ? (
+                <Text style={styles.cardAvailability}>
+                  Liée au projet #{routePlanId}
+                </Text>
+              ) : (
+                <Text style={styles.cardAvailability}>
+                  Sans projet : tu pourras la rattacher dans Projets.
+                </Text>
+              )}
             </View>
-            <Text style={styles.bookingRecapTitle}>Ce que propose la box</Text>
-            {formatBoxOfferLines(box).length > 0 ? (
-              formatBoxOfferLines(box).map((line, i) => (
+
+            <Text style={styles.bookingRecapTitle}>Offre (allègement sac)</Text>
+            {offerLines.length > 0 ? (
+              offerLines.map((line, i) => (
                 <Text key={`offer-${i}`} style={styles.cardDetailLine}>
                   • {line}
                 </Text>
               ))
             ) : (
               <Text style={styles.cardAvailability}>
-                Aucun critère détaillé renseigné par l’hôte.
+                L’hôte n’a pas encore détaillé eau / nourriture.
               </Text>
             )}
-            <Text style={styles.cardMeta}>
-              Date : {formatDateLongFr(bookingDate)} · {startTime} → {endTime}
+
+            <Text style={styles.bookingRecapTitle}>Ton créneau</Text>
+            <Text style={styles.cardDetailLine}>
+              {formatDateLongFr(bookingDate)} · {startTime} → {endTime}
             </Text>
             {unavailableSlots.length > 0 ? (
               <View style={[styles.infoBanner, { marginTop: 8 }]}>
                 <Text style={styles.infoBannerTitle}>
-                  Créneaux indisponibles
+                  Créneaux déjà pris
                 </Text>
                 <Text style={styles.infoBannerText}>
                   {unavailableSlots
@@ -2045,21 +2037,20 @@ function BookingConfirmModal({
             ) : null}
             {overlapConflict ? (
               <View style={[styles.infoBanner, { borderColor: "#FECACA" }]}>
-                <Text style={styles.infoBannerTitle}>Conflit détecté</Text>
+                <Text style={styles.infoBannerTitle}>Conflit</Text>
                 <Text style={styles.infoBannerText}>
-                  Le créneau choisi est déjà réservé.
+                  Ce créneau chevauche une réservation existante.
                 </Text>
               </View>
             ) : null}
-            {specialRequest?.trim() ? (
-              <Text style={styles.cardAvailability}>
-                Demande : {specialRequest.trim()}
-              </Text>
-            ) : (
-              <Text style={styles.cardAvailability}>
-                Aucune demande spéciale saisie.
-              </Text>
-            )}
+
+            <Text style={styles.bookingRecapTitle}>Tes besoins</Text>
+            <Text style={styles.cardDetailLine}>
+              {specialRequest?.trim()
+                ? specialRequest.trim()
+                : "Aucun besoin précisé — ajoute eau / snacks si besoin."}
+            </Text>
+
             {blocking.length > 0 ? (
               <View style={[styles.infoBanner, { borderColor: "#FECACA" }]}>
                 <Text style={styles.infoBannerTitle}>À corriger</Text>
@@ -2072,7 +2063,7 @@ function BookingConfirmModal({
             ) : null}
             {warnings.length > 0 ? (
               <View style={[styles.infoBanner, { marginTop: 10 }]}>
-                <Text style={styles.infoBannerTitle}>Points de vigilance</Text>
+                <Text style={styles.infoBannerTitle}>Vigilance</Text>
                 {warnings.map((t, i) => (
                   <Text key={`warn-${i}`} style={styles.infoBannerText}>
                     • {t}
@@ -2080,23 +2071,19 @@ function BookingConfirmModal({
                 ))}
               </View>
             ) : null}
-            <Text style={styles.helperText}>
-              En confirmant, tu envoies une demande à l'hôte (acceptation ou
-              refus possible).
-            </Text>
           </ScrollView>
           <View style={styles.modalSheetFooter}>
             <OutlineButton
               compact
-              label="Modifier"
-              icon="create-outline"
+              label="Retour"
+              icon="arrow-back-outline"
               onPress={onClose}
               disabled={submitting}
             />
             <PrimaryButton
               compact
-              label={submitting ? "Envoi…" : "Confirmer l'envoi"}
-              icon="checkmark-circle-outline"
+              label={submitting ? "Envoi…" : "Envoyer la demande"}
+              icon="send-outline"
               onPress={onConfirm}
               disabled={submitting || blocking.length > 0 || overlapConflict}
               loading={submitting}
@@ -5806,17 +5793,16 @@ function ExplorerScreen() {
                 </View>
               </View>
             ) : null}
+            <FunnelSteps activeId="ask" compact />
             <Text style={styles.inputLabel}>
-              Ce dont tu as besoin (eau, nourriture…)
+              Tes besoins (allègement du sac)
             </Text>
             <Text style={styles.helperText}>
-              Touche les pastilles pour préciser ta demande à l’hôte.
+              Eau, snacks, régimes… l’hôte voit ça avant d’accepter.
             </Text>
             <View style={[styles.roleRow, { flexWrap: "wrap", marginBottom: 8 }]}>
               {BOOKING_NEED_CHIPS.map((chip) => {
-                const active = String(specialRequest || "")
-                  .toLowerCase()
-                  .includes(String(chip).toLowerCase());
+                const active = textHasTag(specialRequest, chip);
                 return (
                   <TouchableOpacity
                     key={`need-${chip}`}
@@ -5825,23 +5811,7 @@ function ExplorerScreen() {
                       active && styles.roleChipActive,
                     ]}
                     onPress={() => {
-                      setSpecialRequest((prev) => {
-                        const cur = String(prev || "").trim();
-                        if (
-                          cur.toLowerCase().includes(String(chip).toLowerCase())
-                        ) {
-                          return cur
-                            .split(/[,;·]+/)
-                            .map((p) => p.trim())
-                            .filter(
-                              (p) =>
-                                p &&
-                                p.toLowerCase() !== String(chip).toLowerCase()
-                            )
-                            .join(", ");
-                        }
-                        return cur ? `${cur}, ${chip}` : chip;
-                      });
+                      setSpecialRequest((prev) => toggleTagInText(prev, chip));
                     }}
                     activeOpacity={0.85}
                   >
@@ -5859,7 +5829,7 @@ function ExplorerScreen() {
             </View>
             <TextInput
               style={[styles.input, styles.textArea]}
-              placeholder="Ex. groupe de 4, sans gluten, besoin d’eau en bouteille…"
+              placeholder="Ex. 2 gourdes + barres, sans gluten, arrivée ~14h…"
               placeholderTextColor={theme.inkMuted}
               value={specialRequest}
               onChangeText={setSpecialRequest}
@@ -5868,27 +5838,42 @@ function ExplorerScreen() {
             {selectedBox ? (
               <View style={styles.bookingConfirmCard}>
                 <Text style={styles.bookingConfirmTitle}>
-                  1. Box · 2. Créneau · 3. Confirmer
+                  Étape sélectionnée
                 </Text>
                 <Text style={styles.bookingConfirmMeta}>
-                  {selectedBox.title} · {selectedBox.city}
+                  {selectedBox.title}
+                  {selectedBox.city ? ` · ${selectedBox.city}` : ""}
+                  {" · "}
+                  {(Number(selectedBox.price_cents || 0) / 100).toFixed(2)} €
+                </Text>
+                {formatBoxOfferLines(selectedBox)
+                  .slice(0, 3)
+                  .map((line, i) => (
+                    <Text key={`sel-sum-${i}`} style={styles.helperText}>
+                      • {line}
+                    </Text>
+                  ))}
+                <Text style={styles.helperText}>
+                  Créneau : {formatDateLongFr(bookingDate)} · {startTime} →{" "}
+                  {endTime}
                 </Text>
                 <Text style={styles.helperText}>
-                  Demande : {bookingSpecialRequestLabel(specialRequest)}
+                  Besoins : {bookingSpecialRequestLabel(specialRequest)}
                 </Text>
                 <PrimaryButton
-                  label="Confirmer la réservation"
-                  icon="checkmark-circle-outline"
+                  label="Voir le récap et envoyer"
+                  icon="send-outline"
                   onPress={() => confirmBookingFromExplorer(selectedBox.id)}
                 />
                 <Text style={styles.helperText}>
-                  Après envoi, tu verras le reçu dans l’onglet Réserver.
+                  Ensuite : validation hôte → paiement. Suivi dans Projets /
+                  Réserver.
                 </Text>
               </View>
             ) : (
               <Text style={styles.helperText}>
-                Choisis une box sur la carte ou la liste, règle le créneau, puis
-                confirme ici.
+                Sur la carte : choisis une box près de ton tracé, puis précise
+                créneau + besoins ici.
               </Text>
             )}
           </Section>
@@ -9316,7 +9301,9 @@ function HostScreen() {
                 }
                 keyboardType="number-pad"
               />
-              <Text style={styles.fieldLabel}>Capacité totale (litres)</Text>
+              <Text style={styles.fieldLabel}>
+                Eau — capacité (litres pour remplir les gourdes)
+              </Text>
               <TextInput
                 style={styles.input}
                 placeholder="Ex: 20"
@@ -9327,7 +9314,7 @@ function HostScreen() {
                 }
                 keyboardType="number-pad"
               />
-              <Text style={styles.fieldLabel}>Eau disponible ?</Text>
+              <Text style={styles.fieldLabel}>Eau potable sur place ?</Text>
               <View style={styles.roleRow}>
                 <TouchableOpacity
                   style={[
@@ -9366,7 +9353,13 @@ function HostScreen() {
                   </Text>
                 </TouchableOpacity>
               </View>
-              <Text style={styles.fieldLabel}>Critères disponibles</Text>
+              <Text style={styles.fieldLabel}>
+                Ce que tu proposes (allègement du sac)
+              </Text>
+              <Text style={styles.helperText}>
+                Eau, nourriture, abri, recharge… coche ce que tu peux vraiment
+                offrir.
+              </Text>
               <View style={styles.roleRow}>
                 {HOST_CRITERIA_OPTIONS.map((label) => {
                   const active = hostForm.criteriaTags.includes(label);
@@ -11083,7 +11076,7 @@ function ReservationsScreen() {
                           compact
                           label={
                             approval === "pending"
-                              ? "Accepter"
+                              ? "Valider (débloque le paiement)"
                               : "Valider la modif"
                           }
                           icon="checkmark-outline"
@@ -15822,6 +15815,7 @@ function RavitoApp() {
                       specialRequest={specialRequest}
                       unavailableSlots={bookingUnavailableSlots}
                       submitting={bookingSubmitting}
+                      routePlanId={selectedRoutePlanId}
                       onClose={cancelBookBoxConfirm}
                       onConfirm={confirmBookBox}
                     />
