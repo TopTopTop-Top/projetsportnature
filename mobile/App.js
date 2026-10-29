@@ -49,6 +49,11 @@ import {
   planBoxHasActiveBooking,
   formatPlanBoxSlot,
   formatPlanBoxPrice,
+  bookingCanAthleteEdit,
+  bookingCanAthletePay,
+  bookingFunnelStepLabel,
+  bookingPaymentLabel,
+  isBookingPaid,
 } from "./planBoxReservation";
 import {
   buildTrailMapPoints,
@@ -10041,7 +10046,7 @@ function ProfileScreen() {
           title="Interface"
           subtitle={
             simpleUi
-              ? "Mode simple : parcours Découvrir → Planifier → Réserver."
+              ? "Mode simple : Découvrir → Projets → Réserver."
               : "Mode complet : tous les outils avancés visibles."
           }
           icon="options-outline"
@@ -10980,6 +10985,29 @@ function ReservationsScreen() {
                       Demande athlète :{" "}
                       {bookingSpecialRequestLabel(b.special_request)}
                     </Text>
+                    {!isBookingPaid(b.payment_status) &&
+                    (approval === "pending" ||
+                      approval === "pending_host_confirmation") ? (
+                      <View style={[styles.infoBanner, { marginBottom: 8 }]}>
+                        <Text style={styles.infoBannerTitle}>
+                          Valide pour débloquer le paiement
+                        </Text>
+                        <Text style={styles.infoBannerText}>
+                          Le sportif ne peut payer qu’après ton acceptation.
+                        </Text>
+                      </View>
+                    ) : null}
+                    {isBookingPaid(b.payment_status) ? (
+                      <Text
+                        style={[styles.cardAvailability, { color: theme.success }]}
+                      >
+                        Payé
+                      </Text>
+                    ) : approval === "accepted" ? (
+                      <Text style={styles.cardAvailability}>
+                        Validée — en attente de paiement
+                      </Text>
+                    ) : null}
                     {b.en_route_at ? (
                       <View style={[styles.infoBanner, { marginBottom: 8 }]}>
                         <Text style={styles.infoBannerTitle}>
@@ -11241,11 +11269,34 @@ function ReservationsScreen() {
                       </Text>
                     ) : null}
                     <Text style={styles.cardDetailLine}>
+                      Étape : {bookingFunnelStepLabel(b)}
+                      {b.route_plan_id ? ` · projet #${b.route_plan_id}` : ""}
+                    </Text>
+                    <Text style={styles.cardDetailLine}>
                       Statut : {bookingApprovalLabel(approval)}
+                      {" · "}
+                      {bookingPaymentLabel(b.payment_status)}
                       {showAccess && b.access_code
                         ? ` · code ${b.access_code}`
                         : ""}
                     </Text>
+                    {bookingCanAthletePay(b) ? (
+                      <PrimaryButton
+                        compact
+                        label={`Payer ${(
+                          Number(b.amount_cents || 0) / 100
+                        ).toFixed(2)} €`}
+                        icon="card-outline"
+                        onPress={() =>
+                          actionsRef.current.payAthleteBooking?.(b.id)
+                        }
+                      />
+                    ) : null}
+                    {bookingCanAthleteEdit(b) ? (
+                      <Text style={styles.cardAvailability}>
+                        Modifiable tant que non payé (swipe « Modifier »).
+                      </Text>
+                    ) : null}
                     {!simpleUi ? (
                       <Text style={styles.cardDetailLine}>
                         Ma demande :{" "}
@@ -11486,7 +11537,7 @@ function MainTabs() {
   const [webTabPickerVisible, setWebTabPickerVisible] = useState(false);
   const tabTargets = [
     { key: "Carte", label: "Découvrir" },
-    { key: "Plans", label: "Planifier" },
+    { key: "Plans", label: "Projets" },
     ...(!simpleUi ? [{ key: "Trails", label: "Traces GPX" }] : []),
     ...(canHost ? [{ key: "Host", label: "Mes box" }] : []),
     { key: "Reservations", label: "Réserver" },
@@ -11599,7 +11650,7 @@ function MainTabs() {
         <Tab.Screen
           name="Plans"
           component={PlansScreen}
-          options={{ title: "Planifier", tabBarLabel: "Planifier" }}
+          options={{ title: "Projets", tabBarLabel: "Projets" }}
         />
         {canHost ? (
           <Tab.Screen
@@ -14192,6 +14243,7 @@ function RavitoApp() {
     }
     setBookingSubmitting(true);
     try {
+      const planId = Number(selectedRoutePlanId);
       const result = await apiFetch("/bookings", {
         method: "POST",
         token,
@@ -14202,6 +14254,9 @@ function RavitoApp() {
           endTime,
           ...(specialRequest.trim()
             ? { specialRequest: specialRequest.trim() }
+            : {}),
+          ...(Number.isFinite(planId) && planId > 0
+            ? { routePlanId: planId }
             : {}),
         },
       });
@@ -14217,17 +14272,15 @@ function RavitoApp() {
         offerLines.length
           ? `Offre box : ${offerLines.join(" | ")}`
           : null,
+        Number.isFinite(planId) && planId > 0
+          ? `Projet lié : plan #${planId}`
+          : null,
         approval === "accepted"
-          ? result.access_code && canShowBookingAccessInfo(result)
-            ? `Code d’accès : ${result.access_code}`
-            : "Code d’accès : visible à l’approche du créneau."
-          : "Statut : en attente de validation par l’hôte.",
-        "Tu peux retrouver ce reçu dans l’onglet Réserver.",
+          ? "Validée — tu peux payer dans Réserver / Projets."
+          : "Étape 1/3 : en attente de validation par l’hôte (puis paiement).",
+        "Modifiable tant que tu n’as pas payé.",
       ].filter(Boolean);
-      userAlert(
-        approval === "accepted" ? "Réservation confirmée" : "Demande envoyée",
-        receiptLines.join("\n")
-      );
+      userAlert("Demande envoyée", receiptLines.join("\n"));
       await loadAthleteBookings();
       await refreshRoutePlanBookingLinks();
       mainTabNavigationRef.current?.navigate?.("Reservations");
@@ -14867,7 +14920,7 @@ function RavitoApp() {
   const updateAthleteBooking = async (bookingId, draft) => {
     if (!token) return;
     try {
-      await apiFetch(`/bookings/${bookingId}`, {
+      const updated = await apiFetch(`/bookings/${bookingId}`, {
         method: "PATCH",
         token,
         body: {
@@ -14877,9 +14930,12 @@ function RavitoApp() {
           specialRequest: draft.specialRequest?.trim() || undefined,
         },
       });
+      const unpaid = !isBookingPaid(updated?.payment_status);
       userAlert(
-        "Demande envoyée",
-        "La modification doit être validée par l'hôte."
+        unpaid ? "Projet mis à jour" : "Demande envoyée",
+        unpaid
+          ? "Créneau modifié. L’hôte doit re-valider avant le paiement."
+          : "La modification doit être validée par l'hôte."
       );
       await loadAthleteBookings();
       await loadHostBookings();
@@ -14887,6 +14943,27 @@ function RavitoApp() {
       await refreshRoutePlanBookingLinks();
     } catch (error) {
       userAlert("Erreur", error.message);
+    }
+  };
+
+  const payAthleteBooking = async (bookingId) => {
+    if (!token) return;
+    const bid = Number(bookingId);
+    if (!Number.isFinite(bid)) return;
+    try {
+      await apiFetch(`/bookings/${bid}/pay`, {
+        method: "POST",
+        token,
+      });
+      userAlert(
+        "Paiement enregistré",
+        "Paiement simulé OK. Le code d’accès sera visible à l’approche du créneau."
+      );
+      await loadAthleteBookings();
+      await loadNotifications();
+      await refreshRoutePlanBookingLinks();
+    } catch (error) {
+      userAlert("Paiement", error.message);
     }
   };
 
@@ -15326,6 +15403,7 @@ function RavitoApp() {
     deleteAthleteBooking,
     deleteAllAthleteBookings,
     updateAthleteBooking,
+    payAthleteBooking,
     setHostLocationFromMap,
     syncExplorerMapFromHost,
     createHostBox,

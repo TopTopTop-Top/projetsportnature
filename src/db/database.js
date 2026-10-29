@@ -595,6 +595,15 @@ async function migrate() {
       ALTER TABLE bookings
         ADD COLUMN IF NOT EXISTS live_sharing SMALLINT NOT NULL DEFAULT 0
     `);
+    await client.query(`
+      ALTER TABLE bookings
+        ADD COLUMN IF NOT EXISTS route_plan_id INTEGER REFERENCES route_plans(id) ON DELETE SET NULL
+    `);
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS idx_bookings_route_plan
+      ON bookings(route_plan_id)
+      WHERE route_plan_id IS NOT NULL
+    `);
 
     await client.query("COMMIT");
     console.log("Migration PostgreSQL OK");

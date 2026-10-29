@@ -33,6 +33,9 @@ import {
   planBoxHasActiveBooking,
   formatPlanBoxSlot,
   planBoxApprovalLabel,
+  bookingCanAthletePay,
+  bookingFunnelStepLabel,
+  bookingPaymentLabel,
 } from "./planBoxReservation";
 import theme from "./theme";
 
@@ -379,6 +382,7 @@ function PlanDetailPanel({
   isAuthed,
   canBook = false,
   onBookPlanBox,
+  onPayBooking,
   selectedKind,
   onVoteRelevance,
   voteEligibility,
@@ -482,10 +486,47 @@ function PlanDetailPanel({
                 <Text style={styles.noteEmpty}>Pas de commentaire</Text>
               )}
               {planBoxHasActiveBooking(b) ? (
-                <Text style={styles.noteMeta}>
-                  Réservation : {formatPlanBoxSlot(b) || "—"} ·{" "}
-                  {planBoxApprovalLabel(b.latest_approval_status)}
-                </Text>
+                <>
+                  <Text style={styles.noteMeta}>
+                    {bookingFunnelStepLabel({
+                      status: b.latest_booking_status,
+                      approval_status: b.latest_approval_status,
+                      payment_status: b.latest_payment_status,
+                    })}
+                    {" · "}
+                    {formatPlanBoxSlot(b) || "—"}
+                    {" · "}
+                    {planBoxApprovalLabel(b.latest_approval_status)}
+                    {" · "}
+                    {bookingPaymentLabel(b.latest_payment_status)}
+                  </Text>
+                  {bookingCanAthletePay({
+                    status: b.latest_booking_status,
+                    approval_status: b.latest_approval_status,
+                    payment_status: b.latest_payment_status,
+                    amount_cents: b.latest_booking_amount_cents,
+                  }) && onPayBooking && b.latest_booking_id ? (
+                    <TouchableOpacity
+                      style={styles.bookBoxBtn}
+                      onPress={() => onPayBooking(b.latest_booking_id)}
+                      activeOpacity={0.85}
+                    >
+                      <Ionicons
+                        name="card-outline"
+                        size={14}
+                        color={theme.primary}
+                      />
+                      <Text style={styles.bookBoxBtnText}>
+                        Payer
+                        {Number(b.latest_booking_amount_cents) > 0
+                          ? ` ${(
+                              Number(b.latest_booking_amount_cents) / 100
+                            ).toFixed(2)} €`
+                          : ""}
+                      </Text>
+                    </TouchableOpacity>
+                  ) : null}
+                </>
               ) : canBook && onBookPlanBox ? (
                 <TouchableOpacity
                   style={styles.bookBoxBtn}
@@ -497,7 +538,9 @@ function PlanDetailPanel({
                     size={14}
                     color={theme.primary}
                   />
-                  <Text style={styles.bookBoxBtnText}>Réserver cette box</Text>
+                  <Text style={styles.bookBoxBtnText}>
+                    Demander cette box (validation puis paiement)
+                  </Text>
                 </TouchableOpacity>
               ) : null}
             </TouchableOpacity>
@@ -1011,11 +1054,11 @@ export default function PlansScreen({ appMain = {} }) {
         >
         <IntentGuideBanner
           guideId="planifier"
-          title="Planifier — tes parcours"
+          title="Projets — ultra & ravito"
           lines={[
-            "1. Prépare trace + box ici ou depuis Découvrir.",
-            "2. Pour réserver : choisis une box → créneau → confirme.",
-            "3. Suivi des créneaux : onglet Réserver.",
+            "1. Compose un projet : trace + box et/ou ravito.",
+            "2. Demande → l’hôte / ravitailleur valide.",
+            "3. Paiement seulement après validation. Modifiable tant que non payé.",
           ]}
         />
 
@@ -1023,8 +1066,8 @@ export default function PlansScreen({ appMain = {} }) {
 
           <View style={styles.tabRow}>
             {[
-              { id: "private", label: "Mes privés" },
-              { id: "public", label: "Plans publics" },
+              { id: "private", label: "Mes projets" },
+              { id: "public", label: "Projets publics" },
             ].map((t) => (
               <TouchableOpacity
                 key={t.id}
@@ -1151,6 +1194,9 @@ export default function PlansScreen({ appMain = {} }) {
                 isAuthed={isAuthed}
                 canBook={canBook}
                 onBookPlanBox={bookPlanBox}
+                onPayBooking={(bookingId) =>
+                  actionsRef?.current?.payAthleteBooking?.(bookingId)
+                }
                 selectedKind={selectedKind}
                 voteEligibility={voteEligibility}
                 highlightedMapPointId={highlightedMapPointId}

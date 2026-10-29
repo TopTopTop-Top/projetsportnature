@@ -265,7 +265,19 @@ const createBookingSchema = z.object({
   startTime: z.string().min(4),
   endTime: z.string().min(4),
   specialRequest: z.string().max(2000).optional(),
+  routePlanId: z.number().int().positive().optional().nullable(),
 });
+
+function isBookingPaymentSettled(paymentStatus) {
+  const p = String(paymentStatus || "simulated_unpaid").toLowerCase();
+  return (
+    p === "simulated_authorized" ||
+    p === "simulated_paid" ||
+    p === "paid" ||
+    p === "authorized" ||
+    p === "captured"
+  );
+}
 
 const createRavitoRequestSchema = z.object({
   pointLat: z.number().min(-90).max(90),
@@ -2793,15 +2805,19 @@ async function getRoutePlanDetailsForUser(routePlanId, athleteUserId) {
             lb.start_time AS latest_booking_start_time,
             lb.end_time AS latest_booking_end_time,
             lb.amount_cents AS latest_booking_amount_cents,
-            lb.special_request AS latest_booking_special_request
+            lb.special_request AS latest_booking_special_request,
+            lb.payment_status AS latest_payment_status,
+            lb.route_plan_id AS latest_route_plan_id
      FROM route_plan_boxes rpb
      JOIN boxes b ON b.id = rpb.box_id
      LEFT JOIN LATERAL (
        SELECT id, approval_status, status, booking_date, start_time, end_time,
-              amount_cents, special_request
+              amount_cents, special_request, payment_status, route_plan_id
        FROM bookings
        WHERE athlete_user_id = $1 AND box_id = rpb.box_id
-       ORDER BY created_at DESC
+       ORDER BY
+         CASE WHEN route_plan_id = $2 THEN 0 ELSE 1 END,
+         created_at DESC
        LIMIT 1
      ) lb ON TRUE
      WHERE rpb.route_plan_id = $2
@@ -4024,12 +4040,43 @@ router.post("/bookings", requireAuth, async (req, res) => {
     (typeof box.access_code === "string" && box.access_code.trim()) ||
     generateAccessCode();
 
+  let routePlanId =
+    input.routePlanId != null ? Number(input.routePlanId) : null;
+  if (Number.isFinite(routePlanId) && routePlanId > 0) {
+    const { rows: planRows } = await pool.query(
+      `SELECT id FROM route_plans
+       WHERE id = $1 AND athlete_user_id = $2`,
+      [routePlanId, athleteUserId]
+    );
+    if (!planRows[0]) {
+      return res.status(404).json({ error: "Projet / plan introuvable." });
+    }
+    const { rows: sortRows } = await pool.query(
+      `SELECT COALESCE(MAX(sort_index), -1) + 1 AS next_sort
+       FROM route_plan_boxes WHERE route_plan_id = $1`,
+      [routePlanId]
+    );
+    await pool.query(
+      `INSERT INTO route_plan_boxes (route_plan_id, box_id, sort_index)
+       VALUES ($1, $2, $3)
+       ON CONFLICT (route_plan_id, box_id) DO NOTHING`,
+      [routePlanId, input.boxId, Number(sortRows[0]?.next_sort) || 0]
+    );
+    await pool.query(
+      `UPDATE route_plans SET updated_at = NOW() WHERE id = $1`,
+      [routePlanId]
+    );
+  } else {
+    routePlanId = null;
+  }
+
   const { rows } = await pool.query(
     `INSERT INTO bookings (
       box_id, athlete_user_id, booking_date, start_time, end_time,
-      amount_cents, platform_fee_cents, host_earnings_cents, access_code, payment_status, special_request, approval_status
+      amount_cents, platform_fee_cents, host_earnings_cents, access_code,
+      payment_status, special_request, approval_status, route_plan_id
     )
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'simulated_authorized', $10, 'pending')
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'simulated_unpaid', $10, 'pending', $11)
     RETURNING *`,
     [
       input.boxId,
@@ -4042,6 +4089,7 @@ router.post("/bookings", requireAuth, async (req, res) => {
       hostEarningsCents,
       accessCode,
       input.specialRequest?.trim() || null,
+      routePlanId,
     ]
   );
   const created = rows[0];
@@ -4049,14 +4097,31 @@ router.post("/bookings", requireAuth, async (req, res) => {
     bookingId: created.id,
     actorUserId: req.auth.sub,
     eventType: "booking_created",
-    message: "Reservation created by athlete",
+    message: "Reservation created by athlete (awaiting host validation before pay)",
     data: {
       bookingDate: created.booking_date,
       startTime: created.start_time,
       endTime: created.end_time,
       specialRequest: created.special_request,
+      routePlanId,
+      paymentStatus: "simulated_unpaid",
     },
   });
+  const { rows: hostRows } = await pool.query(
+    `SELECT host_user_id, title FROM boxes WHERE id = $1`,
+    [input.boxId]
+  );
+  if (hostRows[0]?.host_user_id) {
+    await createNotification({
+      recipientUserId: hostRows[0].host_user_id,
+      type: "booking_pending_validation",
+      title: "Nouvelle demande à valider",
+      body: `Un sportif demande « ${
+        hostRows[0].title || "ta box"
+      } ». Valide avant le paiement.`,
+      data: { bookingId: created.id, routePlanId },
+    });
+  }
   const payload = {
     ...created,
     box_title: box.title || null,
@@ -4210,20 +4275,27 @@ router.patch("/host/bookings/:id/decision", requireAuth, async (req, res) => {
        RETURNING *`,
       [bookingId]
     );
+    const unpaid = !isBookingPaymentSettled(booking.payment_status);
     await createNotification({
       recipientUserId: booking.athlete_user_id,
       type: "booking_approved",
-      title: "Réservation acceptée",
-      body: `L'hôte a accepté ta réservation pour « ${
-        booking.box_title || "ce box"
-      } ».`,
-      data: { bookingId },
+      title: unpaid ? "Validée — tu peux payer" : "Réservation acceptée",
+      body: unpaid
+        ? `L'hôte a validé « ${
+            booking.box_title || "ce box"
+          } ». Tu peux maintenant procéder au paiement.`
+        : `L'hôte a accepté ta réservation pour « ${
+            booking.box_title || "ce box"
+          } ».`,
+      data: { bookingId, canPay: unpaid },
     });
     await logBookingEvent({
       bookingId,
       actorUserId: req.auth.sub,
       eventType: "booking_accepted",
-      message: "Host accepted booking request",
+      message: unpaid
+        ? "Host accepted booking — payment unlocked"
+        : "Host accepted booking request",
     });
     return res.json(rows[0]);
   }
@@ -4598,7 +4670,7 @@ router.patch("/bookings/:id", requireAuth, async (req, res) => {
     return res.status(400).json({ error: parsed.error.flatten() });
   }
   const { rows: ownership } = await pool.query(
-    `SELECT b.id, b.status, b.approval_status, b.athlete_user_id, bx.host_user_id, bx.title AS box_title
+    `SELECT b.*, bx.host_user_id, bx.title AS box_title
      FROM bookings b
      JOIN boxes bx ON bx.id = b.box_id
      WHERE b.id = $1 AND b.athlete_user_id = $2`,
@@ -4617,6 +4689,61 @@ router.patch("/bookings/:id", requireAuth, async (req, res) => {
       .json({ error: "Cannot request changes on a cancelled booking" });
   }
   const draft = sanitizeBookingDraft(parsed.data);
+  const unpaid = !isBookingPaymentSettled(booking.payment_status);
+
+  // Tant que non payé : modification libre, re-validation hôte requise.
+  if (unpaid) {
+    try {
+      await ensureNoBookingOverlap({
+        boxId: booking.box_id,
+        bookingDate: draft.bookingDate,
+        startTime: draft.startTime,
+        endTime: draft.endTime,
+        ignoreBookingId: bookingId,
+      });
+    } catch (error) {
+      return res.status(409).json({ error: error.message });
+    }
+    const { rows } = await pool.query(
+      `UPDATE bookings
+       SET booking_date = $1,
+           start_time = $2,
+           end_time = $3,
+           special_request = $4,
+           approval_status = 'pending',
+           status = 'confirmed',
+           change_request_json = NULL,
+           change_requested_by = NULL,
+           change_requested_at = NULL
+       WHERE id = $5
+       RETURNING *`,
+      [
+        draft.bookingDate,
+        draft.startTime,
+        draft.endTime,
+        draft.specialRequest ?? null,
+        bookingId,
+      ]
+    );
+    await createNotification({
+      recipientUserId: booking.host_user_id,
+      type: "booking_updated_unpaid",
+      title: "Demande mise à jour",
+      body: `Le sportif a modifié « ${
+        booking.box_title || "ta réservation"
+      } » (non payée). À re-valider.`,
+      data: { bookingId, draft },
+    });
+    await logBookingEvent({
+      bookingId,
+      actorUserId: req.auth.sub,
+      eventType: "booking_updated_unpaid",
+      message: "Athlete edited unpaid booking — pending re-validation",
+      data: draft,
+    });
+    return res.json(rows[0]);
+  }
+
   const { rows } = await pool.query(
     `UPDATE bookings
      SET approval_status = 'pending_host_confirmation',
@@ -4644,6 +4771,60 @@ router.patch("/bookings/:id", requireAuth, async (req, res) => {
     data: draft,
   });
   return res.json(rows[0]);
+});
+
+router.post("/bookings/:id/pay", requireAuth, async (req, res) => {
+  const bookingId = Number(req.params.id);
+  if (!Number.isInteger(bookingId) || bookingId <= 0) {
+    return res.status(400).json({ error: "Invalid booking id" });
+  }
+  const { rows: ownership } = await pool.query(
+    `SELECT b.*, bx.host_user_id, bx.title AS box_title
+     FROM bookings b
+     JOIN boxes bx ON bx.id = b.box_id
+     WHERE b.id = $1 AND b.athlete_user_id = $2`,
+    [bookingId, req.auth.sub]
+  );
+  const booking = ownership[0];
+  if (!booking) {
+    return res.status(404).json({ error: "Réservation introuvable." });
+  }
+  if (String(booking.status || "") === "cancelled") {
+    return res.status(400).json({ error: "Réservation annulée." });
+  }
+  if (String(booking.approval_status || "") !== "accepted") {
+    return res.status(409).json({
+      error:
+        "L’hôte doit d’abord valider la demande avant le paiement.",
+    });
+  }
+  if (isBookingPaymentSettled(booking.payment_status)) {
+    return res.status(409).json({ error: "Cette réservation est déjà payée." });
+  }
+  const { rows } = await pool.query(
+    `UPDATE bookings
+     SET payment_status = 'simulated_paid',
+         status = 'confirmed'
+     WHERE id = $1
+     RETURNING *`,
+    [bookingId]
+  );
+  await createNotification({
+    recipientUserId: booking.host_user_id,
+    type: "booking_paid",
+    title: "Paiement reçu",
+    body: `Le sportif a payé « ${booking.box_title || "ta box"} ».`,
+    data: { bookingId, amountCents: booking.amount_cents },
+  });
+  await logBookingEvent({
+    bookingId,
+    actorUserId: req.auth.sub,
+    eventType: "booking_paid",
+    message: "Athlete paid after host validation (simulated)",
+    data: { amountCents: booking.amount_cents },
+  });
+  const out = { ...rows[0] };
+  return res.json(out);
 });
 
 router.patch("/bookings/:id/decision", requireAuth, async (req, res) => {
