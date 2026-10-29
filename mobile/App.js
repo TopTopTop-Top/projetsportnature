@@ -2319,8 +2319,12 @@ function ExplorerScreen() {
     useState(null); // null | "none" | number
   const [discoverPanelOpen, setDiscoverPanelOpen] = useState(true);
   const [discoverToolsOpen, setDiscoverToolsOpen] = useState(false);
-  /** Funnel dégrossissage : 1 créneau → 2 besoins → 3 choisir box */
-  const [discoverPrepStep, setDiscoverPrepStep] = useState(1);
+  /**
+   * Après projet : null = pas encore choisi, "box" | "ravito".
+   * Funnel box : 1 box → 2 créneau → 3 besoins → 4 récap.
+   */
+  const [discoverReserveMode, setDiscoverReserveMode] = useState(null);
+  const [discoverBookStep, setDiscoverBookStep] = useState(1);
   const [explorerTrailProbe, setExplorerTrailProbe] = useState(null);
   const [lastMapTapCoords, setLastMapTapCoords] = useState(null);
   const [chartProbeHover, setChartProbeHover] = useState(false);
@@ -2704,6 +2708,65 @@ function ExplorerScreen() {
     () => new Set(activePlanBoxIds),
     [activePlanBoxIds]
   );
+
+  const projectDiscoverRecap = useMemo(() => {
+    const pid = Number(selectedRoutePlanId);
+    if (!Number.isFinite(pid) || pid <= 0) return null;
+    const listItem =
+      (Array.isArray(routePlans) ? routePlans : []).find(
+        (p) => Number(p.id) === pid
+      ) || null;
+    const detail =
+      selectedRoutePlanDetail && Number(selectedRoutePlanDetail.id) === pid
+        ? selectedRoutePlanDetail
+        : null;
+    const planBoxes = Array.isArray(detail?.boxes) ? detail.boxes : [];
+    const trailNotes = Array.isArray(detail?.trail_notes)
+      ? detail.trail_notes
+      : [];
+    const planBookings = (Array.isArray(athleteBookings) ? athleteBookings : [])
+      .filter((b) => Number(b.route_plan_id) === pid)
+      .slice(0, 6);
+    return {
+      id: pid,
+      name: detail?.name || listItem?.name || `Projet #${pid}`,
+      trailName:
+        cleanTrailLabel(detail?.trail_name || listItem?.trail_name) ||
+        (detail?.trail_id || listItem?.trail_id
+          ? `Trace #${detail?.trail_id || listItem?.trail_id}`
+          : null),
+      activity: detail?.activity || listItem?.activity || null,
+      boxes: planBoxes,
+      boxCount: planBoxes.length || Number(listItem?.selected_box_count || 0),
+      trailNotes,
+      bookings: planBookings,
+    };
+  }, [
+    selectedRoutePlanId,
+    selectedRoutePlanDetail,
+    routePlans,
+    athleteBookings,
+  ]);
+
+  useEffect(() => {
+    if (selectedBox && !discoverReserveMode) {
+      setDiscoverReserveMode("box");
+    }
+    if (
+      discoverReserveMode === "box" &&
+      discoverBookStep === 1 &&
+      selectedBox
+    ) {
+      setDiscoverBookStep(2);
+    }
+  }, [discoverReserveMode, discoverBookStep, selectedBox]);
+
+  useEffect(() => {
+    if (!selectedRoutePlanId) {
+      setDiscoverReserveMode(null);
+      setDiscoverBookStep(1);
+    }
+  }, [selectedRoutePlanId]);
   const pickedBoxesForExplorer = useMemo(() => {
     const planSet = activePlanBoxIdSet;
     const findBox = (id) =>
@@ -4998,6 +5061,64 @@ function ExplorerScreen() {
                 </ScrollView>
               </View>
             ) : null}
+            {projectDiscoverRecap ? (
+              <View style={styles.discoverProjectRecap}>
+                <Text style={styles.discoverProjectRecapTitle}>
+                  Récap projet
+                </Text>
+                {projectDiscoverRecap.trailName ? (
+                  <Text style={styles.discoverProjectRecapLine}>
+                    Trace · {projectDiscoverRecap.trailName}
+                  </Text>
+                ) : null}
+                <Text style={styles.discoverProjectRecapLine}>
+                  {projectDiscoverRecap.boxCount} box
+                  {projectDiscoverRecap.boxes.length
+                    ? ` · ${projectDiscoverRecap.boxes
+                        .slice(0, 3)
+                        .map((b) => b.title || b.box_title || `#${b.id}`)
+                        .join(", ")}`
+                    : ""}
+                  {projectDiscoverRecap.boxCount > 3 ? "…" : ""}
+                </Text>
+                <Text style={styles.discoverProjectRecapLine}>
+                  Ravito GPS · {projectDiscoverRecap.trailNotes.length} point
+                  {projectDiscoverRecap.trailNotes.length > 1 ? "s" : ""}
+                </Text>
+                {projectDiscoverRecap.bookings.length > 0 ? (
+                  <Text style={styles.discoverProjectRecapLine}>
+                    Horaires ·{" "}
+                    {projectDiscoverRecap.bookings
+                      .slice(0, 2)
+                      .map((b) => {
+                        const d = b.booking_date || b.date || "";
+                        const st = b.start_time || "";
+                        const en = b.end_time || "";
+                        return [d, st && en ? `${st}–${en}` : st]
+                          .filter(Boolean)
+                          .join(" ");
+                      })
+                      .filter(Boolean)
+                      .join(" · ")}
+                  </Text>
+                ) : (
+                  <Text style={styles.discoverProjectRecapLine}>
+                    Horaires · aucune réservation encore
+                  </Text>
+                )}
+                <TouchableOpacity
+                  style={styles.discoverProjectRecapLink}
+                  onPress={() =>
+                    mainTabNavigationRef.current?.navigate?.("Plans")
+                  }
+                  activeOpacity={0.85}
+                >
+                  <Text style={styles.discoverProjectRecapLinkText}>
+                    Ouvrir dans Projets
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            ) : null}
           </View>
         ) : canBook ? (
           <TouchableOpacity
@@ -5007,10 +5128,87 @@ function ExplorerScreen() {
             }
             activeOpacity={0.85}
           >
-            <Text style={styles.discoverChipTextOn}>+ Projet</Text>
+            <Text style={styles.discoverChipTextOn}>+ Créer un projet</Text>
           </TouchableOpacity>
         ) : null}
       </View>
+
+      {canBook && selectedRoutePlanId ? (
+        <Section
+          flat
+          title="Réserver"
+          subtitle="Choisis d’abord le type d’aide."
+        >
+          <View style={styles.discoverReserveModeRow}>
+            <TouchableOpacity
+              style={[
+                styles.discoverReserveModeBtn,
+                discoverReserveMode === "box" && styles.discoverReserveModeBtnOn,
+              ]}
+              onPress={() => {
+                setDiscoverReserveMode("box");
+                setDiscoverBookStep(selectedBox ? 2 : 1);
+              }}
+              activeOpacity={0.88}
+            >
+              <Ionicons
+                name="cube-outline"
+                size={18}
+                color={discoverReserveMode === "box" ? "#fff" : theme.ink}
+              />
+              <Text
+                style={[
+                  styles.discoverReserveModeText,
+                  discoverReserveMode === "box" &&
+                    styles.discoverReserveModeTextOn,
+                ]}
+              >
+                Box fixe
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[
+                styles.discoverReserveModeBtn,
+                discoverReserveMode === "ravito" &&
+                  styles.discoverReserveModeBtnOn,
+              ]}
+              onPress={() => {
+                setDiscoverReserveMode("ravito");
+                setSelectedBoxId(null);
+              }}
+              activeOpacity={0.88}
+            >
+              <Ionicons
+                name="walk-outline"
+                size={18}
+                color={discoverReserveMode === "ravito" ? "#fff" : theme.ink}
+              />
+              <Text
+                style={[
+                  styles.discoverReserveModeText,
+                  discoverReserveMode === "ravito" &&
+                    styles.discoverReserveModeTextOn,
+                ]}
+              >
+                Ravito humain
+              </Text>
+            </TouchableOpacity>
+          </View>
+          {!discoverReserveMode ? (
+            <Text style={styles.helperText}>
+              Box = point fixe (eau/nourriture). Ravito humain = quelqu’un te
+              rejoint au GPS.
+            </Text>
+          ) : null}
+        </Section>
+      ) : canBook && !selectedRoutePlanId ? (
+        <View style={styles.discoverEmptyPick}>
+          <Text style={styles.helperText}>
+            Crée ou active un projet ci-dessus pour réserver box ou ravito.
+          </Text>
+        </View>
+      ) : null}
+
       <TouchableOpacity
         style={styles.discoverToolsToggle}
         onPress={() => setDiscoverToolsOpen((v) => !v)}
@@ -5037,7 +5235,11 @@ function ExplorerScreen() {
       <Section
         flat
         title="Sur la carte"
-        subtitle="Touche une box pour réserver."
+        subtitle={
+          discoverReserveMode === "ravito"
+            ? "Pose un point GPS pour le ravito."
+            : "Touche une box pour l’étape 1."
+        }
       >
         <View style={styles.explorerMapSearchRow}>
           <TouchableOpacity
@@ -5992,248 +6194,263 @@ function ExplorerScreen() {
         ) : null}
       </Section>
 
-      {canBook ? (
-        <>
-          <Section
-            flat
-            title={
-              selectedBox
-                ? "Réserver cette étape"
-                : discoverPrepStep === 1
-                ? "1 · Créneau"
-                : discoverPrepStep === 2
-                ? "2 · Besoins"
-                : "3 · Choisir une box"
-            }
-            subtitle={
-              selectedBox
-                ? "Vérifie puis envoie la demande."
-                : discoverPrepStep === 1
-                ? "D’abord ton horaire — on dégrossit la carte."
-                : discoverPrepStep === 2
-                ? "Ce que tu veux trouver (optionnel)."
-                : "Touche une box compatible sur la carte."
-            }
-            onLayout={(event) => {
-              bookingSectionYRef.current = event?.nativeEvent?.layout?.y || 0;
+      {canBook && discoverReserveMode === "ravito" ? (
+        <Section
+          flat
+          title="Ravito humain"
+          subtitle="Quelqu’un te rejoint au point GPS."
+        >
+          <Text style={styles.helperText}>
+            Place un point sur la carte (ou sur une trace), puis envoie la
+            demande.
+          </Text>
+          <PrimaryButton
+            compact
+            stretch
+            label="Demander un ravito GPS"
+            icon="navigate-outline"
+            onPress={() => {
+              if (lastMapTapCoords) {
+                openRavitoRequestAtPoint?.({
+                  lat: lastMapTapCoords.lat,
+                  lon: lastMapTapCoords.lng,
+                  source: "map",
+                });
+              } else {
+                openRavitoRequestAtPoint?.({ source: "map" });
+              }
             }}
-          >
-            {!selectedBox ? (
-              <>
-                <View style={styles.discoverPrepSteps}>
-                  {[1, 2, 3].map((n) => (
-                    <View
-                      key={`prep-${n}`}
-                      style={[
-                        styles.discoverPrepDotLight,
-                        discoverPrepStep === n && styles.discoverPrepDotOn,
-                        discoverPrepStep > n && styles.discoverPrepDotDoneLight,
-                      ]}
+          />
+          <OutlineButton
+            compact
+            stretch
+            label="Plutôt réserver une box"
+            onPress={() => {
+              setDiscoverReserveMode("box");
+              setDiscoverBookStep(selectedBox ? 2 : 1);
+            }}
+          />
+        </Section>
+      ) : null}
+
+      {canBook && discoverReserveMode === "box" ? (
+        <Section
+          flat
+          title={
+            discoverBookStep === 1
+              ? "1 · Sélectionner une box"
+              : discoverBookStep === 2
+              ? "2 · Créneau"
+              : discoverBookStep === 3
+              ? "3 · Besoins"
+              : "4 · Récap & envoi"
+          }
+          subtitle={
+            discoverBookStep === 1
+              ? "Touche une box sur la carte."
+              : discoverBookStep === 2
+              ? "Quand comptes-tu arriver ?"
+              : discoverBookStep === 3
+              ? "Allège ton sac — l’hôte le voit."
+              : "Vérifie puis envoie la demande."
+          }
+          onLayout={(event) => {
+            bookingSectionYRef.current = event?.nativeEvent?.layout?.y || 0;
+          }}
+        >
+          <View style={styles.discoverPrepSteps}>
+            {[1, 2, 3, 4].map((n) => (
+              <View
+                key={`book-${n}`}
+                style={[
+                  styles.discoverPrepDotLight,
+                  discoverBookStep === n && styles.discoverPrepDotOn,
+                  discoverBookStep > n && styles.discoverPrepDotDoneLight,
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.discoverPrepDotTextLight,
+                    discoverBookStep >= n && styles.discoverPrepDotTextOn,
+                  ]}
+                >
+                  {n}
+                </Text>
+              </View>
+            ))}
+          </View>
+
+          {discoverBookStep === 1 ? (
+            <>
+              <View style={styles.discoverEmptyPick}>
+                <Ionicons
+                  name="hand-left-outline"
+                  size={22}
+                  color={theme.primary}
+                />
+                <Text style={styles.helperText}>
+                  {boxes.length === 0
+                    ? "Aucune box dans la zone — déplace la carte."
+                    : `${boxes.length} box visibles. Touche-en une.`}
+                </Text>
+              </View>
+              {selectedBox ? (
+                <PrimaryButton
+                  compact
+                  stretch
+                  label={`Continuer avec « ${selectedBox.title} »`}
+                  icon="arrow-forward-outline"
+                  onPress={() => setDiscoverBookStep(2)}
+                />
+              ) : null}
+            </>
+          ) : null}
+
+          {discoverBookStep === 2 && selectedBox ? (
+            <>
+              <Text style={styles.bookingConfirmMeta}>
+                {selectedBox.title}
+                {selectedBox.city ? ` · ${selectedBox.city}` : ""}
+              </Text>
+              <DateTimeSelector
+                dateValue={bookingDate}
+                onDateChange={setBookingDate}
+                startValue={startTime}
+                onStartChange={setStartTime}
+                endValue={endTime}
+                onEndChange={setEndTime}
+              />
+              <View style={styles.row}>
+                <OutlineButton
+                  compact
+                  label="Retour"
+                  onPress={() => setDiscoverBookStep(1)}
+                />
+                <PrimaryButton
+                  compact
+                  stretch
+                  label="Continuer"
+                  icon="arrow-forward-outline"
+                  disabled={
+                    !explorerSlotWellFormed(bookingDate, startTime, endTime)
+                  }
+                  onPress={() => setDiscoverBookStep(3)}
+                />
+              </View>
+            </>
+          ) : null}
+
+          {discoverBookStep === 3 && selectedBox ? (
+            <>
+              <View
+                style={[styles.roleRow, { flexWrap: "wrap", marginBottom: 8 }]}
+              >
+                {BOOKING_NEED_CHIPS.map((chip) => {
+                  const active = textHasTag(specialRequest, chip);
+                  return (
+                    <TouchableOpacity
+                      key={`need-${chip}`}
+                      style={[styles.roleChip, active && styles.roleChipActive]}
+                      onPress={() => {
+                        setSpecialRequest((prev) =>
+                          toggleTagInText(prev, chip)
+                        );
+                      }}
+                      activeOpacity={0.85}
                     >
                       <Text
                         style={[
-                          styles.discoverPrepDotTextLight,
-                          discoverPrepStep >= n && styles.discoverPrepDotTextOn,
+                          styles.roleChipText,
+                          active && styles.roleChipTextActive,
                         ]}
                       >
-                        {n}
+                        {chip}
                       </Text>
-                    </View>
-                  ))}
-                </View>
-
-                {discoverPrepStep === 1 ? (
-                  <>
-                    <DateTimeSelector
-                      dateValue={bookingDate}
-                      onDateChange={setBookingDate}
-                      startValue={startTime}
-                      onStartChange={setStartTime}
-                      endValue={endTime}
-                      onEndChange={setEndTime}
-                    />
-                    <PrimaryButton
-                      compact
-                      stretch
-                      label="Continuer — besoins"
-                      icon="arrow-forward-outline"
-                      disabled={
-                        !explorerSlotWellFormed(bookingDate, startTime, endTime)
-                      }
-                      onPress={() => {
-                        setMapBoxesSlotCompatibleOnly(true);
-                        setDiscoverPrepStep(2);
-                      }}
-                    />
-                  </>
-                ) : null}
-
-                {discoverPrepStep === 2 ? (
-                  <>
-                    <Text style={styles.helperText}>
-                      Eau, snacks… l’hôte voit ça avant d’accepter.
-                    </Text>
-                    <View
-                      style={[
-                        styles.roleRow,
-                        { flexWrap: "wrap", marginBottom: 8 },
-                      ]}
-                    >
-                      {BOOKING_NEED_CHIPS.map((chip) => {
-                        const active = textHasTag(specialRequest, chip);
-                        return (
-                          <TouchableOpacity
-                            key={`need-${chip}`}
-                            style={[
-                              styles.roleChip,
-                              active && styles.roleChipActive,
-                            ]}
-                            onPress={() => {
-                              setSpecialRequest((prev) =>
-                                toggleTagInText(prev, chip)
-                              );
-                            }}
-                            activeOpacity={0.85}
-                          >
-                            <Text
-                              style={[
-                                styles.roleChipText,
-                                active && styles.roleChipTextActive,
-                              ]}
-                            >
-                              {chip}
-                            </Text>
-                          </TouchableOpacity>
-                        );
-                      })}
-                    </View>
-                    <TextInput
-                      style={[styles.input, styles.textArea]}
-                      placeholder="Précisions (optionnel)"
-                      placeholderTextColor={theme.inkMuted}
-                      value={specialRequest}
-                      onChangeText={setSpecialRequest}
-                      multiline
-                    />
-                    <View style={styles.row}>
-                      <OutlineButton
-                        compact
-                        label="Retour"
-                        onPress={() => setDiscoverPrepStep(1)}
-                      />
-                      <PrimaryButton
-                        compact
-                        stretch
-                        label="Voir les box"
-                        icon="map-outline"
-                        onPress={() => {
-                          setMapBoxesSlotCompatibleOnly(true);
-                          setDiscoverPrepStep(3);
-                          setDiscoverToolsOpen(true);
-                        }}
-                      />
-                    </View>
-                  </>
-                ) : null}
-
-                {discoverPrepStep === 3 ? (
-                  <>
-                    <View style={styles.discoverEmptyPick}>
-                      <Ionicons
-                        name="hand-left-outline"
-                        size={22}
-                        color={theme.primary}
-                      />
-                      <Text style={styles.helperText}>
-                        Créneau OK
-                        {specialRequest
-                          ? ` · ${bookingSpecialRequestLabel(specialRequest)}`
-                          : ""}
-                        . Touche une box sur la carte.
-                      </Text>
-                    </View>
-                    <Text style={styles.helperText}>
-                      {boxes.length === 0
-                        ? "Aucune box dans la zone — déplace la carte."
-                        : `${boxes.length} box visibles (créneau filtré).`}
-                    </Text>
-                    <OutlineButton
-                      compact
-                      stretch
-                      label="Modifier créneau / besoins"
-                      onPress={() => setDiscoverPrepStep(1)}
-                    />
-                  </>
-                ) : null}
-              </>
-            ) : (
-              <View style={styles.bookingConfirmCard}>
-                <FunnelSteps activeId="ask" compact />
-                {selectedBox && !simpleUi ? (
-                  <View style={[styles.infoBanner, { marginBottom: 10 }]}>
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.infoBannerTitle}>
-                        Offre de « {selectedBox.title} »
-                      </Text>
-                      {formatBoxOfferLines(selectedBox).map((line, i) => (
-                        <Text
-                          key={`sel-offer-${i}`}
-                          style={styles.infoBannerText}
-                        >
-                          • {line}
-                        </Text>
-                      ))}
-                    </View>
-                  </View>
-                ) : null}
-                <Text style={styles.bookingConfirmTitle}>
-                  {selectedBox.title}
-                  {selectedBox.city ? ` · ${selectedBox.city}` : ""}
-                  {" · "}
-                  {(Number(selectedBox.price_cents || 0) / 100).toFixed(2)} €
-                </Text>
-                <Text style={[styles.fieldLabel, { marginTop: 10 }]}>
-                  Créneau
-                </Text>
-                <DateTimeSelector
-                  dateValue={bookingDate}
-                  onDateChange={setBookingDate}
-                  startValue={startTime}
-                  onStartChange={setStartTime}
-                  endValue={endTime}
-                  onEndChange={setEndTime}
-                />
-                <Text style={styles.helperText}>
-                  Besoins : {bookingSpecialRequestLabel(specialRequest)}
-                </Text>
-                <PrimaryButton
-                  label="Voir le récap et envoyer"
-                  icon="send-outline"
-                  onPress={() => confirmBookingFromExplorer(selectedBox.id)}
-                />
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+              <TextInput
+                style={[styles.input, styles.textArea]}
+                placeholder="Précisions (optionnel)"
+                placeholderTextColor={theme.inkMuted}
+                value={specialRequest}
+                onChangeText={setSpecialRequest}
+                multiline
+              />
+              <View style={styles.row}>
                 <OutlineButton
                   compact
+                  label="Retour"
+                  onPress={() => setDiscoverBookStep(2)}
+                />
+                <PrimaryButton
+                  compact
                   stretch
-                  label="Demander un ravito GPS ici"
-                  icon="navigate-outline"
-                  onPress={() => {
-                    const lat = Number(selectedBox.latitude);
-                    const lon = Number(selectedBox.longitude);
-                    if (Number.isFinite(lat) && Number.isFinite(lon)) {
-                      openRavitoRequestAtPoint?.({
-                        lat,
-                        lon,
-                        source: "box",
-                      });
-                    } else {
-                      openRavitoRequestAtPoint?.({ source: "map" });
-                    }
-                  }}
+                  label="Voir le récap"
+                  icon="arrow-forward-outline"
+                  onPress={() => setDiscoverBookStep(4)}
                 />
               </View>
-            )}
-          </Section>
-        </>
+            </>
+          ) : null}
+
+          {discoverBookStep === 4 && selectedBox ? (
+            <View style={styles.bookingConfirmCard}>
+              <FunnelSteps activeId="ask" compact />
+              <Text style={styles.bookingConfirmTitle}>Récap</Text>
+              <Text style={styles.bookingConfirmMeta}>
+                {selectedBox.title}
+                {selectedBox.city ? ` · ${selectedBox.city}` : ""}
+                {" · "}
+                {(Number(selectedBox.price_cents || 0) / 100).toFixed(2)} €
+              </Text>
+              {formatBoxOfferLines(selectedBox)
+                .slice(0, 3)
+                .map((line, i) => (
+                  <Text key={`recap-off-${i}`} style={styles.helperText}>
+                    • {line}
+                  </Text>
+                ))}
+              <Text style={styles.helperText}>
+                Créneau · {bookingDate} · {startTime}–{endTime}
+              </Text>
+              <Text style={styles.helperText}>
+                Besoins · {bookingSpecialRequestLabel(specialRequest)}
+              </Text>
+              {projectDiscoverRecap ? (
+                <Text style={styles.helperText}>
+                  Projet · {projectDiscoverRecap.name}
+                </Text>
+              ) : null}
+              <PrimaryButton
+                label="Envoyer la demande"
+                icon="send-outline"
+                onPress={() => confirmBookingFromExplorer(selectedBox.id)}
+              />
+              <OutlineButton
+                compact
+                stretch
+                label="Modifier"
+                onPress={() => setDiscoverBookStep(2)}
+              />
+            </View>
+          ) : null}
+
+          {discoverBookStep > 1 && !selectedBox ? (
+            <View style={styles.discoverEmptyPick}>
+              <Text style={styles.helperText}>
+                La box a été désélectionnée. Repars à l’étape 1.
+              </Text>
+              <OutlineButton
+                compact
+                stretch
+                label="Étape 1 — choisir une box"
+                onPress={() => setDiscoverBookStep(1)}
+              />
+            </View>
+          ) : null}
+        </Section>
       ) : null}
 
       {discoverToolsOpen ? (
@@ -6999,7 +7216,7 @@ function ExplorerScreen() {
 
   const mobileBookingSheet = canBook ? (
     <DiscoverMobileBookingSheet
-      visible={Boolean(selectedBox)}
+      visible={Boolean(selectedBox) && discoverReserveMode !== "ravito"}
       box={selectedBox}
       projectLabel={activeProjectLabel}
       bookingDate={bookingDate}
@@ -7013,7 +7230,11 @@ function ExplorerScreen() {
       needChips={BOOKING_NEED_CHIPS}
       DateTimeSelector={DateTimeSelector}
       formatOfferLines={formatBoxOfferLines}
-      onClose={() => setSelectedBoxId(null)}
+      slotWellFormed={explorerSlotWellFormed}
+      onClose={() => {
+        setSelectedBoxId(null);
+        setDiscoverBookStep(1);
+      }}
       onSubmit={() => confirmBookingFromExplorer(selectedBox.id)}
       onRequestRavito={() => {
         const lat = Number(selectedBox?.latitude);
@@ -7054,115 +7275,52 @@ function ExplorerScreen() {
   const mobilePeekHint =
     !selectedBox && !selectedTrail && canBook ? (
       <View style={styles.discoverMobilePeek} pointerEvents="box-none">
-        <View style={styles.discoverPrepSteps}>
-          {[1, 2, 3].map((n) => (
-            <View
-              key={`mprep-${n}`}
-              style={[
-                styles.discoverPrepDot,
-                discoverPrepStep === n && styles.discoverPrepDotOn,
-                discoverPrepStep > n && styles.discoverPrepDotDone,
-              ]}
-            >
-              <Text
-                style={[
-                  styles.discoverPrepDotText,
-                  discoverPrepStep >= n && styles.discoverPrepDotTextOn,
-                ]}
-              >
-                {n}
-              </Text>
-            </View>
-          ))}
-        </View>
-        {discoverPrepStep === 1 ? (
-          <>
-            <Text style={styles.discoverMobilePeekText}>1 · Ton créneau</Text>
-            <DateTimeSelector
-              dateValue={bookingDate}
-              onDateChange={setBookingDate}
-              startValue={startTime}
-              onStartChange={setStartTime}
-              endValue={endTime}
-              onEndChange={setEndTime}
-            />
-            <PrimaryButton
-              compact
-              stretch
-              label="Continuer"
-              icon="arrow-forward-outline"
-              disabled={
-                !explorerSlotWellFormed(bookingDate, startTime, endTime)
-              }
-              onPress={() => {
-                setMapBoxesSlotCompatibleOnly(true);
-                setDiscoverPrepStep(2);
-              }}
-            />
-          </>
-        ) : null}
-        {discoverPrepStep === 2 ? (
-          <>
-            <Text style={styles.discoverMobilePeekText}>2 · Besoins</Text>
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={{ gap: 6, paddingVertical: 6 }}
-            >
-              {BOOKING_NEED_CHIPS.map((chip) => {
-                const active = textHasTag(specialRequest, chip);
-                return (
-                  <TouchableOpacity
-                    key={`mneed-${chip}`}
-                    style={[styles.roleChip, active && styles.roleChipActive]}
-                    onPress={() =>
-                      setSpecialRequest((prev) => toggleTagInText(prev, chip))
-                    }
-                  >
-                    <Text
-                      style={[
-                        styles.roleChipText,
-                        active && styles.roleChipTextActive,
-                      ]}
-                    >
-                      {chip}
-                    </Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </ScrollView>
-            <PrimaryButton
-              compact
-              stretch
-              label="Voir les box"
-              icon="map-outline"
-              onPress={() => {
-                setMapBoxesSlotCompatibleOnly(true);
-                setDiscoverPrepStep(3);
-              }}
-            />
-            <OutlineButton
-              compact
-              stretch
-              label="Retour créneau"
-              onPress={() => setDiscoverPrepStep(1)}
-            />
-          </>
-        ) : null}
-        {discoverPrepStep === 3 ? (
+        {!selectedRoutePlanId ? (
+          <Text style={styles.discoverMobilePeekText}>
+            Choisis ou crée un projet (bouton Projet)
+          </Text>
+        ) : !discoverReserveMode ? (
           <>
             <Text style={styles.discoverMobilePeekText}>
-              3 · Touche une box sur la carte
-              {boxes.length ? ` · ${boxes.length} visibles` : ""}
+              Que veux-tu réserver ?
             </Text>
-            <OutlineButton
+            <View style={styles.discoverReserveModeRow}>
+              <TouchableOpacity
+                style={styles.discoverReserveModeBtnLight}
+                onPress={() => {
+                  setDiscoverReserveMode("box");
+                  setDiscoverBookStep(1);
+                }}
+              >
+                <Text style={styles.discoverReserveModeText}>Box fixe</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.discoverReserveModeBtnLight}
+                onPress={() => setDiscoverReserveMode("ravito")}
+              >
+                <Text style={styles.discoverReserveModeText}>Ravito humain</Text>
+              </TouchableOpacity>
+            </View>
+          </>
+        ) : discoverReserveMode === "ravito" ? (
+          <>
+            <Text style={styles.discoverMobilePeekText}>
+              Pose un point GPS puis demande un ravito
+            </Text>
+            <PrimaryButton
               compact
               stretch
-              label="Modifier créneau / besoins"
-              onPress={() => setDiscoverPrepStep(1)}
+              label="Demander un ravito GPS"
+              icon="navigate-outline"
+              onPress={() => openRavitoRequestAtPoint?.({ source: "map" })}
             />
           </>
-        ) : null}
+        ) : (
+          <Text style={styles.discoverMobilePeekText}>
+            1/4 · Touche une box sur la carte
+            {boxes.length ? ` · ${boxes.length} visibles` : ""}
+          </Text>
+        )}
       </View>
     ) : !selectedBox && !selectedTrail ? (
       <View style={styles.discoverMobilePeek} pointerEvents="none">
@@ -7171,6 +7329,7 @@ function ExplorerScreen() {
         </Text>
       </View>
     ) : null;
+
 
   if (webSplit) {
     if (webDesktopSplit) {
@@ -16916,6 +17075,77 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "800",
     color: theme.inkMuted,
+  },
+  discoverProjectRecap: {
+    marginTop: 12,
+    paddingTop: 10,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: "rgba(250,250,250,0.16)",
+    gap: 3,
+  },
+  discoverProjectRecapTitle: {
+    fontSize: 10,
+    fontWeight: "800",
+    color: theme.heroAccent,
+    letterSpacing: 1.1,
+    textTransform: "uppercase",
+    marginBottom: 4,
+  },
+  discoverProjectRecapLine: {
+    fontSize: 12,
+    color: "rgba(250,250,250,0.72)",
+    lineHeight: 17,
+    fontFamily: theme.font,
+  },
+  discoverProjectRecapLink: {
+    marginTop: 8,
+    alignSelf: "flex-start",
+  },
+  discoverProjectRecapLinkText: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: "#fff",
+    textDecorationLine: "underline",
+  },
+  discoverReserveModeRow: {
+    flexDirection: "row",
+    gap: 8,
+    marginBottom: 8,
+  },
+  discoverReserveModeBtn: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    paddingVertical: 12,
+    paddingHorizontal: 10,
+    borderRadius: theme.radius.sm,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: theme.border,
+    backgroundColor: theme.surface,
+  },
+  discoverReserveModeBtnOn: {
+    backgroundColor: theme.ink,
+    borderColor: theme.ink,
+  },
+  discoverReserveModeBtnLight: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 11,
+    borderRadius: theme.radius.sm,
+    backgroundColor: "rgba(255,255,255,0.12)",
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "rgba(255,255,255,0.25)",
+  },
+  discoverReserveModeText: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: theme.ink,
+  },
+  discoverReserveModeTextOn: {
+    color: "#fff",
   },
   discoverMobilePickerBackdrop: {
     flex: 1,
