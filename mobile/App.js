@@ -4740,17 +4740,28 @@ function ExplorerScreen() {
           validation.
         </Text>
         {canBook && Array.isArray(routePlans) && routePlans.length > 0 ? (
-          <>
+          <View style={styles.discoverProjectBlock}>
             <Text style={styles.discoverCoachLabel}>Projet actif</Text>
+            <Text style={styles.discoverProjectActiveLabel}>
+              {selectedRoutePlanId
+                ? (() => {
+                    const cur = routePlans.find(
+                      (p) => Number(p.id) === Number(selectedRoutePlanId)
+                    );
+                    return cur?.name || `Projet #${selectedRoutePlanId}`;
+                  })()
+                : "Aucun — exploration libre"}
+            </Text>
             <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.discoverProjectRow}
+              style={styles.discoverProjectList}
+              nestedScrollEnabled
+              keyboardShouldPersistTaps="handled"
+              showsVerticalScrollIndicator
             >
               <TouchableOpacity
                 style={[
-                  styles.discoverChip,
-                  !selectedRoutePlanId && styles.discoverChipOn,
+                  styles.discoverProjectItem,
+                  !selectedRoutePlanId && styles.discoverProjectItemOn,
                 ]}
                 onPress={() => {
                   setSelectedRoutePlanId(null);
@@ -4758,24 +4769,38 @@ function ExplorerScreen() {
                 }}
                 activeOpacity={0.85}
               >
-                <Text
-                  style={[
-                    styles.discoverChipText,
-                    !selectedRoutePlanId && styles.discoverChipTextOn,
-                  ]}
-                >
-                  Aucun
-                </Text>
+                <View style={{ flex: 1, minWidth: 0 }}>
+                  <Text
+                    style={[
+                      styles.discoverProjectItemTitle,
+                      !selectedRoutePlanId && styles.discoverProjectItemTitleOn,
+                    ]}
+                  >
+                    Aucun
+                  </Text>
+                  <Text style={styles.discoverProjectItemMeta}>
+                    Explorer la carte sans projet
+                  </Text>
+                </View>
+                {!selectedRoutePlanId ? (
+                  <Ionicons name="checkmark" size={18} color="#fff" />
+                ) : null}
               </TouchableOpacity>
-              {routePlans.slice(0, 12).map((plan) => {
+              {routePlans.map((plan) => {
                 const pid = Number(plan.id);
                 const on = Number(selectedRoutePlanId) === pid;
+                const boxes = Number(plan.selected_box_count || 0);
+                const metaParts = [
+                  plan.trail_name || null,
+                  boxes > 0 ? `${boxes} box` : "0 box",
+                  plan.activity || null,
+                ].filter(Boolean);
                 return (
                   <TouchableOpacity
                     key={`xp-${pid}`}
                     style={[
-                      styles.discoverChip,
-                      on && styles.discoverChipOn,
+                      styles.discoverProjectItem,
+                      on && styles.discoverProjectItemOn,
                     ]}
                     onPress={() => {
                       setSelectedRoutePlanId(pid);
@@ -4783,20 +4808,30 @@ function ExplorerScreen() {
                     }}
                     activeOpacity={0.85}
                   >
-                    <Text
-                      style={[
-                        styles.discoverChipText,
-                        on && styles.discoverChipTextOn,
-                      ]}
-                      numberOfLines={1}
-                    >
-                      {plan.name || `Projet #${pid}`}
-                    </Text>
+                    <View style={{ flex: 1, minWidth: 0 }}>
+                      <Text
+                        style={[
+                          styles.discoverProjectItemTitle,
+                          on && styles.discoverProjectItemTitleOn,
+                        ]}
+                      >
+                        {plan.name || `Projet #${pid}`}
+                      </Text>
+                      <Text
+                        style={styles.discoverProjectItemMeta}
+                        numberOfLines={2}
+                      >
+                        {metaParts.join(" · ")}
+                      </Text>
+                    </View>
+                    {on ? (
+                      <Ionicons name="checkmark" size={18} color="#fff" />
+                    ) : null}
                   </TouchableOpacity>
                 );
               })}
             </ScrollView>
-          </>
+          </View>
         ) : canBook ? (
           <TouchableOpacity
             style={styles.discoverChipOn}
@@ -16188,6 +16223,52 @@ const styles = StyleSheet.create({
     paddingVertical: 2,
     paddingRight: 8,
   },
+  discoverProjectBlock: {
+    marginTop: 4,
+  },
+  discoverProjectActiveLabel: {
+    color: "#FAFAFA",
+    fontSize: 16,
+    fontWeight: "800",
+    fontFamily: theme.fontDisplay,
+    letterSpacing: -0.2,
+    marginBottom: 10,
+  },
+  discoverProjectList: {
+    maxHeight: 220,
+    borderRadius: theme.radius.sm,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "rgba(250,250,250,0.18)",
+    backgroundColor: "rgba(250,250,250,0.06)",
+  },
+  discoverProjectItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    paddingVertical: 11,
+    paddingHorizontal: 12,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: "rgba(250,250,250,0.12)",
+  },
+  discoverProjectItemOn: {
+    backgroundColor: theme.primary,
+  },
+  discoverProjectItemTitle: {
+    color: "rgba(250,250,250,0.92)",
+    fontSize: 14,
+    fontWeight: "700",
+    fontFamily: theme.font,
+  },
+  discoverProjectItemTitleOn: {
+    color: "#fff",
+  },
+  discoverProjectItemMeta: {
+    marginTop: 2,
+    color: "rgba(250,250,250,0.55)",
+    fontSize: 12,
+    lineHeight: 16,
+    fontFamily: theme.font,
+  },
   discoverChip: {
     paddingHorizontal: 11,
     paddingVertical: 7,
@@ -16195,7 +16276,6 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "rgba(250,250,250,0.18)",
     backgroundColor: "transparent",
-    maxWidth: 140,
   },
   discoverChipOn: {
     backgroundColor: theme.primary,
