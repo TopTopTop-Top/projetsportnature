@@ -79,6 +79,7 @@ import { getDevicePosition } from "./liveLocation";
 import {
   BOX_OFFER_TAGS,
   ATHLETE_NEED_TAGS,
+  PROJECT_ACTIVITIES,
   formatBoxOfferLines as formatOutdoorBoxOffer,
   boxWaterLabel as outdoorBoxWaterLabel,
   toggleTagInText,
@@ -13423,6 +13424,7 @@ function RavitoApp() {
     boxIds,
     name,
     notes,
+    silent = false,
   } = {}) => {
     if (!token) return null;
     const tid = Number(trailId);
@@ -13448,10 +13450,12 @@ function RavitoApp() {
       await loadRoutePlans();
       setSelectedRoutePlanId(Number(detail?.id) || null);
       setSelectedRoutePlanDetail(detail || null);
-      userAlert(
-        "Plan enregistré",
-        "Plan créé. Tu peux suivre les validations puis exporter le GPX enrichi."
-      );
+      if (!silent) {
+        userAlert(
+          "Projet créé",
+          "Ajoute des box ou un ravito GPS, puis suis Demande → Validation → Paiement."
+        );
+      }
       return detail || null;
     } catch (error) {
       userAlert("Erreur", error.message);
@@ -13459,6 +13463,90 @@ function RavitoApp() {
     } finally {
       setRoutePlanBusy(false);
     }
+  };
+
+  /** Import GPX pour le wizard projet (retourne la trace créée). */
+  const uploadGpxForProject = async ({ activity, name } = {}) => {
+    if (!token) return null;
+    const act = activity || trailImportActivity || "trail_run";
+    try {
+      if (Platform.OS === "web") {
+        const file = await new Promise((resolve) => {
+          const input = document.createElement("input");
+          input.type = "file";
+          input.accept = ".gpx,application/gpx+xml";
+          input.onchange = () => resolve(input.files?.[0] || null);
+          input.click();
+        });
+        if (!file) return null;
+        const formData = new globalThis.FormData();
+        formData.append(
+          "name",
+          (name || file.name || "trace").replace(/\.gpx$/i, "")
+        );
+        formData.append(
+          "territory",
+          trailImportTerritory?.trim() || city || "unknown"
+        );
+        formData.append("difficulty", trailDifficulty);
+        formData.append("activity", act);
+        formData.append("criteriaTags", JSON.stringify([]));
+        formData.append("gpx", file);
+        const data = await uploadGpxWithFormData(formData);
+        await loadTrails();
+        return data?.trail || data;
+      }
+      const picked = await DocumentPicker.getDocumentAsync({ type: ["*/*"] });
+      if (picked.canceled) return null;
+      const file = picked.assets[0];
+      const formData = new FormData();
+      formData.append(
+        "name",
+        (name || file.name || "trace").replace(/\.gpx$/i, "")
+      );
+      formData.append(
+        "territory",
+        trailImportTerritory?.trim() || city || "unknown"
+      );
+      formData.append("difficulty", trailDifficulty);
+      formData.append("activity", act);
+      formData.append("criteriaTags", JSON.stringify([]));
+      formData.append("gpx", {
+        uri: file.uri,
+        name: file.name || "trace.gpx",
+        type: file.mimeType || "application/gpx+xml",
+      });
+      const data = await uploadGpxWithFormData(formData);
+      await loadTrails();
+      return data?.trail || data;
+    } catch (error) {
+      userAlert("Import GPX", error.message);
+      throw error;
+    }
+  };
+
+  const createAdventureProject = async ({
+    name,
+    activity,
+    needs,
+    trailId,
+  } = {}) => {
+    const actLabel =
+      PROJECT_ACTIVITIES.find((a) => a.id === activity)?.label ||
+      activity ||
+      "Trail";
+    const notesParts = [
+      `Activité : ${actLabel}`,
+      needs ? `Besoins projet : ${needs}` : null,
+      "Funnel : demande → validation fournisseur → paiement.",
+    ].filter(Boolean);
+    return createRoutePlanFromSelection({
+      trailId,
+      boxIds: [],
+      name,
+      notes: notesParts.join("\n"),
+      silent: true,
+    });
   };
 
   const upsertRoutePlanBoxes = async (
@@ -15375,6 +15463,8 @@ function RavitoApp() {
     createTrailTip,
     deleteTrailTip,
     createRoutePlanFromSelection,
+    uploadGpxForProject,
+    createAdventureProject,
     upsertRoutePlanBoxes,
     updateRoutePlan,
     deleteRoutePlan,

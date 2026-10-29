@@ -3201,9 +3201,11 @@ router.get("/route-plans", requireAuth, async (req, res) => {
   const { rows } = await pool.query(
     `SELECT rp.id, rp.name, rp.notes, rp.visibility, rp.trail_id,
             rp.created_at, rp.updated_at,
-            t.name AS trail_name, t.territory,
+            t.name AS trail_name, t.territory, t.activity AS trail_activity,
             COUNT(DISTINCT rpb.id)::int AS selected_box_count,
             COUNT(DISTINCT rtn.id)::int AS tip_count,
+            (SELECT COUNT(*)::int FROM ravito_point_requests rr
+              WHERE rr.route_plan_id = rp.id) AS ravito_count,
             (SELECT COUNT(*)::int FROM route_plans c WHERE c.forked_from_plan_id = rp.id) AS fork_count
      FROM route_plans rp
      JOIN trails t ON t.id = rp.trail_id

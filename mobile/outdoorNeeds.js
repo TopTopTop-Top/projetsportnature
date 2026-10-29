@@ -52,11 +52,12 @@ export const RAVITO_OFFER_TAGS = [
 ];
 
 export const PROJECT_ACTIVITIES = [
-  { id: "trail_run", label: "Trail" },
-  { id: "run", label: "Running" },
-  { id: "hike", label: "Rando" },
+  { id: "trail_run", label: "Trail / course nature" },
+  { id: "hike", label: "Randonnée" },
   { id: "road_bike", label: "Vélo route" },
-  { id: "mtb", label: "VTT" },
+  { id: "mtb", label: "VTT / enduro" },
+  { id: "gravel", label: "Gravel" },
+  { id: "other", label: "Autre" },
 ];
 
 /** Étapes du funnel (demandeur). */

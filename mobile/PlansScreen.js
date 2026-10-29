@@ -30,6 +30,7 @@ import {
 } from "./relevanceIndicators";
 import IntentGuideBanner from "./IntentGuideBanner";
 import FunnelSteps from "./FunnelSteps";
+import CreateProjectWizard from "./CreateProjectWizard";
 import {
   planBoxHasActiveBooking,
   formatPlanBoxSlot,
@@ -322,6 +323,13 @@ function PlanListCard({
       <Text style={styles.cardMeta}>
         {plan.trail_name || "Trace"}
         {plan.territory ? ` · ${plan.territory}` : ""}
+        {plan.trail_activity ? ` · ${plan.trail_activity}` : ""}
+        {Number(plan.selected_box_count) > 0
+          ? ` · ${plan.selected_box_count} box`
+          : ""}
+        {Number(plan.ravito_count) > 0
+          ? ` · ${plan.ravito_count} ravito`
+          : ""}
       </Text>
       <View style={styles.cardSignalsRow}>
         <RelevanceBadge
@@ -698,6 +706,7 @@ export default function PlansScreen({ appMain = {} }) {
     lon: null,
     nonce: 0,
   });
+  const [createWizardOpen, setCreateWizardOpen] = useState(false);
 
   const isAuthed = Boolean(user);
   const wideLayout = width >= 900;
@@ -1064,6 +1073,16 @@ export default function PlansScreen({ appMain = {} }) {
             Modifiable tant que non payé. Après validation fournisseur →
             paiement. Un projet = tracé + étapes box / ravito.
           </Text>
+          {isAuthed ? (
+            <TouchableOpacity
+              style={styles.projectHeroCta}
+              onPress={() => setCreateWizardOpen(true)}
+              activeOpacity={0.88}
+            >
+              <Ionicons name="add-circle-outline" size={20} color={theme.hero} />
+              <Text style={styles.projectHeroCtaText}>Créer un projet</Text>
+            </TouchableOpacity>
+          ) : null}
         </View>
         <IntentGuideBanner
           guideId="planifier"
@@ -1163,7 +1182,7 @@ export default function PlansScreen({ appMain = {} }) {
             listForSection.length === 0 ? (
               <Text style={styles.emptyHint}>
                 {section === "private"
-                  ? "Aucun plan privé. Crée-en un depuis la Carte (trace + Mon plan)."
+                  ? "Aucun projet encore. Lance « Créer un projet » ci-dessus (nom, activité, GPX)."
                   : publicFilter === "community"
                     ? "Aucun plan public d’un autre athlète pour l’instant. Quand quelqu’un partage un plan, il apparaît ici."
                     : publicFilter === "mine"
@@ -1254,6 +1273,30 @@ export default function PlansScreen({ appMain = {} }) {
           ) : null}
         </ScrollView>
       </View>
+      <CreateProjectWizard
+        visible={createWizardOpen}
+        onClose={() => setCreateWizardOpen(false)}
+        trails={trails || []}
+        busy={!!routePlanBusy}
+        onUploadGpx={async ({ activity, name }) =>
+          actionsRef?.current?.uploadGpxForProject?.({ activity, name })
+        }
+        onCreate={async ({ name, activity, needs, trailId }) => {
+          const detail = await actionsRef?.current?.createAdventureProject?.({
+            name,
+            activity,
+            needs,
+            trailId,
+          });
+          if (detail?.id) {
+            setSection("private");
+            setSelectedId(Number(detail.id));
+            setSelectedKind("mine");
+            setDetail(detail);
+          }
+          return detail;
+        }}
+      />
     </SafeAreaView>
   );
 }
@@ -1282,6 +1325,22 @@ const styles = StyleSheet.create({
     fontSize: 12,
     lineHeight: 17,
     color: "rgba(255,255,255,0.7)",
+  },
+  projectHeroCta: {
+    marginTop: 14,
+    alignSelf: "flex-start",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    backgroundColor: "#fff",
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 999,
+  },
+  projectHeroCtaText: {
+    fontWeight: "800",
+    color: theme.hero,
+    fontSize: 14,
   },
   screen: { flex: 1, backgroundColor: theme.bg },
   root: { flex: 1 },
