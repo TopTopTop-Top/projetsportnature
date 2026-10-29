@@ -78,7 +78,7 @@ function drawTrailProbeOnMap(L, probeLayer, probe, trail, lineColor, locked) {
     radius: locked ? 12 : 10,
     color: MAP_SEL.white,
     weight: locked ? 3 : 2.5,
-    fillColor: locked ? MAP_SEL.focus : "#EA580C",
+    fillColor: locked ? MAP_SEL.focus : MAP_SEL.spotlight,
     fillOpacity: 1,
   });
   const km = Number(probe.distKm || 0).toFixed(1);

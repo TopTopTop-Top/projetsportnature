@@ -1,9 +1,9 @@
 import { Platform } from "react-native";
 
 /**
- * RavitoBox design system — outdoor / endurance 2025.
- * Références: Strava (accent action, densité), Komoot (carte first, chrome léger).
- * Anti-patterns IA évités: cards empilées, glow orange, pills partout, Outfit+terracotta.
+ * RavitoBox — palette outdoor adaptée (trail / ravito / nature).
+ * Vert forêt = marque & actions. Neutres froids pierre. Pas d’orange « startup ».
+ * Menthe = accent sur fonds sombres. Teal carte = traces / box.
  */
 
 const fontSans = Platform.select({
@@ -21,38 +21,48 @@ const fontDisplay = Platform.select({
 });
 
 export const theme = {
-  bg: "#F2F3F5",
+  // Surfaces — pierre froide (pas crème, pas gris zinc plat)
+  bg: "#EFF2F0",
   surface: "#FFFFFF",
-  surfaceMuted: "#EBEDF0",
-  ink: "#0C0D0F",
-  inkMuted: "#6B7280",
-  border: "#D8DCE2",
-  borderSoft: "#E8EAEE",
-  hero: "#0C0D0F",
-  heroAccent: "#FF6A3D",
-  primary: "#FF4D1A",
-  primaryPressed: "#E03E10",
-  primarySoft: "#FFF1EC",
-  secondary: "#0C0D0F",
-  secondaryInk: "#0C0D0F",
-  accent: "#FF4D1A",
-  accentSoft: "#FFF1EC",
-  focus: "#FF4D1A",
-  focusSoft: "rgba(255, 77, 26, 0.12)",
-  picked: "#0F766E",
-  pickedSoft: "#ECFDF8",
-  chipBg: "#EBEDF0",
-  chipBorder: "#D8DCE2",
-  infoBg: "#EBEDF0",
-  infoBorder: "#D8DCE2",
+  surfaceMuted: "#E6EBE8",
+  ink: "#101614",
+  inkMuted: "#5A635E",
+  border: "#D0D7D3",
+  borderSoft: "#E2E7E4",
+
+  // Marque — forêt nuit + menthe
+  hero: "#101614",
+  heroAccent: "#5ECFB0",
+
+  // Action principale — teal trail (eau / nature / ravito)
+  primary: "#0F7A65",
+  primaryPressed: "#0A5C4C",
+  primarySoft: "#E6F5F1",
+
+  secondary: "#101614",
+  secondaryInk: "#101614",
+  accent: "#0F7A65",
+  accentSoft: "#E6F5F1",
+  focus: "#0F7A65",
+  focusSoft: "rgba(15, 122, 101, 0.14)",
+
+  // Carte / sélection nature
+  picked: "#0B6B58",
+  pickedSoft: "#E8F7F2",
+  mapTeal: "#0D8F78",
+
+  chipBg: "#E6EBE8",
+  chipBorder: "#D0D7D3",
+  infoBg: "#E6EBE8",
+  infoBorder: "#D0D7D3",
   warnBg: "#FFF8EB",
-  warnBorder: "#F5D78E",
-  danger: "#DC2626",
-  dangerSoft: "#FEF2F2",
-  success: "#059669",
-  shadow: "rgba(12, 13, 15, 0.08)",
+  warnBorder: "#E8D29A",
+  danger: "#C43C3C",
+  dangerSoft: "#FCEEEE",
+  success: "#0F7A65",
+  shadow: "rgba(16, 22, 20, 0.08)",
   white: "#FFFFFF",
-  mapTeal: "#0D9488",
+
   font: fontSans,
   fontDisplay,
   type: {
@@ -103,7 +113,7 @@ export function ensureAthleticFonts() {
       font-family: inherit;
     }
     ::selection {
-      background: rgba(255, 77, 26, 0.18);
+      background: rgba(15, 122, 101, 0.2);
     }
   `;
   document.head.appendChild(style);

@@ -188,7 +188,7 @@ const styles = StyleSheet.create({
     paddingVertical: 5,
   },
   pillHighlight: {
-    backgroundColor: "#FFF7ED",
+    backgroundColor: "#E6F5F1",
     borderWidth: 1,
     borderColor: "#FDBA74",
   },

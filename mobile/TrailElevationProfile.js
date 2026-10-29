@@ -18,7 +18,7 @@ const CHART_W_RAIL = 276;
 function slopeColor(gradePct) {
   if (gradePct == null) return "#94A3B8";
   if (gradePct >= 12) return "#DC2626";
-  if (gradePct >= 5) return "#EA580C";
+  if (gradePct >= 5) return "#C45C1A";
   if (gradePct > -5) return "#16A34A";
   if (gradePct > -12) return "#2563EB";
   return "#4338CA";
@@ -272,10 +272,10 @@ function WebElevationChart({
                 cy={probeY}
                 r="11"
                 fill="rgba(255,255,255,0.95)"
-                stroke="#EA580C"
+                stroke="#0F7A65"
                 strokeWidth="3"
               />
-              <circle cx={probeX} cy={probeY} r="5" fill="#EA580C" />
+              <circle cx={probeX} cy={probeY} r="5" fill="#0F7A65" />
             </>
           ) : null}
         </g>
@@ -474,7 +474,7 @@ export default function TrailElevationProfile({
             )}
           </View>
           <View style={[styles.legendRow, isRail && styles.legendRowRail]}>
-            <LegendDot color="#EA580C" label="Montée" />
+            <LegendDot color="#C45C1A" label="Montée" />
             <LegendDot color="#16A34A" label="Plat" />
             <LegendDot color="#2563EB" label="Descente" />
           </View>

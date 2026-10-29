@@ -1239,8 +1239,8 @@ function PlanBoxReservationCard({
       style={[
         styles.planBoxReservationCard,
         {
-          borderColor: highlighted ? "#EA580C" : colors.border,
-          backgroundColor: highlighted ? "#FFF7ED" : colors.bg,
+          borderColor: highlighted ? "#0F7A65" : colors.border,
+          backgroundColor: highlighted ? "#E6F5F1" : colors.bg,
         },
         highlighted && styles.mapPointRowHighlight,
       ]}
@@ -1830,9 +1830,9 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   communityCardSelected: {
-    borderColor: "#EA580C",
+    borderColor: "#0F7A65",
     borderWidth: 2,
-    backgroundColor: "#FFF7ED",
+    backgroundColor: "#E6F5F1",
   },
   communityPreviewDetail: {
     marginTop: 8,
@@ -2007,7 +2007,7 @@ const styles = StyleSheet.create({
     color: "#0C1B16",
   },
   statValueAccent: {
-    color: "#EA580C",
+    color: "#0F7A65",
   },
   statValueMuted: {
     color: "#94A3B8",
@@ -2036,7 +2036,7 @@ const styles = StyleSheet.create({
     marginTop: 8,
     paddingVertical: 10,
     paddingHorizontal: 10,
-    backgroundColor: "#FFF7ED",
+    backgroundColor: "#E6F5F1",
     borderRadius: 10,
     borderWidth: 1,
     borderColor: "#FED7AA",
