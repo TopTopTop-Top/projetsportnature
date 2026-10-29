@@ -774,27 +774,6 @@ function planPreviewRecap(plan) {
   };
 }
 
-/** CTA sélecteur projet — activer / curiosité / garder. */
-function projectPickerCta(previewId, selectedId) {
-  const selected = selectedId == null ? null : Number(selectedId);
-  const isCuriosity =
-    previewId == null || previewId === "none" || previewId === "";
-  if (isCuriosity) {
-    if (selected == null) {
-      return { label: "OK — curiosité", mode: "close" };
-    }
-    return { label: "Passer en curiosité", mode: "clear" };
-  }
-  const pid = Number(previewId);
-  if (!Number.isFinite(pid)) {
-    return { label: "Choisir un projet", mode: "close" };
-  }
-  if (Number.isFinite(selected) && pid === selected) {
-    return { label: "OK — garder ce projet", mode: "close" };
-  }
-  return { label: "Activer ce projet", mode: "activate", planId: pid };
-}
-
 const AuthUiContext = createContext(null);
 
 /** Données / actions des écrans connectés — évite de définir les écrans dans App (sinon React Navigation remonte la carte à chaque render). */
@@ -2328,8 +2307,6 @@ function ExplorerScreen() {
   const [explorerHoveredTrailId, setExplorerHoveredTrailId] = useState(null);
   const [discoverProjectPickerOpen, setDiscoverProjectPickerOpen] =
     useState(false);
-  const [discoverProjectPreviewId, setDiscoverProjectPreviewId] =
-    useState(null); // null | "none" | number
   const [discoverPanelOpen, setDiscoverPanelOpen] = useState(true);
   const [discoverToolsOpen, setDiscoverToolsOpen] = useState(false);
   /**
@@ -2781,14 +2758,17 @@ function ExplorerScreen() {
     }
   }, [selectedRoutePlanId]);
 
-  const applyProjectPickerCta = (cta) => {
-    if (cta?.mode === "activate" && Number.isFinite(cta.planId)) {
-      setSelectedRoutePlanId(cta.planId);
-      actionsRef.current.loadRoutePlanDetail?.(cta.planId);
-    } else if (cta?.mode === "clear") {
+  /** Un clic = sélection immédiate (pas de bouton Activer). */
+  const selectDiscoverProject = (planId) => {
+    if (planId == null) {
       setSelectedRoutePlanId(null);
       setSelectedRoutePlanDetail(null);
       setDiscoverBookStep(1);
+    } else {
+      const pid = Number(planId);
+      if (!Number.isFinite(pid)) return;
+      setSelectedRoutePlanId(pid);
+      actionsRef.current.loadRoutePlanDetail?.(pid);
     }
     setDiscoverProjectPickerOpen(false);
   };
@@ -4905,19 +4885,7 @@ function ExplorerScreen() {
             <Text style={styles.discoverCoachLabel}>Projet</Text>
             <TouchableOpacity
               style={styles.discoverProjectSelect}
-              onPress={() => {
-                setDiscoverProjectPickerOpen((v) => {
-                  const next = !v;
-                  if (next) {
-                    setDiscoverProjectPreviewId(
-                      selectedRoutePlanId != null
-                        ? Number(selectedRoutePlanId)
-                        : null
-                    );
-                  }
-                  return next;
-                });
-              }}
+              onPress={() => setDiscoverProjectPickerOpen((v) => !v)}
               activeOpacity={0.88}
               accessibilityRole="button"
               accessibilityLabel="Choisir un projet"
@@ -4962,56 +4930,6 @@ function ExplorerScreen() {
             </TouchableOpacity>
             {discoverProjectPickerOpen ? (
               <View style={styles.discoverProjectMenu}>
-                {(() => {
-                  const plans = Array.isArray(routePlans) ? routePlans : [];
-                  const previewPlan =
-                    discoverProjectPreviewId == null
-                      ? null
-                      : plans.find(
-                          (p) =>
-                            Number(p.id) === Number(discoverProjectPreviewId)
-                        ) ||
-                        (selectedRoutePlanDetail &&
-                        Number(selectedRoutePlanDetail.id) ===
-                          Number(discoverProjectPreviewId)
-                          ? selectedRoutePlanDetail
-                          : null);
-                  const recap = planPreviewRecap(previewPlan);
-                  const cta = projectPickerCta(
-                    discoverProjectPreviewId,
-                    selectedRoutePlanId
-                  );
-                  return (
-                    <View style={styles.discoverProjectPreview}>
-                      <Text style={styles.discoverProjectPreviewKicker}>
-                        Aperçu
-                      </Text>
-                      <Text
-                        style={styles.discoverProjectPreviewTitle}
-                        numberOfLines={2}
-                      >
-                        {recap.title}
-                      </Text>
-                      {recap.lines.map((line, i) => (
-                        <Text
-                          key={`prev-l-${i}`}
-                          style={styles.discoverProjectPreviewLine}
-                        >
-                          {line}
-                        </Text>
-                      ))}
-                      <TouchableOpacity
-                        style={styles.discoverProjectActivateBtn}
-                        onPress={() => applyProjectPickerCta(cta)}
-                        activeOpacity={0.88}
-                      >
-                        <Text style={styles.discoverProjectActivateBtnText}>
-                          {cta.label}
-                        </Text>
-                      </TouchableOpacity>
-                    </View>
-                  );
-                })()}
                 <ScrollView
                   style={styles.discoverProjectMenuScroll}
                   nestedScrollEnabled
@@ -5020,22 +4938,17 @@ function ExplorerScreen() {
                   <TouchableOpacity
                     style={[
                       styles.discoverProjectMenuRow,
-                      discoverProjectPreviewId == null &&
+                      selectedRoutePlanId == null &&
                         styles.discoverProjectMenuRowOn,
                     ]}
-                    onPress={() => setDiscoverProjectPreviewId(null)}
-                    onMouseEnter={
-                      Platform.OS === "web"
-                        ? () => setDiscoverProjectPreviewId(null)
-                        : undefined
-                    }
+                    onPress={() => selectDiscoverProject(null)}
                     activeOpacity={0.85}
                   >
                     <View style={{ flex: 1, minWidth: 0 }}>
                       <Text
                         style={[
                           styles.discoverProjectMenuTitle,
-                          discoverProjectPreviewId == null &&
+                          selectedRoutePlanId == null &&
                             styles.discoverProjectMenuTitleOn,
                         ]}
                         numberOfLines={1}
@@ -5053,8 +4966,6 @@ function ExplorerScreen() {
                   </TouchableOpacity>
                   {(Array.isArray(routePlans) ? routePlans : []).map((plan) => {
                     const pid = Number(plan.id);
-                    const previewing =
-                      Number(discoverProjectPreviewId) === pid;
                     const active = Number(selectedRoutePlanId) === pid;
                     const recap = planPreviewRecap(plan);
                     return (
@@ -5062,21 +4973,16 @@ function ExplorerScreen() {
                         key={`xp-${pid}`}
                         style={[
                           styles.discoverProjectMenuRow,
-                          previewing && styles.discoverProjectMenuRowOn,
+                          active && styles.discoverProjectMenuRowOn,
                         ]}
-                        onPress={() => setDiscoverProjectPreviewId(pid)}
-                        onMouseEnter={
-                          Platform.OS === "web"
-                            ? () => setDiscoverProjectPreviewId(pid)
-                            : undefined
-                        }
+                        onPress={() => selectDiscoverProject(pid)}
                         activeOpacity={0.85}
                       >
                         <View style={{ flex: 1, minWidth: 0 }}>
                           <Text
                             style={[
                               styles.discoverProjectMenuTitle,
-                              previewing && styles.discoverProjectMenuTitleOn,
+                              active && styles.discoverProjectMenuTitleOn,
                             ]}
                             numberOfLines={1}
                           >
@@ -5087,7 +4993,7 @@ function ExplorerScreen() {
                             style={styles.discoverProjectMenuMeta}
                             numberOfLines={1}
                           >
-                            {recap.lines[0]}
+                            {recap.lines.slice(0, 2).join(" · ")}
                           </Text>
                         </View>
                       </TouchableOpacity>
@@ -7152,9 +7058,6 @@ function ExplorerScreen() {
     : "Curiosité";
 
   const openMobileProjectPicker = () => {
-    setDiscoverProjectPreviewId(
-      selectedRoutePlanId != null ? Number(selectedRoutePlanId) : null
-    );
     setDiscoverProjectPickerOpen(true);
   };
 
@@ -7173,52 +7076,19 @@ function ExplorerScreen() {
         />
         <View style={styles.discoverMobilePickerSheet}>
           <View style={styles.discoverMobilePickerGrabber} />
-          <Text style={styles.discoverMobilePickerTitle}>Projet</Text>
-          {(() => {
-            const plans = Array.isArray(routePlans) ? routePlans : [];
-            const previewPlan =
-              discoverProjectPreviewId == null
-                ? null
-                : plans.find(
-                    (p) => Number(p.id) === Number(discoverProjectPreviewId)
-                  ) ||
-                  (selectedRoutePlanDetail &&
-                  Number(selectedRoutePlanDetail.id) ===
-                    Number(discoverProjectPreviewId)
-                    ? selectedRoutePlanDetail
-                    : null);
-            const recap = planPreviewRecap(previewPlan);
-            const cta = projectPickerCta(
-              discoverProjectPreviewId,
-              selectedRoutePlanId
-            );
-            return (
-              <View style={styles.discoverMobilePreviewCard}>
-                <Text style={styles.discoverProjectPreviewKicker}>Aperçu</Text>
-                <Text style={styles.discoverMobilePreviewTitle}>
-                  {recap.title}
-                </Text>
-                {recap.lines.map((line, i) => (
-                  <Text key={`mp-${i}`} style={styles.discoverMobilePreviewLine}>
-                    {line}
-                  </Text>
-                ))}
-                <TouchableOpacity
-                  style={styles.discoverProjectActivateBtn}
-                  onPress={() => applyProjectPickerCta(cta)}
-                  activeOpacity={0.88}
-                >
-                  <Text style={styles.discoverProjectActivateBtnText}>
-                    {cta.label}
-                  </Text>
-                </TouchableOpacity>
-              </View>
-            );
-          })()}
-          <ScrollView style={{ maxHeight: 220 }}>
+          <Text style={styles.discoverMobilePickerTitle}>
+            Choisir un projet
+          </Text>
+          <Text style={styles.discoverMobilePickerRowMeta}>
+            Un clic pour activer
+          </Text>
+          <ScrollView style={{ maxHeight: 320, marginTop: 8 }}>
             <TouchableOpacity
-              style={styles.discoverMobilePickerRow}
-              onPress={() => setDiscoverProjectPreviewId(null)}
+              style={[
+                styles.discoverMobilePickerRow,
+                selectedRoutePlanId == null && styles.discoverProjectMenuRowOn,
+              ]}
+              onPress={() => selectDiscoverProject(null)}
             >
               <Text style={styles.discoverMobilePickerRowTitle}>
                 Curiosité
@@ -7235,8 +7105,11 @@ function ExplorerScreen() {
               return (
                 <TouchableOpacity
                   key={`mproj-${pid}`}
-                  style={styles.discoverMobilePickerRow}
-                  onPress={() => setDiscoverProjectPreviewId(pid)}
+                  style={[
+                    styles.discoverMobilePickerRow,
+                    active && styles.discoverProjectMenuRowOn,
+                  ]}
+                  onPress={() => selectDiscoverProject(pid)}
                 >
                   <Text style={styles.discoverMobilePickerRowTitle}>
                     {recap.title}
