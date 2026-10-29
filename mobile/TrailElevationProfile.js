@@ -261,7 +261,7 @@ function WebElevationChart({
             y1={0}
             x2={probeX}
             y2={chartH}
-            stroke="#EA580C"
+            stroke="#0F7A65"
             strokeWidth="2.5"
             opacity="1"
           />
