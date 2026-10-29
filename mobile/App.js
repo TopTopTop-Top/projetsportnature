@@ -2261,6 +2261,8 @@ function ExplorerScreen() {
   } = useAppMain();
 
   const [explorerHoveredTrailId, setExplorerHoveredTrailId] = useState(null);
+  const [discoverProjectPickerOpen, setDiscoverProjectPickerOpen] =
+    useState(false);
   const [explorerTrailProbe, setExplorerTrailProbe] = useState(null);
   const [lastMapTapCoords, setLastMapTapCoords] = useState(null);
   const [chartProbeHover, setChartProbeHover] = useState(false);
@@ -4733,104 +4735,132 @@ function ExplorerScreen() {
   const explorerScrollContent = (
     <>
       <View style={styles.discoverCoach}>
-        <Text style={styles.discoverCoachKicker}>RavitoBox</Text>
-        <Text style={styles.discoverCoachTitle}>Découvrir</Text>
-        <Text style={styles.discoverCoachText}>
-          Projet → box sur la carte → créneau → demande. Paiement après
-          validation.
-        </Text>
+        <View style={styles.discoverCoachTop}>
+          <Text style={styles.discoverCoachKicker}>RavitoBox</Text>
+          <Text style={styles.discoverCoachTitle}>Découvrir</Text>
+        </View>
         {canBook && Array.isArray(routePlans) && routePlans.length > 0 ? (
           <View style={styles.discoverProjectBlock}>
-            <Text style={styles.discoverCoachLabel}>Projet actif</Text>
-            <Text style={styles.discoverProjectActiveLabel}>
-              {selectedRoutePlanId
-                ? (() => {
-                    const cur = routePlans.find(
-                      (p) => Number(p.id) === Number(selectedRoutePlanId)
-                    );
-                    return cur?.name || `Projet #${selectedRoutePlanId}`;
-                  })()
-                : "Aucun — exploration libre"}
-            </Text>
-            <ScrollView
-              style={styles.discoverProjectList}
-              nestedScrollEnabled
-              keyboardShouldPersistTaps="handled"
-              showsVerticalScrollIndicator
+            <Text style={styles.discoverCoachLabel}>Projet</Text>
+            <TouchableOpacity
+              style={styles.discoverProjectSelect}
+              onPress={() => setDiscoverProjectPickerOpen((v) => !v)}
+              activeOpacity={0.88}
+              accessibilityRole="button"
+              accessibilityLabel="Choisir un projet"
             >
-              <TouchableOpacity
-                style={[
-                  styles.discoverProjectItem,
-                  !selectedRoutePlanId && styles.discoverProjectItemOn,
-                ]}
-                onPress={() => {
-                  setSelectedRoutePlanId(null);
-                  setSelectedRoutePlanDetail(null);
-                }}
-                activeOpacity={0.85}
-              >
-                <View style={{ flex: 1, minWidth: 0 }}>
+              <View style={{ flex: 1, minWidth: 0 }}>
+                <Text style={styles.discoverProjectSelectValue} numberOfLines={1}>
+                  {selectedRoutePlanId
+                    ? routePlans.find(
+                        (p) => Number(p.id) === Number(selectedRoutePlanId)
+                      )?.name || `Projet #${selectedRoutePlanId}`
+                    : "Aucun (libre)"}
+                </Text>
+                {selectedRoutePlanId ? (
+                  <Text
+                    style={styles.discoverProjectSelectMeta}
+                    numberOfLines={1}
+                  >
+                    {(() => {
+                      const cur = routePlans.find(
+                        (p) => Number(p.id) === Number(selectedRoutePlanId)
+                      );
+                      if (!cur) return null;
+                      const boxes = Number(cur.selected_box_count || 0);
+                      const trail =
+                        typeof cur.trail_name === "string" &&
+                        cur.trail_name.length < 40 &&
+                        !/^[a-f0-9_]{12,}/i.test(cur.trail_name)
+                          ? cur.trail_name
+                          : null;
+                      return [trail, `${boxes} box`].filter(Boolean).join(" · ");
+                    })()}
+                  </Text>
+                ) : null}
+              </View>
+              <Ionicons
+                name={discoverProjectPickerOpen ? "chevron-up" : "chevron-down"}
+                size={18}
+                color="rgba(250,250,250,0.75)"
+              />
+            </TouchableOpacity>
+            {discoverProjectPickerOpen ? (
+              <View style={styles.discoverProjectMenu}>
+                <TouchableOpacity
+                  style={[
+                    styles.discoverProjectMenuRow,
+                    !selectedRoutePlanId && styles.discoverProjectMenuRowOn,
+                  ]}
+                  onPress={() => {
+                    setSelectedRoutePlanId(null);
+                    setSelectedRoutePlanDetail(null);
+                    setDiscoverProjectPickerOpen(false);
+                  }}
+                  activeOpacity={0.85}
+                >
                   <Text
                     style={[
-                      styles.discoverProjectItemTitle,
-                      !selectedRoutePlanId && styles.discoverProjectItemTitleOn,
+                      styles.discoverProjectMenuTitle,
+                      !selectedRoutePlanId && styles.discoverProjectMenuTitleOn,
                     ]}
                   >
                     Aucun
                   </Text>
-                  <Text style={styles.discoverProjectItemMeta}>
-                    Explorer la carte sans projet
-                  </Text>
-                </View>
-                {!selectedRoutePlanId ? (
-                  <Ionicons name="checkmark" size={18} color="#fff" />
-                ) : null}
-              </TouchableOpacity>
-              {routePlans.map((plan) => {
-                const pid = Number(plan.id);
-                const on = Number(selectedRoutePlanId) === pid;
-                const boxes = Number(plan.selected_box_count || 0);
-                const metaParts = [
-                  plan.trail_name || null,
-                  boxes > 0 ? `${boxes} box` : "0 box",
-                  plan.activity || null,
-                ].filter(Boolean);
-                return (
-                  <TouchableOpacity
-                    key={`xp-${pid}`}
-                    style={[
-                      styles.discoverProjectItem,
-                      on && styles.discoverProjectItemOn,
-                    ]}
-                    onPress={() => {
-                      setSelectedRoutePlanId(pid);
-                      actionsRef.current.loadRoutePlanDetail?.(pid);
-                    }}
-                    activeOpacity={0.85}
-                  >
-                    <View style={{ flex: 1, minWidth: 0 }}>
-                      <Text
-                        style={[
-                          styles.discoverProjectItemTitle,
-                          on && styles.discoverProjectItemTitleOn,
-                        ]}
-                      >
-                        {plan.name || `Projet #${pid}`}
-                      </Text>
-                      <Text
-                        style={styles.discoverProjectItemMeta}
-                        numberOfLines={2}
-                      >
-                        {metaParts.join(" · ")}
-                      </Text>
-                    </View>
-                    {on ? (
-                      <Ionicons name="checkmark" size={18} color="#fff" />
-                    ) : null}
-                  </TouchableOpacity>
-                );
-              })}
-            </ScrollView>
+                </TouchableOpacity>
+                {routePlans.map((plan) => {
+                  const pid = Number(plan.id);
+                  const on = Number(selectedRoutePlanId) === pid;
+                  const boxes = Number(plan.selected_box_count || 0);
+                  const trail =
+                    typeof plan.trail_name === "string" &&
+                    plan.trail_name.length < 40 &&
+                    !/^[a-f0-9_]{12,}/i.test(plan.trail_name)
+                      ? plan.trail_name
+                      : null;
+                  return (
+                    <TouchableOpacity
+                      key={`xp-${pid}`}
+                      style={[
+                        styles.discoverProjectMenuRow,
+                        on && styles.discoverProjectMenuRowOn,
+                      ]}
+                      onPress={() => {
+                        setSelectedRoutePlanId(pid);
+                        actionsRef.current.loadRoutePlanDetail?.(pid);
+                        setDiscoverProjectPickerOpen(false);
+                      }}
+                      activeOpacity={0.85}
+                    >
+                      <View style={{ flex: 1, minWidth: 0 }}>
+                        <Text
+                          style={[
+                            styles.discoverProjectMenuTitle,
+                            on && styles.discoverProjectMenuTitleOn,
+                          ]}
+                          numberOfLines={1}
+                        >
+                          {plan.name || `Projet #${pid}`}
+                        </Text>
+                        <Text
+                          style={styles.discoverProjectMenuMeta}
+                          numberOfLines={1}
+                        >
+                          {[trail, `${boxes} box`].filter(Boolean).join(" · ")}
+                        </Text>
+                      </View>
+                      {on ? (
+                        <Ionicons
+                          name="checkmark"
+                          size={16}
+                          color={theme.primary}
+                        />
+                      ) : null}
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            ) : null}
           </View>
         ) : canBook ? (
           <TouchableOpacity
@@ -4840,7 +4870,7 @@ function ExplorerScreen() {
             }
             activeOpacity={0.85}
           >
-            <Text style={styles.discoverChipTextOn}>+ Créer un projet</Text>
+            <Text style={styles.discoverChipTextOn}>+ Projet</Text>
           </TouchableOpacity>
         ) : null}
       </View>
@@ -4919,69 +4949,55 @@ function ExplorerScreen() {
           </View>
         ) : null}
         {activePlanOnMap ? (
-          <View style={[styles.infoBanner, { marginTop: 8 }]}>
-            <Ionicons
-              name="bookmark-outline"
-              size={20}
-              color={theme.primary}
-              style={{ marginRight: 10 }}
-            />
-            <View style={{ flex: 1 }}>
-              <Text style={styles.infoBannerTitle}>
-                Plan carte actif: {activePlanOnMap.name || "Plan"}
-              </Text>
-              <Text style={styles.infoBannerText}>
-                {mapBoxSelectionMode === "picked"
-                  ? `Tu vois uniquement les box du plan (${activePlanBoxIds.length}).`
-                  : `Tu vois toutes les box de la zone ; ${activePlanBoxIds.length} box du plan restent sélectionnées.`}
-              </Text>
-              <View
-                style={[styles.roleRow, { marginTop: 6, flexWrap: "wrap" }]}
+          <View style={styles.discoverPlanFilter}>
+            <Text style={styles.discoverPlanFilterTitle} numberOfLines={1}>
+              {activePlanOnMap.name || "Plan"} · {activePlanBoxIds.length} box
+            </Text>
+            <View style={styles.discoverPlanFilterSeg}>
+              <TouchableOpacity
+                style={[
+                  styles.discoverPlanFilterBtn,
+                  mapBoxSelectionMode === "picked" &&
+                    styles.discoverPlanFilterBtnOn,
+                ]}
+                onPress={() => {
+                  setMapPickedBoxIds(activePlanBoxIds);
+                  setMapBoxSelectionMode("picked");
+                  if (!activePlanBoxIdSet.has(Number(selectedBoxId))) {
+                    setSelectedBoxId(activePlanBoxIds[0] || null);
+                  }
+                }}
+                activeOpacity={0.85}
               >
-                <TouchableOpacity
+                <Text
                   style={[
-                    styles.roleChip,
-                    mapBoxSelectionMode === "picked" && styles.roleChipActive,
+                    styles.discoverPlanFilterBtnText,
+                    mapBoxSelectionMode === "picked" &&
+                      styles.discoverPlanFilterBtnTextOn,
                   ]}
-                  onPress={() => {
-                    // Plan-only view must stay strict even after ad-hoc selections.
-                    setMapPickedBoxIds(activePlanBoxIds);
-                    setMapBoxSelectionMode("picked");
-                    if (!activePlanBoxIdSet.has(Number(selectedBoxId))) {
-                      setSelectedBoxId(activePlanBoxIds[0] || null);
-                    }
-                  }}
-                  activeOpacity={0.85}
                 >
-                  <Text
-                    style={[
-                      styles.roleChipText,
-                      mapBoxSelectionMode === "picked" &&
-                        styles.roleChipTextActive,
-                    ]}
-                  >
-                    Voir uniquement les box du plan
-                  </Text>
-                </TouchableOpacity>
-                <TouchableOpacity
+                  Plan
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[
+                  styles.discoverPlanFilterBtn,
+                  mapBoxSelectionMode === "all" &&
+                    styles.discoverPlanFilterBtnOn,
+                ]}
+                onPress={() => setMapBoxSelectionMode("all")}
+                activeOpacity={0.85}
+              >
+                <Text
                   style={[
-                    styles.roleChip,
-                    mapBoxSelectionMode === "all" && styles.roleChipActive,
+                    styles.discoverPlanFilterBtnText,
+                    mapBoxSelectionMode === "all" &&
+                      styles.discoverPlanFilterBtnTextOn,
                   ]}
-                  onPress={() => setMapBoxSelectionMode("all")}
-                  activeOpacity={0.85}
                 >
-                  <Text
-                    style={[
-                      styles.roleChipText,
-                      mapBoxSelectionMode === "all" &&
-                        styles.roleChipTextActive,
-                    ]}
-                  >
-                    Voir toute la zone
-                  </Text>
-                </TouchableOpacity>
-              </View>
+                  Zone
+                </Text>
+              </TouchableOpacity>
             </View>
           </View>
         ) : null}
@@ -16156,14 +16172,14 @@ const styles = StyleSheet.create({
     paddingBottom: 0,
   },
   explorerWebPanel: {
-    width: "32%",
-    minWidth: 280,
-    maxWidth: 420,
+    width: 248,
+    minWidth: 232,
+    maxWidth: 260,
     minHeight: 0,
     borderRadius: 0,
     overflow: "hidden",
     borderWidth: 0,
-    borderRightWidth: 1,
+    borderRightWidth: StyleSheet.hairlineWidth,
     borderRightColor: theme.border,
     backgroundColor: theme.bg,
   },
@@ -16172,49 +16188,51 @@ const styles = StyleSheet.create({
     minHeight: 0,
   },
   discoverCoach: {
-    marginBottom: 20,
-    paddingVertical: 22,
-    paddingHorizontal: 16,
+    marginBottom: 14,
+    paddingVertical: 12,
+    paddingHorizontal: 12,
     borderRadius: 0,
     backgroundColor: theme.hero,
-    overflow: "hidden",
+    overflow: "visible",
     marginHorizontal: -14,
     marginTop: -14,
-    paddingTop: 22,
+    paddingTop: 14,
+    zIndex: 4,
+  },
+  discoverCoachTop: {
+    marginBottom: 10,
   },
   discoverCoachKicker: {
-    fontSize: 10,
+    fontSize: 9,
     fontWeight: "800",
     color: theme.heroAccent,
     textTransform: "uppercase",
-    letterSpacing: 1.8,
-    marginBottom: 6,
+    letterSpacing: 1.6,
+    marginBottom: 2,
     fontFamily: theme.font,
   },
   discoverCoachTitle: {
-    fontSize: 34,
+    fontSize: 22,
     fontWeight: "800",
     color: "#FAFAFA",
-    letterSpacing: -0.6,
+    letterSpacing: -0.3,
     fontFamily: theme.fontDisplay,
     textTransform: "uppercase",
   },
   discoverCoachText: {
-    marginTop: 10,
-    fontSize: 13,
-    lineHeight: 19,
-    color: "rgba(250,250,250,0.68)",
+    marginTop: 6,
+    fontSize: 12,
+    lineHeight: 17,
+    color: "rgba(250,250,250,0.62)",
     fontFamily: theme.font,
-    maxWidth: 320,
   },
   discoverCoachLabel: {
-    marginTop: 16,
-    marginBottom: 8,
-    fontSize: 10,
+    marginBottom: 6,
+    fontSize: 9,
     fontWeight: "700",
     color: "rgba(250,250,250,0.45)",
     textTransform: "uppercase",
-    letterSpacing: 1.2,
+    letterSpacing: 1.1,
   },
   discoverProjectRow: {
     flexDirection: "row",
@@ -16224,50 +16242,108 @@ const styles = StyleSheet.create({
     paddingRight: 8,
   },
   discoverProjectBlock: {
-    marginTop: 4,
+    marginTop: 0,
+    position: "relative",
+    zIndex: 5,
   },
-  discoverProjectActiveLabel: {
-    color: "#FAFAFA",
-    fontSize: 16,
-    fontWeight: "800",
-    fontFamily: theme.fontDisplay,
-    letterSpacing: -0.2,
-    marginBottom: 10,
-  },
-  discoverProjectList: {
-    maxHeight: 220,
-    borderRadius: theme.radius.sm,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: "rgba(250,250,250,0.18)",
-    backgroundColor: "rgba(250,250,250,0.06)",
-  },
-  discoverProjectItem: {
+  discoverProjectSelect: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
-    paddingVertical: 11,
-    paddingHorizontal: 12,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: "rgba(250,250,250,0.12)",
+    gap: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 10,
+    borderRadius: theme.radius.sm,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "rgba(250,250,250,0.22)",
+    backgroundColor: "rgba(250,250,250,0.08)",
   },
-  discoverProjectItemOn: {
-    backgroundColor: theme.primary,
-  },
-  discoverProjectItemTitle: {
-    color: "rgba(250,250,250,0.92)",
-    fontSize: 14,
+  discoverProjectSelectValue: {
+    color: "#FAFAFA",
+    fontSize: 13,
     fontWeight: "700",
     fontFamily: theme.font,
   },
-  discoverProjectItemTitleOn: {
-    color: "#fff",
-  },
-  discoverProjectItemMeta: {
+  discoverProjectSelectMeta: {
     marginTop: 2,
-    color: "rgba(250,250,250,0.55)",
-    fontSize: 12,
-    lineHeight: 16,
+    color: "rgba(250,250,250,0.5)",
+    fontSize: 11,
     fontFamily: theme.font,
+  },
+  discoverProjectMenu: {
+    marginTop: 6,
+    borderRadius: theme.radius.sm,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "rgba(250,250,250,0.18)",
+    backgroundColor: "#1A1F1D",
+    maxHeight: 200,
+    overflow: "hidden",
+  },
+  discoverProjectMenuRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 10,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: "rgba(250,250,250,0.1)",
+  },
+  discoverProjectMenuRowOn: {
+    backgroundColor: "rgba(15, 122, 101, 0.28)",
+  },
+  discoverProjectMenuTitle: {
+    color: "rgba(250,250,250,0.9)",
+    fontSize: 13,
+    fontWeight: "600",
+    fontFamily: theme.font,
+  },
+  discoverProjectMenuTitleOn: {
+    color: "#fff",
+    fontWeight: "700",
+  },
+  discoverProjectMenuMeta: {
+    marginTop: 1,
+    color: "rgba(250,250,250,0.45)",
+    fontSize: 11,
+    fontFamily: theme.font,
+  },
+  discoverPlanFilter: {
+    marginTop: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 0,
+    gap: 8,
+  },
+  discoverPlanFilterTitle: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: theme.ink,
+    fontFamily: theme.font,
+  },
+  discoverPlanFilterSeg: {
+    flexDirection: "row",
+    borderRadius: theme.radius.sm,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: theme.border,
+    overflow: "hidden",
+    backgroundColor: theme.surface,
+  },
+  discoverPlanFilterBtn: {
+    flex: 1,
+    paddingVertical: 8,
+    alignItems: "center",
+    backgroundColor: theme.surface,
+  },
+  discoverPlanFilterBtnOn: {
+    backgroundColor: theme.ink,
+  },
+  discoverPlanFilterBtnText: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: theme.inkMuted,
+    letterSpacing: 0.3,
+    textTransform: "uppercase",
+  },
+  discoverPlanFilterBtnTextOn: {
+    color: "#fff",
   },
   discoverChip: {
     paddingHorizontal: 11,
@@ -16310,7 +16386,7 @@ const styles = StyleSheet.create({
     backgroundColor: theme.surfaceMuted,
   },
   explorerWebPanelContent: {
-    padding: 14,
+    padding: 12,
     paddingBottom: 36,
   },
   explorerWebProfileRail: {
