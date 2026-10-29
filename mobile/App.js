@@ -5812,56 +5812,58 @@ function ExplorerScreen() {
               />
             ) : null}
             {!simpleUi ? (
-            <Text style={styles.fieldLabel}>
-              Box sur la carte & dans la liste
-            </Text>
-            <View style={styles.roleRow}>
-              <TouchableOpacity
-                style={[
-                  styles.roleChip,
-                  !mapBoxesSlotCompatibleOnly && styles.roleChipActive,
-                ]}
-                onPress={() => setMapBoxesSlotCompatibleOnly(false)}
-                activeOpacity={0.85}
-              >
-                <Text
-                  style={[
-                    styles.roleChipText,
-                    !mapBoxesSlotCompatibleOnly && styles.roleChipTextActive,
-                  ]}
-                >
-                  Tous
+              <>
+                <Text style={styles.fieldLabel}>
+                  Box sur la carte & dans la liste
                 </Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[
-                  styles.roleChip,
-                  mapBoxesSlotCompatibleOnly && styles.roleChipActive,
-                ]}
-                onPress={() => setMapBoxesSlotCompatibleOnly(true)}
-                activeOpacity={0.85}
-              >
-                <Text
-                  style={[
-                    styles.roleChipText,
-                    mapBoxesSlotCompatibleOnly && styles.roleChipTextActive,
-                  ]}
-                >
-                  Créneau compatible uniquement
+                <View style={styles.roleRow}>
+                  <TouchableOpacity
+                    style={[
+                      styles.roleChip,
+                      !mapBoxesSlotCompatibleOnly && styles.roleChipActive,
+                    ]}
+                    onPress={() => setMapBoxesSlotCompatibleOnly(false)}
+                    activeOpacity={0.85}
+                  >
+                    <Text
+                      style={[
+                        styles.roleChipText,
+                        !mapBoxesSlotCompatibleOnly && styles.roleChipTextActive,
+                      ]}
+                    >
+                      Tous
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[
+                      styles.roleChip,
+                      mapBoxesSlotCompatibleOnly && styles.roleChipActive,
+                    ]}
+                    onPress={() => setMapBoxesSlotCompatibleOnly(true)}
+                    activeOpacity={0.85}
+                  >
+                    <Text
+                      style={[
+                        styles.roleChipText,
+                        mapBoxesSlotCompatibleOnly && styles.roleChipTextActive,
+                      ]}
+                    >
+                      Créneau compatible uniquement
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+                <Text style={styles.helperText}>
+                  Le filtre utilise la date et les heures ci-dessus (comme le tri «
+                  Créneau »).
                 </Text>
-              </TouchableOpacity>
-            </View>
-            <Text style={styles.helperText}>
-              Le filtre utilise la date et les heures ci-dessus (comme le tri «
-              Créneau »).
-            </Text>
-            {mapBoxesSlotCompatibleOnly &&
-            !explorerSlotWellFormed(bookingDate, startTime, endTime) ? (
-              <Text style={[styles.helperText, { marginTop: 6 }]}>
-                Pour masquer les box incompatibles, choisis une date valide et une
-                heure de fin après l’heure de début.
-              </Text>
-            ) : null}
+                {mapBoxesSlotCompatibleOnly &&
+                !explorerSlotWellFormed(bookingDate, startTime, endTime) ? (
+                  <Text style={[styles.helperText, { marginTop: 6 }]}>
+                    Pour masquer les box incompatibles, choisis une date valide et une
+                    heure de fin après l’heure de début.
+                  </Text>
+                ) : null}
+              </>
             ) : null}
             {selectedBox && !simpleUi ? (
               <View style={[styles.infoBanner, { marginBottom: 10 }]}>
