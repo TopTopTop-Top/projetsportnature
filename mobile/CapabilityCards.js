@@ -63,8 +63,8 @@ export default function CapabilityCards({
             <View style={[styles.iconWrap, on && styles.iconWrapOn]}>
               <Ionicons
                 name={c.icon}
-                size={22}
-                color={on ? theme.white : theme.primary}
+                size={18}
+                color={on ? "#fff" : theme.ink}
               />
             </View>
             <View style={styles.textCol}>
@@ -72,9 +72,9 @@ export default function CapabilityCards({
               <Text style={styles.subtitle}>{c.subtitle}</Text>
             </View>
             <Ionicons
-              name={on ? "checkmark-circle" : "ellipse-outline"}
-              size={22}
-              color={on ? theme.primary : theme.border}
+              name={on ? "checkmark" : "add"}
+              size={18}
+              color={on ? theme.primary : theme.inkMuted}
             />
           </TouchableOpacity>
         );
@@ -88,7 +88,12 @@ export default function CapabilityCards({
 
 const styles = StyleSheet.create({
   wrap: {
-    gap: 10,
+    gap: 0,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: theme.border,
+    borderRadius: theme.radius.md,
+    overflow: "hidden",
+    backgroundColor: theme.surface,
   },
   card: {
     flexDirection: "row",
@@ -96,55 +101,54 @@ const styles = StyleSheet.create({
     gap: 12,
     paddingVertical: 14,
     paddingHorizontal: 14,
-    borderRadius: theme.radius.lg,
-    borderWidth: 1.5,
-    borderColor: theme.borderSoft,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: theme.borderSoft,
     backgroundColor: theme.surface,
     ...(Platform.OS === "web"
-      ? { transition: "border-color 160ms ease, background-color 160ms ease" }
+      ? { transition: "background-color 140ms ease" }
       : null),
   },
   cardOn: {
-    borderColor: theme.primary,
-    backgroundColor: theme.primarySoft,
+    backgroundColor: theme.surfaceMuted,
   },
   iconWrap: {
-    width: 44,
-    height: 44,
-    borderRadius: 14,
+    width: 36,
+    height: 36,
+    borderRadius: theme.radius.sm,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: theme.chipBg,
-    borderWidth: 1,
-    borderColor: theme.chipBorder,
+    backgroundColor: theme.surfaceMuted,
   },
   iconWrapOn: {
-    backgroundColor: theme.primary,
-    borderColor: theme.primary,
+    backgroundColor: theme.ink,
   },
   textCol: {
     flex: 1,
     minWidth: 0,
   },
   title: {
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: "800",
     color: theme.ink,
-    letterSpacing: -0.2,
+    letterSpacing: 0.2,
+    textTransform: "uppercase",
+    fontFamily: theme.fontDisplay,
   },
   titleOn: {
-    color: theme.secondary,
+    color: theme.ink,
   },
   subtitle: {
     marginTop: 2,
     fontSize: 12,
-    lineHeight: 17,
+    lineHeight: 16,
     color: theme.inkMuted,
+    fontFamily: theme.font,
   },
   hint: {
-    marginTop: 4,
+    marginTop: 10,
     fontSize: 12,
     lineHeight: 17,
     color: theme.inkMuted,
+    paddingHorizontal: 2,
   },
 });

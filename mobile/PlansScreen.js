@@ -29,7 +29,6 @@ import {
   formatPlanSignals,
   formatRelevanceLine,
 } from "./relevanceIndicators";
-import IntentGuideBanner from "./IntentGuideBanner";
 import FunnelSteps from "./FunnelSteps";
 import CreateProjectWizard from "./CreateProjectWizard";
 import {
@@ -1137,36 +1136,23 @@ export default function PlansScreen({ appMain = {} }) {
           showsVerticalScrollIndicator={Platform.OS === "web"}
         >
         <View style={styles.projectHero}>
-          <Text style={styles.projectHeroTitle}>Mes projets d’aventure</Text>
+          <Text style={styles.projectHeroKicker}>RavitoBox</Text>
+          <Text style={styles.projectHeroTitle}>Projets</Text>
           <Text style={styles.projectHeroText}>
-            Trail, run, rando ou vélo : allège ton sac en réservant eau /
-            nourriture sur le parcours (box fixes ou ravito GPS).
+            Trace + box / ravito. Demande → validation → paiement.
           </Text>
           <FunnelSteps activeId="ask" compact />
-          <Text style={styles.projectHeroHint}>
-            Modifiable tant que non payé. Après validation fournisseur →
-            paiement. Un projet = tracé + étapes box / ravito.
-          </Text>
           {isAuthed ? (
             <TouchableOpacity
               style={styles.projectHeroCta}
               onPress={() => setCreateWizardOpen(true)}
               activeOpacity={0.88}
             >
-              <Ionicons name="add-circle-outline" size={20} color="#fff" />
+              <Ionicons name="add" size={18} color="#fff" />
               <Text style={styles.projectHeroCtaText}>Créer un projet</Text>
             </TouchableOpacity>
           ) : null}
         </View>
-        <IntentGuideBanner
-          guideId="planifier"
-          title="Projets — ultra & ravito"
-          lines={[
-            "1. Compose un projet : trace + box et/ou ravito.",
-            "2. Demande → l’hôte / ravitailleur valide.",
-            "3. Paiement seulement après validation. Modifiable tant que non payé.",
-          ]}
-        />
 
           {!wideLayout ? mapPane : null}
 
@@ -1434,53 +1420,65 @@ export default function PlansScreen({ appMain = {} }) {
 
 const styles = StyleSheet.create({
   projectHero: {
-    borderRadius: theme.radius?.lg || 22,
-    padding: 20,
-    marginBottom: 14,
+    borderRadius: 0,
+    paddingVertical: 24,
+    paddingHorizontal: 16,
+    marginBottom: 18,
+    marginHorizontal: -16,
+    marginTop: -16,
     backgroundColor: theme.hero,
     overflow: "hidden",
   },
+  projectHeroKicker: {
+    fontSize: 10,
+    fontWeight: "800",
+    color: theme.heroAccent,
+    letterSpacing: 1.8,
+    textTransform: "uppercase",
+    marginBottom: 6,
+    fontFamily: theme.font,
+  },
   projectHeroTitle: {
-    fontSize: 24,
+    fontSize: 36,
     fontWeight: "800",
     color: "#FAFAFA",
-    letterSpacing: -0.6,
+    letterSpacing: -0.5,
     fontFamily: theme.fontDisplay,
+    textTransform: "uppercase",
   },
   projectHeroText: {
-    marginTop: 8,
+    marginTop: 10,
     fontSize: 14,
     lineHeight: 20,
-    color: "rgba(250,250,250,0.82)",
+    color: "rgba(250,250,250,0.7)",
     fontFamily: theme.font,
+    maxWidth: 360,
   },
   projectHeroHint: {
     marginTop: 6,
     fontSize: 12,
     lineHeight: 17,
-    color: "rgba(250,250,250,0.62)",
+    color: "rgba(250,250,250,0.55)",
   },
   projectHeroCta: {
-    marginTop: 16,
+    marginTop: 18,
     alignSelf: "flex-start",
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
+    gap: 6,
     backgroundColor: theme.primary,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderRadius: theme.radius?.pill || 999,
-    shadowColor: theme.primary,
-    shadowOpacity: 0.35,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 4 },
+    paddingHorizontal: 14,
+    paddingVertical: 11,
+    borderRadius: theme.radius.sm,
+    shadowOpacity: 0,
   },
   projectHeroCtaText: {
     fontWeight: "800",
     color: "#fff",
-    fontSize: 14,
-    letterSpacing: -0.2,
+    fontSize: 13,
+    letterSpacing: 0.5,
     fontFamily: theme.fontDisplay,
+    textTransform: "uppercase",
   },
   screen: { flex: 1, backgroundColor: theme.bg },
   root: { flex: 1 },
@@ -1490,7 +1488,7 @@ const styles = StyleSheet.create({
     maxWidth: 520,
     minWidth: 300,
     minHeight: 0,
-    borderRightWidth: 1,
+    borderRightWidth: StyleSheet.hairlineWidth,
     borderRightColor: theme.border,
     backgroundColor: theme.surface,
     padding: 12,
@@ -1598,25 +1596,22 @@ const styles = StyleSheet.create({
   },
   card: {
     backgroundColor: theme.surface,
-    borderRadius: theme.radius?.md || 16,
-    borderWidth: 1,
-    borderColor: theme.borderSoft,
+    borderRadius: theme.radius.md,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: theme.border,
     padding: 14,
-    marginBottom: 10,
-    shadowColor: theme.shadow,
-    shadowOpacity: 1,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 2,
+    marginBottom: 8,
+    shadowOpacity: 0,
+    elevation: 0,
   },
-  cardSelected: { borderColor: theme.primary, borderWidth: 2 },
+  cardSelected: { borderColor: theme.ink, borderWidth: 1.5 },
   cardOwnPublic: {
-    backgroundColor: theme.pickedSoft || "#F0FDFA",
-    borderColor: "#99F6E4",
+    backgroundColor: theme.surface,
+    borderColor: theme.border,
   },
   cardCommunity: {
-    backgroundColor: theme.warnBg,
-    borderColor: theme.warnBorder,
+    backgroundColor: theme.surface,
+    borderColor: theme.border,
   },
   cardHeader: {
     flexDirection: "row",
@@ -1629,8 +1624,9 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "800",
     color: theme.ink,
-    letterSpacing: -0.3,
+    letterSpacing: 0.2,
     fontFamily: theme.fontDisplay,
+    textTransform: "uppercase",
   },
   cardAuthor: { fontSize: 11, color: theme.inkMuted, fontWeight: "600" },
   cardSignalsRow: {

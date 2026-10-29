@@ -4,7 +4,7 @@ import theme from "./theme";
 import { FUNNEL_STEPS } from "./outdoorNeeds";
 
 /**
- * Barre d’étapes visuelle : Demande → Validation → Paiement.
+ * Barre d’étapes : Demande → Validation → Paiement (ligne fine, pas de « carte »).
  * @param {string} activeId ask | validate | pay
  */
 export default function FunnelSteps({ activeId = "ask", compact = false }) {
@@ -68,18 +68,16 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "flex-start",
     justifyContent: "space-between",
-    gap: 6,
+    gap: 4,
     marginBottom: 14,
-    paddingVertical: 10,
-    paddingHorizontal: 8,
-    borderRadius: theme.radius.md,
-    backgroundColor: theme.surfaceMuted,
-    borderWidth: 1,
-    borderColor: theme.borderSoft,
+    paddingVertical: 4,
+    paddingHorizontal: 0,
+    backgroundColor: "transparent",
+    borderWidth: 0,
   },
   wrapCompact: {
-    paddingVertical: 8,
-    marginBottom: 10,
+    paddingVertical: 2,
+    marginBottom: 12,
   },
   step: {
     flex: 1,
@@ -88,44 +86,48 @@ const styles = StyleSheet.create({
     minWidth: 0,
   },
   dot: {
-    width: 26,
-    height: 26,
-    borderRadius: 13,
+    width: 22,
+    height: 22,
+    borderRadius: 11,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: theme.surface,
+    backgroundColor: "transparent",
     borderWidth: 1.5,
     borderColor: theme.border,
     marginBottom: 6,
     zIndex: 1,
   },
   dotDone: {
+    backgroundColor: theme.ink,
+    borderColor: theme.ink,
+  },
+  dotCurrent: {
     backgroundColor: theme.primary,
     borderColor: theme.primary,
   },
-  dotCurrent: {
-    backgroundColor: theme.heroAccent,
-    borderColor: theme.heroAccent,
-  },
   dotText: {
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: "800",
     color: theme.inkMuted,
+    fontFamily: theme.font,
   },
   dotTextOn: {
     color: "#fff",
   },
   title: {
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: "700",
     color: theme.inkMuted,
     textAlign: "center",
+    textTransform: "uppercase",
+    letterSpacing: 0.4,
+    fontFamily: theme.font,
   },
   titleCurrent: {
     color: theme.ink,
   },
   titleDone: {
-    color: theme.primary,
+    color: theme.ink,
   },
   short: {
     marginTop: 2,
@@ -137,14 +139,14 @@ const styles = StyleSheet.create({
   },
   connector: {
     position: "absolute",
-    top: 12,
+    top: 10,
     left: "55%",
     right: "-55%",
-    height: 2,
+    height: 1,
     backgroundColor: theme.border,
     zIndex: 0,
   },
   connectorDone: {
-    backgroundColor: theme.primary,
+    backgroundColor: theme.ink,
   },
 });

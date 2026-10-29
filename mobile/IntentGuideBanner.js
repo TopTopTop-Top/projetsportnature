@@ -9,8 +9,8 @@ import {
 } from "./uiPrefsStorage";
 
 /**
- * Bloc court « que faire ici » — dismissible (1ère visite).
- * Masqué en mode simple pour ne pas surcharger.
+ * Aide courte dismissible — discrète (pas de bandeau « promo »).
+ * Masquée en mode simple.
  */
 export default function IntentGuideBanner({
   title,
@@ -40,7 +40,7 @@ export default function IntentGuideBanner({
             accessibilityLabel="Masquer cette aide"
             style={styles.closeBtn}
           >
-            <Ionicons name="close" size={16} color={theme.inkMuted} />
+            <Ionicons name="close" size={14} color={theme.inkMuted} />
           </TouchableOpacity>
         ) : null}
       </View>
@@ -55,14 +55,15 @@ export default function IntentGuideBanner({
 
 const styles = StyleSheet.create({
   wrap: {
-    borderWidth: 1,
-    borderColor: theme.infoBorder,
-    backgroundColor: theme.infoBg,
-    borderRadius: theme.radius.md,
+    borderWidth: 0,
+    borderLeftWidth: 2,
+    borderLeftColor: theme.primary,
+    backgroundColor: "transparent",
+    borderRadius: 0,
     paddingHorizontal: 12,
-    paddingVertical: 10,
-    marginBottom: 12,
-    gap: 4,
+    paddingVertical: 8,
+    marginBottom: 14,
+    gap: 3,
   },
   topRow: {
     flexDirection: "row",
@@ -70,23 +71,26 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   closeBtn: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
+    width: 24,
+    height: 24,
+    borderRadius: theme.radius.sm,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: theme.surface,
-    borderWidth: 1,
-    borderColor: theme.borderSoft,
+    backgroundColor: theme.surfaceMuted,
+    borderWidth: 0,
   },
   title: {
-    fontSize: 13,
-    fontWeight: "700",
+    fontSize: 12,
+    fontWeight: "800",
     color: theme.ink,
+    letterSpacing: 0.4,
+    textTransform: "uppercase",
+    fontFamily: theme.fontDisplay,
   },
   line: {
     fontSize: 12,
     lineHeight: 17,
     color: theme.inkMuted,
+    fontFamily: theme.font,
   },
 });
