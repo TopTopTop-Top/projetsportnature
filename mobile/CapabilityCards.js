@@ -6,8 +6,8 @@ import theme from "./theme";
 const CARDS = [
   {
     key: "user",
-    title: "Utilisateur",
-    subtitle: "Réserver des box, demander un ravito sur le trajet.",
+    title: "Coureur",
+    subtitle: "Réserver une box ou demander un ravito sur le trajet.",
     icon: "walk-outline",
   },
   {

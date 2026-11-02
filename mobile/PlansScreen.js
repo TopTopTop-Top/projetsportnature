@@ -29,7 +29,6 @@ import {
   formatPlanSignals,
   formatRelevanceLine,
 } from "./relevanceIndicators";
-import FunnelSteps from "./FunnelSteps";
 import CreateProjectWizard from "./CreateProjectWizard";
 import {
   planBoxHasActiveBooking,
@@ -533,7 +532,7 @@ function PlanDetailPanel({
       <TouchableOpacity style={styles.secondaryBtn} onPress={onOpenExplorer}>
         <Ionicons name="compass-outline" size={16} color={theme.primary} />
         <Text style={styles.secondaryBtnText}>
-          Ouvrir sur Découvrir (carte + rail)
+          Continuer sur la carte (Découvrir)
         </Text>
       </TouchableOpacity>
       <Text style={styles.detailSection}>Box ({boxes.length})</Text>
@@ -618,7 +617,7 @@ function PlanDetailPanel({
                     color={theme.primary}
                   />
                   <Text style={styles.bookBoxBtnText}>
-                    Demander cette box (validation puis paiement)
+                    Continuer sur la carte pour demander
                   </Text>
                 </TouchableOpacity>
               ) : null}
@@ -1135,11 +1134,9 @@ export default function PlansScreen({ appMain = {} }) {
           <Text style={styles.projectHeroKicker}>RavitoBox</Text>
           <Text style={styles.projectHeroTitle}>Projets</Text>
           <Text style={styles.projectHeroText}>
-            Créer, affiner ou supprimer tes projets (et voir les publics). La
-            réservation sur carte se fait dans Découvrir ; le suivi dans
-            Réservations.
+            Tes sorties (et les publiques) : trace, box, ravito. Pour demander
+            sur la carte → Découvrir. Pour le suivi → Réservations.
           </Text>
-          <FunnelSteps activeId="ask" compact />
           {isAuthed ? (
             <TouchableOpacity
               style={styles.projectHeroCta}
@@ -1147,7 +1144,7 @@ export default function PlansScreen({ appMain = {} }) {
               activeOpacity={0.88}
             >
               <Ionicons name="add" size={18} color="#fff" />
-              <Text style={styles.projectHeroCtaText}>Créer un projet</Text>
+              <Text style={styles.projectHeroCtaText}>Créer une sortie</Text>
             </TouchableOpacity>
           ) : null}
         </View>
@@ -1156,8 +1153,8 @@ export default function PlansScreen({ appMain = {} }) {
 
           <View style={styles.tabRow}>
             {[
-              { id: "private", label: "Mes projets" },
-              { id: "public", label: "Projets publics" },
+              { id: "private", label: "Mes sorties" },
+              { id: "public", label: "Sorties publiques" },
             ].map((t) => (
               <TouchableOpacity
                 key={t.id}
@@ -1222,7 +1219,7 @@ export default function PlansScreen({ appMain = {} }) {
             style={styles.searchInput}
             value={search}
             onChangeText={setSearch}
-            placeholder="Rechercher un plan, une trace, une ville…"
+            placeholder="Rechercher une sortie, une trace, une ville…"
             placeholderTextColor="#94A3B8"
           />
           {!isAuthed && section === "private" ? (
@@ -1240,7 +1237,7 @@ export default function PlansScreen({ appMain = {} }) {
             listForSection.length === 0 ? (
               <Text style={styles.emptyHint}>
                 {section === "private"
-                  ? "Aucun projet encore. Lance « Créer un projet » ci-dessus (nom, activité, GPX)."
+                  ? "Aucune sortie encore. Crée-en une ci-dessus, ou demande d’abord une box sur Découvrir."
                   : publicFilter === "community"
                     ? "Aucun plan public d’un autre athlète pour l’instant. Quand quelqu’un partage un plan, il apparaît ici."
                     : publicFilter === "mine"

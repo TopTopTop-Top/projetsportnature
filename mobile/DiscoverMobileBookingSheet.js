@@ -11,7 +11,6 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import theme from "./theme";
-import FunnelSteps from "./FunnelSteps";
 import { toggleTagInText, textHasTag } from "./outdoorNeeds";
 
 /**
@@ -173,7 +172,6 @@ export default function DiscoverMobileBookingSheet({
 
             {step === 4 ? (
               <>
-                <FunnelSteps activeId="ask" compact />
                 <Text style={styles.sectionLabel}>4 · Récap</Text>
                 {offerLines.map((line, i) => (
                   <Text key={`off-${i}`} style={styles.offerLine}>

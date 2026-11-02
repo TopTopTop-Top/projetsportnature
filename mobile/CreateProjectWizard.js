@@ -12,7 +12,6 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import theme from "./theme";
-import FunnelSteps from "./FunnelSteps";
 import {
   PROJECT_ACTIVITIES,
   ATHLETE_NEED_TAGS,
@@ -64,7 +63,7 @@ export default function CreateProjectWizard({
   const goNextFromInfo = () => {
     const nm = name.trim();
     if (nm.length < 3) {
-      setError("Donne un nom à ton projet (min. 3 caractères).");
+      setError("Donne un nom à ta sortie (min. 3 caractères).");
       return;
     }
     setError("");
@@ -127,7 +126,7 @@ export default function CreateProjectWizard({
         <View style={styles.sheet}>
           <View style={styles.header}>
             <Text style={styles.title}>
-              {step === 2 ? "Projet créé" : "Nouveau projet"}
+              {step === 2 ? "Sortie créée" : "Nouvelle sortie"}
             </Text>
             <TouchableOpacity onPress={handleClose} hitSlop={12}>
               <Ionicons name="close" size={24} color={theme.ink} />
@@ -139,15 +138,13 @@ export default function CreateProjectWizard({
             keyboardShouldPersistTaps="handled"
             showsVerticalScrollIndicator={Platform.OS === "web"}
           >
-            {step < 2 ? <FunnelSteps activeId="ask" compact /> : null}
-
             {step === 0 ? (
               <>
                 <Text style={styles.lead}>
-                  Une sortie où tu allèges le sac : box et/ou ravito GPS sur ton
-                  parcours.
+                  Une sortie où tu allèges le sac : box et/ou ravito sur ton
+                  parcours. La réservation se fera ensuite sur la carte.
                 </Text>
-                <Text style={styles.label}>Nom du projet</Text>
+                <Text style={styles.label}>Nom de la sortie</Text>
                 <TextInput
                   style={styles.input}
                   value={name}
@@ -273,7 +270,7 @@ export default function CreateProjectWizard({
                     color={theme.success}
                   />
                   <Text style={styles.successTitle}>
-                    {created.name || "Projet prêt"}
+                    {created.name || "Sortie prête"}
                   </Text>
                   <Text style={styles.hint}>
                     Prochaine étape : ajoute des box sur le tracé ou demande un
@@ -320,14 +317,14 @@ export default function CreateProjectWizard({
                   {busy ? (
                     <ActivityIndicator color="#fff" />
                   ) : (
-                    <Text style={styles.priBtnText}>Créer le projet</Text>
+                    <Text style={styles.priBtnText}>Créer la sortie</Text>
                   )}
                 </TouchableOpacity>
               </>
             ) : null}
             {step === 2 ? (
               <TouchableOpacity style={styles.priBtn} onPress={handleClose}>
-                <Text style={styles.priBtnText}>Voir mon projet</Text>
+                <Text style={styles.priBtnText}>Voir ma sortie</Text>
               </TouchableOpacity>
             ) : null}
           </View>

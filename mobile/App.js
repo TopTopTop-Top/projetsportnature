@@ -74,7 +74,6 @@ import ExplorerFocusSheet from "./ExplorerFocusSheet";
 import DiscoverMobileBookingSheet from "./DiscoverMobileBookingSheet";
 import MoreActions from "./MoreActions";
 import CapabilityCards from "./CapabilityCards";
-import FunnelSteps from "./FunnelSteps";
 import theme from "./theme";
 import { parseMapCoords } from "./geoMap";
 import useAthleticFonts from "./useAthleticFonts";
@@ -396,14 +395,14 @@ const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
 
 const ROLE_LABELS = {
-  athlete: "Utilisateur",
+  athlete: "Coureur",
   host: "Hôte",
   both: "Multi-casquettes",
 };
 
 function formatCapabilitiesLabel(caps) {
   const parts = [];
-  if (caps?.user) parts.push("Utilisateur");
+  if (caps?.user) parts.push("Coureur");
   if (caps?.host) parts.push("Hôte");
   if (caps?.ravito) parts.push("Ravitailleur");
   return parts.length ? parts.join(" · ") : "Aucune activité";
@@ -742,14 +741,14 @@ function cleanTrailLabel(name) {
   return t;
 }
 
-/** Récap court d’un projet pour aperçu avant activation. */
+/** Récap court d’une sortie (projet) pour le sélecteur Découvrir. */
 function planPreviewRecap(plan) {
   if (!plan) {
     return {
-      title: "Curiosité",
+      title: "Exploration",
       lines: [
-        "Sans projet — tu regardes la carte librement.",
-        "Choisis un projet pour voir traces, box et ravito liés.",
+        "Sans sortie liée — tu peux quand même demander une box ou un ravito.",
+        "Une sortie organise trace + points pour plus tard.",
       ],
     };
   }
@@ -766,12 +765,12 @@ function planPreviewRecap(plan) {
   const lines = [
     trail ? `Trace · ${trail}` : null,
     boxes === 0 ? "0 box liée" : `${boxes} box sur le parcours`,
-    notes > 0 ? `${notes} ravito / point GPS` : null,
+    notes > 0 ? `${notes} ravito` : null,
     activity ? `Activité · ${activity}` : null,
   ].filter(Boolean);
   return {
-    title: plan.name || `Projet #${plan.id}`,
-    lines: lines.length ? lines : ["Projet sans détail"],
+    title: plan.name || `Sortie #${plan.id}`,
+    lines: lines.length ? lines : ["Sortie sans détail"],
   };
 }
 
@@ -2038,13 +2037,12 @@ function BookingConfirmModal({
             style={styles.modalSheetBody}
             keyboardShouldPersistTaps="handled"
           >
-            <FunnelSteps activeId="ask" />
             <Text style={styles.helperText}>
               Tu n’es pas encore débité. L’hôte valide d’abord, puis tu pourras
               payer. Modifiable tant que non payé.
             </Text>
 
-            <Text style={styles.bookingRecapTitle}>Box étape</Text>
+            <Text style={styles.bookingRecapTitle}>Box</Text>
             <View style={styles.card}>
               <View style={styles.cardAccent} />
               <Text style={styles.cardTitle}>{box.title}</Text>
@@ -2056,11 +2054,11 @@ function BookingConfirmModal({
               </Text>
               {routePlanId ? (
                 <Text style={styles.cardAvailability}>
-                  Liée au projet #{routePlanId}
+                  Liée à la sortie #{routePlanId}
                 </Text>
               ) : (
                 <Text style={styles.cardAvailability}>
-                  Sans projet : tu pourras la rattacher dans Projets.
+                  Sans sortie liée — OK. Tu pourras l’organiser dans Projets.
                 </Text>
               )}
             </View>
@@ -2313,7 +2311,7 @@ function ExplorerScreen() {
   /**
    * Type d’aide : null = pas encore choisi, "box" | "ravito".
    * Funnel box : 1 box → 2 créneau → 3 besoins → 4 récap.
-   * Sans projet = curiosité (carte libre) ; la réservation gagne avec un projet.
+   * Sans sortie = exploration libre ; la réservation reste possible.
    */
   const [discoverReserveMode, setDiscoverReserveMode] = useState(null);
   const [discoverBookStep, setDiscoverBookStep] = useState(1);
@@ -2917,6 +2915,10 @@ function ExplorerScreen() {
       if (!Number.isFinite(bid)) return;
       // Focus seul — ne touche pas au panier « plan ».
       setSelectedBoxId(bid);
+      if (canBook) {
+        setDiscoverReserveMode((prev) => (prev === "ravito" ? prev : "box"));
+        setDiscoverBookStep((s) => (s < 2 ? 2 : s));
+      }
       const box =
         boxes.find((b) => Number(b.id) === bid) ||
         boxesOnMap.find((b) => Number(b.id) === bid);
@@ -2932,6 +2934,7 @@ function ExplorerScreen() {
     [
       boxes,
       boxesOnMap,
+      canBook,
       setSelectedBoxId,
       setMapLat,
       setMapLon,
@@ -3088,16 +3091,16 @@ function ExplorerScreen() {
       const bid = Number(boxId);
       if (!Number.isFinite(bid)) return;
       const box = boxes.find((b) => Number(b.id) === bid);
-      const bl = Number(box?.latitude);
-      const bLng = Number(box?.longitude);
-      if (Number.isFinite(bl) && Number.isFinite(bLng)) {
-        setMapLat(bl.toFixed(6));
-        setMapLon(bLng.toFixed(6));
+      const coords = parseMapCoords(box?.latitude, box?.longitude);
+      if (coords) {
+        setMapLat(coords.lat.toFixed(6));
+        setMapLon(coords.lon.toFixed(6));
       }
       setSelectedBoxId(bid);
+      setDiscoverReserveMode("box");
+      setDiscoverBookStep(2);
       setMapExplorerCameraFollowSearch(true);
       setMapExplorerRecenterNonce((n) => n + 1);
-      // Funnel unique : box → créneau (pas d’envoi immédiat).
       const scrollToBookingSection = () => {
         if (bookingSectionYRef.current > 0) {
           explorerScrollRef.current?.scrollTo?.({
@@ -4883,11 +4886,10 @@ function ExplorerScreen() {
       <View style={styles.discoverCoach}>
         <View style={styles.discoverCoachTopRow}>
           <View style={{ flex: 1, minWidth: 0 }}>
-            <Text style={styles.discoverCoachKicker}>RavitoBox · carte</Text>
+            <Text style={styles.discoverCoachKicker}>RavitoBox</Text>
             <Text style={styles.discoverCoachTitle}>Découvrir</Text>
             <Text style={styles.discoverCoachLabel}>
-              1. Projet ou curiosité · 2. Box ou ravito · 3. Créneau. Gérer /
-              créer un projet en détail → onglet Projets. Suivi → Réservations.
+              Carte · box ou ravito · créneau. Suivi dans Réservations.
             </Text>
           </View>
           {webDesktopSplit ? (
@@ -4903,21 +4905,21 @@ function ExplorerScreen() {
         </View>
         {canBook ? (
           <View style={styles.discoverProjectBlock}>
-            <Text style={styles.discoverCoachLabel}>Projet</Text>
+            <Text style={styles.discoverCoachLabel}>Sortie (optionnel)</Text>
             <TouchableOpacity
               style={styles.discoverProjectSelect}
               onPress={() => setDiscoverProjectPickerOpen((v) => !v)}
               activeOpacity={0.88}
               accessibilityRole="button"
-              accessibilityLabel="Choisir un projet"
+              accessibilityLabel="Choisir une sortie"
             >
               <View style={{ flex: 1, minWidth: 0 }}>
                 <Text style={styles.discoverProjectSelectValue} numberOfLines={1}>
                   {selectedRoutePlanId
                     ? (Array.isArray(routePlans) ? routePlans : []).find(
                         (p) => Number(p.id) === Number(selectedRoutePlanId)
-                      )?.name || `Projet #${selectedRoutePlanId}`
-                    : "Curiosité (sans projet)"}
+                      )?.name || `Sortie #${selectedRoutePlanId}`
+                    : "Exploration (sans sortie)"}
                 </Text>
                 <Text
                   style={styles.discoverProjectSelectMeta}
@@ -4940,7 +4942,7 @@ function ExplorerScreen() {
                         );
                         return recap.lines.slice(0, 2).join(" · ") || null;
                       })()
-                    : "Regarder la carte librement"}
+                    : "Demande libre — organise plus tard dans Projets"}
                 </Text>
               </View>
               <Ionicons
@@ -4974,14 +4976,14 @@ function ExplorerScreen() {
                         ]}
                         numberOfLines={1}
                       >
-                        Curiosité
+                        Exploration
                         {selectedRoutePlanId == null ? " · actif" : ""}
                       </Text>
                       <Text
                         style={styles.discoverProjectMenuMeta}
                         numberOfLines={1}
                       >
-                        Sans projet — regarder la carte
+                        Sans sortie — carte libre, résa possible
                       </Text>
                     </View>
                   </TouchableOpacity>
@@ -5036,7 +5038,7 @@ function ExplorerScreen() {
                       color: theme.primary,
                     }}
                   >
-                    + Créer un projet
+                    + Créer une sortie
                   </Text>
                 </TouchableOpacity>
               </View>
@@ -5044,7 +5046,7 @@ function ExplorerScreen() {
             {projectDiscoverRecap ? (
               <View style={styles.discoverProjectRecap}>
                 <Text style={styles.discoverProjectRecapTitle}>
-                  Récap projet
+                  Sur cette sortie
                 </Text>
                 {projectDiscoverRecap.trailName ? (
                   <Text style={styles.discoverProjectRecapLine}>
@@ -5094,7 +5096,7 @@ function ExplorerScreen() {
                   activeOpacity={0.85}
                 >
                   <Text style={styles.discoverProjectRecapLinkText}>
-                    Ouvrir dans Projets
+                    Gérer dans Projets
                   </Text>
                 </TouchableOpacity>
               </View>
@@ -5106,12 +5108,8 @@ function ExplorerScreen() {
       {canBook ? (
         <Section
           flat
-          title="Réserver"
-          subtitle={
-            selectedRoutePlanId
-              ? "Choisis box fixe ou ravito humain (icônes différentes sur la carte)."
-              : "Curiosité : regarde librement. Active un projet pour réserver."
-          }
+          title="Aide sur le trajet"
+          subtitle="Maison = box fixe · Marcheur = ravito humain."
         >
           <View style={styles.discoverMapLegendRow}>
             <View style={styles.discoverMapLegendItem}>
@@ -5180,12 +5178,8 @@ function ExplorerScreen() {
           </View>
           {!discoverReserveMode ? (
             <Text style={styles.helperText}>
-              Maison = box fixe. Marcheur = ravito humain au GPS.
-            </Text>
-          ) : !selectedRoutePlanId ? (
-            <Text style={styles.helperText}>
-              Mode curiosité : tu peux explorer. Active un projet pour finaliser
-              une réservation.
+              Choisis un type, puis touche la carte. Une sortie liée est
+              optionnelle.
             </Text>
           ) : null}
         </Section>
@@ -6380,7 +6374,6 @@ function ExplorerScreen() {
 
           {discoverBookStep === 4 && selectedBox ? (
             <View style={styles.bookingConfirmCard}>
-              <FunnelSteps activeId="ask" compact />
               <Text style={styles.bookingConfirmTitle}>Récap</Text>
               <Text style={styles.bookingConfirmMeta}>
                 {selectedBox.title}
@@ -6403,9 +6396,13 @@ function ExplorerScreen() {
               </Text>
               {projectDiscoverRecap ? (
                 <Text style={styles.helperText}>
-                  Projet · {projectDiscoverRecap.name}
+                  Sortie · {projectDiscoverRecap.name}
                 </Text>
-              ) : null}
+              ) : (
+                <Text style={styles.helperText}>
+                  Sans sortie liée — OK pour envoyer.
+                </Text>
+              )}
               <PrimaryButton
                 label="Envoyer la demande"
                 icon="send-outline"
@@ -7085,8 +7082,8 @@ function ExplorerScreen() {
   const activeProjectLabel = selectedRoutePlanId
     ? (Array.isArray(routePlans) ? routePlans : []).find(
         (p) => Number(p.id) === Number(selectedRoutePlanId)
-      )?.name || `Projet #${selectedRoutePlanId}`
-    : "Curiosité";
+      )?.name || `Sortie #${selectedRoutePlanId}`
+    : "Exploration";
 
   const openMobileProjectPicker = () => {
     setDiscoverProjectPickerOpen(true);
@@ -7108,10 +7105,10 @@ function ExplorerScreen() {
         <View style={styles.discoverMobilePickerSheet}>
           <View style={styles.discoverMobilePickerGrabber} />
           <Text style={styles.discoverMobilePickerTitle}>
-            Choisir un projet
+            Choisir une sortie
           </Text>
           <Text style={styles.discoverMobilePickerRowMeta}>
-            Un clic pour activer
+            Optionnel · un clic pour activer
           </Text>
           <ScrollView style={{ maxHeight: 320, marginTop: 8 }}>
             <TouchableOpacity
@@ -7122,11 +7119,11 @@ function ExplorerScreen() {
               onPress={() => selectDiscoverProject(null)}
             >
               <Text style={styles.discoverMobilePickerRowTitle}>
-                Curiosité
+                Exploration
                 {selectedRoutePlanId == null ? " · actif" : ""}
               </Text>
               <Text style={styles.discoverMobilePickerRowMeta}>
-                Sans projet — regarder la carte librement
+                Sans sortie — carte libre, réservation possible
               </Text>
             </TouchableOpacity>
             {(Array.isArray(routePlans) ? routePlans : []).map((plan) => {
@@ -7167,7 +7164,7 @@ function ExplorerScreen() {
                 color: theme.primary,
               }}
             >
-              + Créer un projet
+              + Créer une sortie
             </Text>
           </TouchableOpacity>
         </View>
@@ -7239,9 +7236,7 @@ function ExplorerScreen() {
         {!discoverReserveMode ? (
           <>
             <Text style={styles.discoverMobilePeekText}>
-              {selectedRoutePlanId
-                ? "Que veux-tu réserver ?"
-                : "Curiosité — ou choisis box / ravito"}
+              Box fixe ou ravito humain ?
             </Text>
             <View style={styles.discoverReserveModeRow}>
               <TouchableOpacity
@@ -9529,7 +9524,7 @@ function HostScreen() {
           </Text>
         </View>
         <Section
-          title={simpleUi ? "Ma box" : "Publier un box"}
+          title={simpleUi ? "Ma box" : "Publier une box"}
           subtitle={
             simpleUi
               ? "Titre, lieu, eau / nourriture — puis publie."
@@ -10917,7 +10912,7 @@ function ProfileScreen() {
           title="Interface"
           subtitle={
             simpleUi
-              ? "Mode simple : Découvrir → Projets → Réservations."
+              ? "Mode simple : Découvrir (carte) → Projets (sorties) → Réservations (suivi)."
               : "Mode complet : tous les outils avancés visibles."
           }
           icon="options-outline"
@@ -11495,10 +11490,10 @@ function ReservationsScreen() {
           title="Réserver — suivi"
           lines={[
             "Ici : box et ravito réservés, en attente, reçus ou envoyés.",
-            "Découvrir = carte & demande. Projets = créer / affiner un plan.",
+            "Découvrir = carte & demande. Projets = organiser une sortie.",
             canHost
               ? "Bascule « Reçues » pour valider les demandes sur tes box."
-              : "Les demandes en attente apparaissent avec le statut pending.",
+              : "Les demandes non validées apparaissent « En attente ».",
           ]}
         />
         {canHost && canBook ? (
@@ -12391,7 +12386,7 @@ function ReservationsScreen() {
 
         {!canHost && !canBook && !canRavito ? (
           <Text style={styles.emptyText}>
-            Dans Compte, active Utilisateur, Hôte ou Ravitailleur pour commencer.
+            Dans Compte, active Coureur, Hôte ou Ravitailleur pour commencer.
           </Text>
         ) : null}
       </ScrollView>
@@ -14345,8 +14340,8 @@ function RavitoApp() {
       setSelectedRoutePlanDetail(detail || null);
       if (!silent) {
         userAlert(
-          "Projet créé",
-          "Ajoute des box ou un ravito GPS, puis suis Demande → Validation → Paiement."
+          "Sortie créée",
+          "Tu peux y lier box et ravito. Le suivi des demandes est dans Réservations."
         );
       }
       return detail || null;
@@ -15140,11 +15135,11 @@ function RavitoApp() {
       await actionsRef.current.onRavitoRequestCreated?.(created, point);
       const planHint =
         Number.isFinite(planId) && planId > 0
-          ? " Le point et les box cochées sont enregistrés dans ton plan (onglet Plans)."
+          ? " Point enregistré sur ta sortie (onglet Projets)."
           : "";
       userAlert(
         "Demande envoyée",
-        `Les hôtes proches seront notifiés. Consulte l’onglet Réservations pour les propositions.${planHint}`
+        `Les hôtes proches seront notifiés. Suivi des propositions dans Réservations.${planHint}`
       );
       return created;
     },
@@ -15242,7 +15237,24 @@ function RavitoApp() {
     }
     setBookingSubmitting(true);
     try {
-      const planId = Number(selectedRoutePlanId);
+      let planId = Number(selectedRoutePlanId);
+      // Happy path : si une trace est déjà choisie et aucune sortie, créer un brouillon silencieux.
+      if (
+        (!Number.isFinite(planId) || planId <= 0) &&
+        Number.isFinite(Number(selectedTrailId)) &&
+        Number(selectedTrailId) > 0
+      ) {
+        const now = new Date();
+        const dd = String(now.getDate()).padStart(2, "0");
+        const mm = String(now.getMonth() + 1).padStart(2, "0");
+        const draft = await createRoutePlanFromSelection({
+          trailId: Number(selectedTrailId),
+          boxIds: [boxId],
+          name: `Sortie ${dd}/${mm}`,
+          silent: true,
+        });
+        planId = Number(draft?.id);
+      }
       const result = await apiFetch("/bookings", {
         method: "POST",
         token,
@@ -15272,22 +15284,17 @@ function RavitoApp() {
           ? `Offre box : ${offerLines.join(" | ")}`
           : null,
         Number.isFinite(planId) && planId > 0
-          ? `Projet lié : plan #${planId}`
-          : null,
+          ? `Sortie liée : #${planId}`
+          : "Sans sortie liée — organisable plus tard dans Projets.",
         approval === "accepted"
-          ? "Validée — tu peux payer dans Réserver / Projets."
-          : "Étape 1/3 : en attente de validation par l’hôte (puis paiement).",
+          ? "Validée — tu peux payer dans Réservations."
+          : "En attente de validation par l’hôte (puis paiement).",
         "Modifiable tant que tu n’as pas payé.",
+        "Suivi : onglet Réservations.",
       ].filter(Boolean);
-      userAlert(
-        "Demande envoyée",
-        [...receiptLines, "Suivi : onglet Réservations (sans quitter la carte)."].join(
-          "\n"
-        )
-      );
+      userAlert("Demande envoyée", receiptLines.join("\n"));
       await loadAthleteBookings();
       await refreshRoutePlanBookingLinks();
-      // Reste sur Découvrir — évite le saut forcé vers Réservations.
     } catch (error) {
       userAlert("Erreur", error.message);
     } finally {
