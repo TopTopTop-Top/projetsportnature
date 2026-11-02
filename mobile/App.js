@@ -12208,7 +12208,6 @@ function ReservationsScreen() {
           </Section>
         ) : null}
 
-        {canBook && (!canHost || reservationTab === "athlete") ? (
         {notifications?.length > 0 ? (
           <Section
             title="Notifications"
@@ -12352,6 +12351,7 @@ function ReservationsScreen() {
           </Section>
         ) : null}
 
+        {canBook && (!canHost || reservationTab === "athlete") ? (
           <MoreActions label="Suivi demandes ravito GPS">
             <Text style={styles.helperText}>
               Pour une nouvelle demande, utilise Découvrir → Ravito humain.
