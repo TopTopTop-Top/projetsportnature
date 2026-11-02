@@ -90,7 +90,7 @@ export default function ExplorerFocusSheet({
                   picked ? styles.pillTextPicked : styles.pillTextIdle,
                 ]}
               >
-                {picked ? "Dans ton plan" : "Pas encore dans le plan"}
+                {picked ? "Trace sélectionnée" : "Trace non sélectionnée"}
               </Text>
             </View>
           </ScrollView>
@@ -122,7 +122,7 @@ export default function ExplorerFocusSheet({
                   color={theme.primary}
                 />
                 <Text style={styles.btnOutlineText}>
-                  {picked ? "Retirer du plan" : "Ajouter au plan"}
+                  {picked ? "Retirer de la sélection" : "Sélectionner la trace"}
                 </Text>
               </TouchableOpacity>
             ) : null}

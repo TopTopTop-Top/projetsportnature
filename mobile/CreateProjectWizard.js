@@ -29,6 +29,7 @@ export default function CreateProjectWizard({
   busy = false,
   onCreate,
   onUploadGpx,
+  onContinueToMap,
 }) {
   const [step, setStep] = useState(0);
   const [name, setName] = useState("");
@@ -40,8 +41,11 @@ export default function CreateProjectWizard({
   const [uploading, setUploading] = useState(false);
 
   const myTrails = useMemo(() => {
-    const list = Array.isArray(trails) ? trails : [];
-    return list.slice(0, 40);
+    const list = Array.isArray(trails) ? [...trails] : [];
+    list.sort((a, b) =>
+      String(a?.name || "").localeCompare(String(b?.name || ""), "fr")
+    );
+    return list.slice(0, 80);
   }, [trails]);
 
   const reset = () => {
@@ -273,8 +277,8 @@ export default function CreateProjectWizard({
                     {created.name || "Sortie prête"}
                   </Text>
                   <Text style={styles.hint}>
-                    Prochaine étape : ajoute des box sur le tracé ou demande un
-                    ravito GPS. Chaque étape = demande → validation → paiement.
+                    Prochaine étape : ouvre la carte pour ajouter des box ou
+                    demander un ravito GPS sur le tracé.
                   </Text>
                 </View>
               </>
@@ -323,8 +327,17 @@ export default function CreateProjectWizard({
               </>
             ) : null}
             {step === 2 ? (
-              <TouchableOpacity style={styles.priBtn} onPress={handleClose}>
-                <Text style={styles.priBtnText}>Voir ma sortie</Text>
+              <TouchableOpacity
+                style={styles.priBtn}
+                onPress={() => {
+                  const plan = created;
+                  handleClose();
+                  onContinueToMap?.(plan);
+                }}
+              >
+                <Text style={styles.priBtnText}>
+                  Ajouter box / ravito sur la carte
+                </Text>
               </TouchableOpacity>
             ) : null}
           </View>

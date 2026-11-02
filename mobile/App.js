@@ -28,7 +28,6 @@ import NativeExplorerMap from "./NativeExplorerMap";
 import ExplorerWebMap from "./ExplorerWebMap";
 import TrailElevationProfile from "./TrailElevationProfile";
 import TrailProfileRail from "./TrailProfileRail";
-import TrailMapInspectOverlay from "./TrailMapInspectOverlay";
 import ExplorerMapChrome from "./ExplorerMapChrome";
 import TrailAltitudeBadge from "./TrailAltitudeBadge";
 import PlansScreenBase from "./PlansScreen";
@@ -936,6 +935,18 @@ function todayIsoDate() {
   )}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
+/** Cherche une box dans plusieurs listes (viewport, plan, etc.). */
+function resolveBoxById(boxId, ...lists) {
+  const bid = Number(boxId);
+  if (!Number.isFinite(bid)) return null;
+  for (const list of lists) {
+    if (!Array.isArray(list)) continue;
+    const found = list.find((b) => Number(b?.id) === bid);
+    if (found) return found;
+  }
+  return null;
+}
+
 function explorerSlotWellFormed(bookingDate, startTime, endTime) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(String(bookingDate || "").trim()))
     return false;
@@ -1249,7 +1260,7 @@ function confirmDestructive(title, message) {
 function confirmComposerClearAfterSave() {
   const title = "Nouvelle composition ?";
   const message =
-    "Les brouillons inclus dans ce plan sont encore dans l’onglet Composer. Les effacer pour repartir sur une trace vierge ?";
+    "Les brouillons de points sont encore dans Notes. Les effacer pour repartir sur une trace vierge ?";
   if (Platform.OS === "web") {
     return Promise.resolve(window.confirm(`${title}\n\n${message}`));
   }
@@ -2753,24 +2764,27 @@ function ExplorerScreen() {
     }
   }, [selectedRoutePlanId]);
 
-  /** Un clic = sélection immédiate (pas de bouton Activer). */
+  /** Un clic = activer la sortie sur la carte (panier remplacé). */
   const selectDiscoverProject = (planId) => {
     if (planId == null) {
       setSelectedRoutePlanId(null);
       setSelectedRoutePlanDetail(null);
+      setMapPickedBoxIds([]);
+      setMapTrailPickIds([]);
+      setSelectedTrailId(null);
+      setSelectedBoxId(null);
       setDiscoverBookStep(1);
       setDiscoverReserveMode(null);
     } else {
       const pid = Number(planId);
       if (!Number.isFinite(pid)) return;
-      setSelectedRoutePlanId(pid);
-      Promise.resolve(actionsRef.current.loadRoutePlanDetail?.(pid)).then(
-        (detail) => {
-          if (detail) {
-            actionsRef.current.showRoutePlanOnMap?.(detail, { silent: true });
-          }
+      Promise.resolve(
+        actionsRef.current.loadRoutePlanDetail?.(pid, { activate: true })
+      ).then((detail) => {
+        if (detail) {
+          actionsRef.current.showRoutePlanOnMap?.(detail, { silent: true });
         }
-      );
+      });
     }
     setDiscoverProjectPickerOpen(false);
   };
@@ -2982,6 +2996,8 @@ function ExplorerScreen() {
     setExplorerTrailProbe(null);
     setExplorerProbeLock(false);
     setChartProbeHover(false);
+    setMapTrailPickIds([]);
+    setMapPickedBoxIds([]);
     setMapShowTrails(true);
     setMapShowBoxes(true);
     setMapTrailsScope("all");
@@ -2998,6 +3014,8 @@ function ExplorerScreen() {
     setMapBoxesNearTrailsOnly,
     setMapNearShowAllOnMap,
     setMapBoxesSlotCompatibleOnly,
+    setMapTrailPickIds,
+    setMapPickedBoxIds,
   ]);
 
   /** Bouton Quitter : confirm. Clic carte hors tracé : immédiat. */
@@ -3105,7 +3123,12 @@ function ExplorerScreen() {
     (boxId) => {
       const bid = Number(boxId);
       if (!Number.isFinite(bid)) return;
-      const box = boxes.find((b) => Number(b.id) === bid);
+      const box = resolveBoxById(
+        bid,
+        boxes,
+        activePlanForSelectedTrail?.boxes,
+        selectedRoutePlanDetail?.boxes
+      );
       const coords = parseMapCoords(box?.latitude, box?.longitude);
       if (coords) {
         setMapLat(coords.lat.toFixed(6));
@@ -3130,6 +3153,8 @@ function ExplorerScreen() {
     },
     [
       boxes,
+      activePlanForSelectedTrail,
+      selectedRoutePlanDetail,
       setSelectedBoxId,
       setMapLat,
       setMapLon,
@@ -3387,7 +3412,7 @@ function ExplorerScreen() {
       userAlert(
         visibility === "shared" ? "Plan partagé" : "Plan privé",
         visibility === "shared"
-          ? "D’autres athlètes peuvent s’en inspirer (onglet Communauté)."
+          ? "D’autres athlètes peuvent s’en inspirer (onglet Public)."
           : "Ce plan n’est plus visible dans la communauté."
       );
     },
@@ -3625,7 +3650,7 @@ function ExplorerScreen() {
     if (boxIds.length === 0 && probes.length === 0) {
       userAlert(
         "Plan",
-        "Coche au moins une box et/ou ajoute un point inclus dans ton plan (onglet Planifier / Mon plan). Tu peux enregistrer un plan box seul sans trace."
+        "Coche au moins une box et/ou ajoute un point inclus dans la sortie (onglet Sortie). Une trace est requise."
       );
       return;
     }
@@ -3660,7 +3685,7 @@ function ExplorerScreen() {
     if (addedNotes) parts.push(`${addedNotes} point(s) mémorisé(s)`);
     userAlert(
       "Plan enregistré",
-      `${parts.join(" · ")}. Consulte l’onglet Mon plan pour les notes GPS enregistrées.`
+      `${parts.join(" · ")}. Consulte l’onglet Sortie pour les points GPS enregistrés.`
     );
     if (probes.length > 0) {
       const clear = await confirmComposerClearAfterSave();
@@ -3690,26 +3715,28 @@ function ExplorerScreen() {
     async (planId) => {
       const pid = Number(planId);
       if (!Number.isFinite(pid) || pid <= 0) return;
-      setSelectedRoutePlanId(pid);
-      const detail = await actionsRef.current.loadRoutePlanDetail?.(pid);
+      const detail = await actionsRef.current.loadRoutePlanDetail?.(pid, {
+        activate: true,
+      });
       if (!detail) return;
       const trailId = Number(detail.trail_id);
       if (Number.isFinite(trailId)) {
         setSelectedTrailId(trailId);
-        setMapTrailPickIds((prev) =>
-          Array.isArray(prev) && prev.includes(trailId)
-            ? prev
-            : [...(prev || []), trailId]
-        );
+        setMapTrailPickIds([trailId]);
+      } else {
+        setMapTrailPickIds([]);
       }
       const boxIds = (Array.isArray(detail.boxes) ? detail.boxes : [])
         .map((b) => Number(b.id))
         .filter((id) => Number.isFinite(id));
+      setMapPickedBoxIds(boxIds);
       if (boxIds.length > 0) {
         setMapShowBoxes(true);
-        setMapPickedBoxIds(boxIds);
         setSelectedBoxId(boxIds[0]);
         setMapBoxSelectionMode("picked");
+      } else {
+        setSelectedBoxId(null);
+        setMapBoxSelectionMode("all");
       }
     },
     [actionsRef, setSelectedTrailId, setMapTrailPickIds, setMapPickedBoxIds]
@@ -3731,8 +3758,8 @@ function ExplorerScreen() {
       }
       await refreshTrailCommunityData();
       userAlert(
-        "Plan copié",
-        "Un plan personnel a été créé à partir de ce modèle. Tu peux le modifier dans l’onglet Mon plan."
+        "Sortie copiée",
+        "Une sortie personnelle a été créée. Tu peux la modifier dans Sorties."
       );
     },
     [user, selectExplorerRoutePlan, refreshTrailCommunityData]
@@ -6112,7 +6139,10 @@ function ExplorerScreen() {
                   source: "map",
                 });
               } else {
-                openRavitoRequestAtPoint?.({ source: "map" });
+                userAlert(
+                  "Point GPS",
+                  "Clique d’abord sur la carte pour poser un point."
+                );
               }
             }}
           />
@@ -7108,9 +7138,24 @@ function ExplorerScreen() {
         const lon = Number(selectedBox?.longitude);
         if (Number.isFinite(lat) && Number.isFinite(lon)) {
           openRavitoRequestAtPoint?.({ lat, lon, source: "box" });
-        } else {
-          openRavitoRequestAtPoint?.({ source: "map" });
+          return;
         }
+        const tap = lastMapTapCoords;
+        if (
+          Number.isFinite(Number(tap?.lat)) &&
+          Number.isFinite(Number(tap?.lng))
+        ) {
+          openRavitoRequestAtPoint?.({
+            lat: Number(tap.lat),
+            lon: Number(tap.lng),
+            source: "map",
+          });
+          return;
+        }
+        userAlert(
+          "Point GPS",
+          "Touche la carte pour poser un point avant de demander un ravito."
+        );
       }}
     />
   ) : null;
@@ -7175,7 +7220,31 @@ function ExplorerScreen() {
               stretch
               label="Demander un ravito GPS"
               icon="navigate-outline"
-              onPress={() => openRavitoRequestAtPoint?.({ source: "map" })}
+              onPress={() => {
+                const tap = lastMapTapCoords;
+                const centerLat = Number(webMapCenter?.[0]);
+                const centerLon = Number(webMapCenter?.[1]);
+                const lat = Number.isFinite(Number(tap?.lat))
+                  ? Number(tap.lat)
+                  : centerLat;
+                const lon = Number.isFinite(Number(tap?.lng))
+                  ? Number(tap.lng)
+                  : centerLon;
+                const tid = Number(selectedTrailId);
+                if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+                  userAlert(
+                    "Point GPS",
+                    "Touche d’abord la carte pour poser un point, puis redemande un ravito."
+                  );
+                  return;
+                }
+                openRavitoRequestAtPoint?.({
+                  lat,
+                  lon,
+                  trailId: Number.isFinite(tid) ? tid : undefined,
+                  source: "map",
+                });
+              }}
             />
           </>
         ) : (
@@ -7568,19 +7637,6 @@ function ExplorerScreen() {
             }
             canBook={false}
             onClose={() => handleRequestExitExplorerTrail()}
-            onTogglePick={
-              selectedTrail
-                ? () => toggleExplorerPickedTrail(Number(selectedTrail.id))
-                : undefined
-            }
-            onSavePlan={
-              selectedTrail
-                ? () => {
-                    setExplorerWorkspaceTab("plan");
-                    saveExplorerRoutePlan();
-                  }
-                : undefined
-            }
             onCenterMap={
               selectedTrail
                 ? () => actionsRef.current.centerMapOnTrail?.(selectedTrail.id)
@@ -7707,19 +7763,6 @@ function ExplorerScreen() {
           }
           canBook={false}
           onClose={() => handleRequestExitExplorerTrail()}
-          onTogglePick={
-            selectedTrail
-              ? () => toggleExplorerPickedTrail(Number(selectedTrail.id))
-              : undefined
-          }
-          onSavePlan={
-            selectedTrail
-              ? () => {
-                  setExplorerWorkspaceTab("plan");
-                  saveExplorerRoutePlan();
-                }
-              : undefined
-          }
           onCenterMap={
             selectedTrail
               ? () => actionsRef.current.centerMapOnTrail?.(selectedTrail.id)
@@ -8417,7 +8460,7 @@ function TrailsScreen() {
 
         <Section
           title="Filtres traces"
-          subtitle="Même logique que l’onglet Carte (partie traces)."
+          subtitle="Même logique que Découvrir (partie traces)."
           icon="options-outline"
         >
           <Text style={styles.fieldLabel}>
@@ -9956,7 +9999,7 @@ function HostScreen() {
                 {hostLon.toFixed(6)}
               </Text>
               <OutlineButton
-                label="Utiliser cette position comme centre de l’onglet Carte"
+                label="Utiliser cette position comme centre de Découvrir"
                 icon="locate-outline"
                 stretch
                 onPress={() => actionsRef.current.syncExplorerMapFromHost()}
@@ -10996,7 +11039,20 @@ function ProfileScreen() {
           <PrimaryButton
             label="Importer une trace GPX"
             icon="cloud-upload-outline"
-            onPress={() => actionsRef.current.uploadGpx?.()}
+            onPress={() => {
+              if (Platform.OS === "web") {
+                const input = document.createElement("input");
+                input.type = "file";
+                input.accept = ".gpx,application/gpx+xml";
+                input.onchange = () => {
+                  const f = input.files?.[0];
+                  if (f) actionsRef.current.uploadGpxWebFile?.(f);
+                };
+                input.click();
+                return;
+              }
+              actionsRef.current.uploadGpx?.();
+            }}
           />
           {!simpleUi ? (
             <>
@@ -11877,7 +11933,7 @@ function ReservationsScreen() {
                     ) : null}
                     <Text style={styles.cardDetailLine}>
                       Étape : {bookingFunnelStepLabel(b)}
-                      {b.route_plan_id ? ` · projet #${b.route_plan_id}` : ""}
+                      {b.route_plan_id ? ` · sortie #${b.route_plan_id}` : ""}
                     </Text>
                     <Text style={styles.cardDetailLine}>
                       Statut : {bookingApprovalLabel(approval)}
@@ -12600,6 +12656,10 @@ function RavitoApp() {
   const [bookingDate, setBookingDate] = useState(() => todayIsoDate());
   const [startTime, setStartTime] = useState("08:00");
   const [endTime, setEndTime] = useState("09:00");
+  const [ravitoBookingDate, setRavitoBookingDate] = useState(() => todayIsoDate());
+  const [ravitoStartTime, setRavitoStartTime] = useState("08:00");
+  const [ravitoEndTime, setRavitoEndTime] = useState("09:00");
+  const [ravitoSpecialRequest, setRavitoSpecialRequest] = useState("");
   const [city, setCity] = useState("Annecy");
   const [trailDifficulty, setTrailDifficulty] = useState("medium");
   const [trailImportTerritory, setTrailImportTerritory] = useState("Annecy");
@@ -12706,6 +12766,8 @@ function RavitoApp() {
   const [routePlans, setRoutePlans] = useState([]);
   const [selectedRoutePlanId, setSelectedRoutePlanId] = useState(null);
   const [selectedRoutePlanDetail, setSelectedRoutePlanDetail] = useState(null);
+  const selectedRoutePlanIdRef = useRef(null);
+  selectedRoutePlanIdRef.current = selectedRoutePlanId;
   const [routePlanBusy, setRoutePlanBusy] = useState(false);
 
   useEffect(() => {
@@ -13184,7 +13246,12 @@ function RavitoApp() {
     return list;
   }, [trailsForMap, mapTrailListSort]);
 
-  const selectedBox = boxes.find((box) => box.id === selectedBoxId) || null;
+  const selectedBox = resolveBoxById(
+    selectedBoxId,
+    boxes,
+    selectedRoutePlanDetail?.boxes,
+    boxesForMap
+  );
   const selectedTrail =
     trailsMerged.find(
       (trail) => Number(trail.id) === Number(selectedTrailId)
@@ -13220,17 +13287,15 @@ function RavitoApp() {
   ]);
 
   useEffect(() => {
-    if (mapListSource === "city") {
-      if (boxesForExplorerList.length > 0) {
-        setSelectedBoxId((prev) =>
-          prev != null && boxesForExplorerList.some((b) => b.id === prev)
-            ? prev
-            : boxesForExplorerList[0].id
-        );
-      } else {
-        setSelectedBoxId(null);
-      }
-    }
+    if (mapListSource !== "city") return;
+    // Ne pas auto-ouvrir la 1re box (ça déclenchait la sheet résa sur mobile).
+    setSelectedBoxId((prev) => {
+      if (prev == null) return null;
+      const stillThere = boxesForExplorerList.some(
+        (b) => Number(b.id) === Number(prev)
+      );
+      return stillThere ? prev : null;
+    });
   }, [mapListSource, boxesForExplorerList]);
 
   const register = useCallback(async () => {
@@ -13535,8 +13600,6 @@ function RavitoApp() {
       setSelectedBoxId((prev) =>
         prev != null && rows.some((b) => Number(b.id) === Number(prev))
           ? prev
-          : rows.length > 0
-          ? rows[0].id
           : null
       );
     } catch (error) {
@@ -13965,8 +14028,6 @@ function RavitoApp() {
           setSelectedBoxId((prev) =>
             prev != null && rows.some((b) => Number(b.id) === Number(prev))
               ? prev
-              : rows.length > 0
-              ? rows[0].id
               : null
           );
           setMapExplorerLastSearchAt(Date.now());
@@ -14050,8 +14111,6 @@ function RavitoApp() {
         setSelectedBoxId((prev) =>
           prev != null && rows.some((b) => Number(b.id) === Number(prev))
             ? prev
-            : rows.length > 0
-            ? rows[0].id
             : null
         );
         setMapExplorerLastSearchAt(Date.now());
@@ -14192,14 +14251,19 @@ function RavitoApp() {
     }
   };
 
-  const loadRoutePlanDetail = async (routePlanId) => {
+  const loadRoutePlanDetail = async (routePlanId, { activate = false } = {}) => {
     if (!token) return null;
     const pid = Number(routePlanId);
     if (!Number.isFinite(pid) || pid <= 0) return null;
     try {
       const detail = await apiFetch(`/route-plans/${pid}`, { token });
-      setSelectedRoutePlanId(pid);
-      setSelectedRoutePlanDetail(detail || null);
+      if (activate) {
+        setSelectedRoutePlanId(pid);
+        setSelectedRoutePlanDetail(detail || null);
+      } else if (Number(selectedRoutePlanIdRef.current) === pid) {
+        // Consulter / éditer sans activer : rafraîchir seulement si déjà active.
+        setSelectedRoutePlanDetail(detail || null);
+      }
       return detail || null;
     } catch (error) {
       userAlert("Erreur", error.message);
@@ -14282,7 +14346,12 @@ function RavitoApp() {
         );
         formData.append(
           "territory",
-          trailImportTerritory?.trim() || city || "unknown"
+          (trailImportTerritory?.trim() &&
+          trailImportTerritory.trim() !== "Annecy"
+            ? trailImportTerritory.trim()
+            : null) ||
+            city?.trim() ||
+            "À préciser"
         );
         formData.append("difficulty", trailDifficulty);
         formData.append("activity", act);
@@ -14333,8 +14402,7 @@ function RavitoApp() {
       "Trail";
     const notesParts = [
       `Activité : ${actLabel}`,
-      needs ? `Besoins projet : ${needs}` : null,
-      "Funnel : demande → validation fournisseur → paiement.",
+      needs ? `Besoins : ${needs}` : null,
     ].filter(Boolean);
     return createRoutePlanFromSelection({
       trailId,
@@ -14586,6 +14654,13 @@ function RavitoApp() {
     }
   };
 
+
+  const applyPlanDetailIfActive = (pid, detail) => {
+    if (Number(selectedRoutePlanIdRef.current) === Number(pid)) {
+      setSelectedRoutePlanDetail(detail || null);
+    }
+  };
+
   const updateRoutePlan = async (routePlanId, { name, notes, visibility } = {}) => {
     if (!token) return null;
     const pid = Number(routePlanId);
@@ -14624,7 +14699,7 @@ function RavitoApp() {
             : p
         )
       );
-      setSelectedRoutePlanDetail(detail || null);
+      applyPlanDetailIfActive(pid, detail);
       await loadRoutePlans().catch(() => {});
       return detail || null;
     } catch (error) {
@@ -14681,7 +14756,7 @@ function RavitoApp() {
           body: { comment: comment ?? "" },
         });
       }
-      setSelectedRoutePlanDetail(detail || null);
+      applyPlanDetailIfActive(pid, detail);
       await loadRoutePlans();
       return detail || null;
     } catch (error) {
@@ -14705,7 +14780,7 @@ function RavitoApp() {
         token,
         body: payload,
       });
-      setSelectedRoutePlanDetail(detail || null);
+      applyPlanDetailIfActive(pid, detail);
       return true;
     } catch (error) {
       userAlert("Erreur", error.message);
@@ -14740,7 +14815,7 @@ function RavitoApp() {
           }
         );
       }
-      setSelectedRoutePlanDetail(detail || null);
+      applyPlanDetailIfActive(pid, detail);
       return detail || null;
     } catch (error) {
       userAlert("Erreur", error.message);
@@ -14769,7 +14844,7 @@ function RavitoApp() {
           }
         );
       }
-      setSelectedRoutePlanDetail(detail || null);
+      applyPlanDetailIfActive(pid, detail);
       return true;
     } catch (error) {
       userAlert("Erreur", error.message);
@@ -14797,9 +14872,10 @@ function RavitoApp() {
     setMapBoxesNearTrailsOnly(false);
     setMapShowTrails(true);
     setMapTrailsScope(hasTrail ? "picked" : "all");
+    // Toujours remplacer le panier (évite contamination d’une sortie précédente).
+    setMapPickedBoxIds(boxIds);
     if (boxIds.length > 0) {
       setMapBoxSelectionMode("picked");
-      setMapPickedBoxIds(boxIds);
       setSelectedBoxId(boxIds[0]);
       const first = boxesList.find((b) => Number(b.id) === boxIds[0]);
       const coords = parseMapCoords(first?.latitude, first?.longitude);
@@ -14810,6 +14886,7 @@ function RavitoApp() {
       }
     } else {
       setMapBoxSelectionMode("all");
+      setSelectedBoxId(null);
     }
     if (hasTrail) {
       setSelectedTrailId(tid);
@@ -15126,9 +15203,17 @@ function RavitoApp() {
   const confirmBookBox = async () => {
     const boxId = Number(bookingConfirm.boxId);
     if (!token || !Number.isFinite(boxId)) return;
-    const box = boxes.find((b) => Number(b.id) === boxId);
+    const box = resolveBoxById(
+      boxId,
+      boxes,
+      selectedRoutePlanDetail?.boxes,
+      boxesForMap
+    );
     if (!box) {
-      userAlert("Erreur", "Ce box n'est plus dans la liste chargée.");
+      userAlert(
+        "Erreur",
+        "Box introuvable. Ouvre la sortie sur la carte puis réessaie."
+      );
       setBookingConfirm({ visible: false, boxId: null });
       return;
     }
@@ -15145,24 +15230,9 @@ function RavitoApp() {
     }
     setBookingSubmitting(true);
     try {
-      let planId = Number(selectedRoutePlanId);
-      // Happy path : si une trace est déjà choisie et aucune sortie, créer un brouillon silencieux.
-      if (
-        (!Number.isFinite(planId) || planId <= 0) &&
-        Number.isFinite(Number(selectedTrailId)) &&
-        Number(selectedTrailId) > 0
-      ) {
-        const now = new Date();
-        const dd = String(now.getDate()).padStart(2, "0");
-        const mm = String(now.getMonth() + 1).padStart(2, "0");
-        const draft = await createRoutePlanFromSelection({
-          trailId: Number(selectedTrailId),
-          boxIds: [boxId],
-          name: `Sortie ${dd}/${mm}`,
-          silent: true,
-        });
-        planId = Number(draft?.id);
-      }
+      // Ne crée plus de brouillon « Sortie JJ/MM » avant le POST :
+      // le serveur attache la box au plan si routePlanId est fourni.
+      const planId = Number(selectedRoutePlanId);
       const result = await apiFetch("/bookings", {
         method: "POST",
         token,
@@ -16240,24 +16310,26 @@ function RavitoApp() {
     (booking) => {
       const bid = Number(booking?.box_id ?? booking?.boxId);
       if (!Number.isFinite(bid)) return;
-      const cityHint = String(booking?.box_city || "").trim();
-      if (cityHint.length >= 2) {
-        setCity(cityHint);
-      }
-      setMapListSource("city");
-      setSelectedBoxId(bid);
+      const lat = Number(booking?.box_latitude ?? booking?.latitude);
+      const lon = Number(booking?.box_longitude ?? booking?.longitude);
+      // Surbrillance seule — ne force pas la recherche ville ni la sheet résa.
       setSpotlightBoxId(bid);
-      setMapExplorerCameraFollowSearch(true);
-      setMapExplorerRecenterNonce((n) => n + 1);
+      if (Number.isFinite(lat) && Number.isFinite(lon)) {
+        setMapLat(lat.toFixed(6));
+        setMapLon(lon.toFixed(6));
+        setMapListSource("viewport");
+        setMapExplorerCameraFollowSearch(true);
+        setMapExplorerRecenterNonce((n) => n + 1);
+      }
       mainTabNavigationRef.current?.navigate?.("Carte");
       setTimeout(() => {
         setSpotlightBoxId((prev) => (Number(prev) === bid ? null : prev));
       }, 12000);
     },
     [
-      setCity,
+      setMapLat,
+      setMapLon,
       setMapListSource,
-      setSelectedBoxId,
       setMapExplorerCameraFollowSearch,
       setMapExplorerRecenterNonce,
     ]
@@ -16732,12 +16804,20 @@ function RavitoApp() {
                         bookingConfirm.visible &&
                         bookingConfirm.boxId != null &&
                         Boolean(
-                          boxes.find((b) => b.id === bookingConfirm.boxId)
+                          resolveBoxById(
+                            bookingConfirm.boxId,
+                            boxes,
+                            selectedRoutePlanDetail?.boxes,
+                            boxesForMap
+                          )
                         )
                       }
-                      box={
-                        boxes.find((b) => b.id === bookingConfirm.boxId) || null
-                      }
+                      box={resolveBoxById(
+                        bookingConfirm.boxId,
+                        boxes,
+                        selectedRoutePlanDetail?.boxes,
+                        boxesForMap
+                      )}
                       bookingDate={bookingDate}
                       startTime={startTime}
                       endTime={endTime}
@@ -16752,18 +16832,18 @@ function RavitoApp() {
                       visible={ravitoRequestModal.visible}
                       onClose={closeRavitoRequestModal}
                       point={ravitoRequestModal.point}
-                      bookingDate={bookingDate}
-                      startTime={startTime}
-                      endTime={endTime}
-                      specialRequest={specialRequest}
+                      bookingDate={ravitoBookingDate}
+                      startTime={ravitoStartTime}
+                      endTime={ravitoEndTime}
+                      specialRequest={ravitoSpecialRequest}
                       slotPicker={
                         <DateTimeSelector
-                          dateValue={bookingDate}
-                          onDateChange={setBookingDate}
-                          startValue={startTime}
-                          onStartChange={setStartTime}
-                          endValue={endTime}
-                          onEndChange={setEndTime}
+                          dateValue={ravitoBookingDate}
+                          onDateChange={setRavitoBookingDate}
+                          startValue={ravitoStartTime}
+                          onStartChange={setRavitoStartTime}
+                          endValue={ravitoEndTime}
+                          onEndChange={setRavitoEndTime}
                         />
                       }
                       onSubmit={submitRavitoRequest}

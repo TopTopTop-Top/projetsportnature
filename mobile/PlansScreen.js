@@ -1497,6 +1497,14 @@ export default function PlansScreen({ appMain = {} }) {
           }
           return detail;
         }}
+        onContinueToMap={(plan) => {
+          const pid = Number(plan?.id);
+          if (!Number.isFinite(pid)) return;
+          actionsRef?.current?.queueOpenPlanOnMap?.({
+            planId: pid,
+            kind: "mine",
+          });
+        }}
       />
     </SafeAreaView>
   );

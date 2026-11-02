@@ -75,9 +75,11 @@ export function RavitoRequestModal({
     setNote("");
     setRadiusKm("5");
     setSpecialRequest(initialSpecialRequest || "");
-    if (point) {
-      setLatText(String(point.lat));
-      setLonText(String(point.lon));
+    const plat = Number(point?.lat);
+    const plon = Number(point?.lon);
+    if (Number.isFinite(plat) && Number.isFinite(plon)) {
+      setLatText(String(plat));
+      setLonText(String(plon));
     } else {
       setLatText("");
       setLonText("");
