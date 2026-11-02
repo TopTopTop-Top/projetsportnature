@@ -1132,10 +1132,10 @@ export default function PlansScreen({ appMain = {} }) {
         >
         <View style={styles.projectHero}>
           <Text style={styles.projectHeroKicker}>RavitoBox</Text>
-          <Text style={styles.projectHeroTitle}>Projets</Text>
+          <Text style={styles.projectHeroTitle}>Sorties</Text>
           <Text style={styles.projectHeroText}>
-            Tes sorties (et les publiques) : trace, box, ravito. Pour demander
-            sur la carte → Découvrir. Pour le suivi → Réservations.
+            Carnet de sorties : trace, box, ravito. Demande sur Découvrir ;
+            suivi dans Réservations. La carte ci-dessous est un aperçu.
           </Text>
           {isAuthed ? (
             <TouchableOpacity

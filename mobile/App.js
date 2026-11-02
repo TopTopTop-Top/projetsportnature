@@ -2058,7 +2058,7 @@ function BookingConfirmModal({
                 </Text>
               ) : (
                 <Text style={styles.cardAvailability}>
-                  Sans sortie liée — OK. Tu pourras l’organiser dans Projets.
+                  Sans sortie liée — OK. Tu pourras l’organiser dans Sorties.
                 </Text>
               )}
             </View>
@@ -4942,7 +4942,7 @@ function ExplorerScreen() {
                         );
                         return recap.lines.slice(0, 2).join(" · ") || null;
                       })()
-                    : "Demande libre — organise plus tard dans Projets"}
+                    : "Demande libre — organise plus tard dans Sorties"}
                 </Text>
               </View>
               <Ionicons
@@ -5096,7 +5096,7 @@ function ExplorerScreen() {
                   activeOpacity={0.85}
                 >
                   <Text style={styles.discoverProjectRecapLinkText}>
-                    Gérer dans Projets
+                    Gérer dans Sorties
                   </Text>
                 </TouchableOpacity>
               </View>
@@ -5185,36 +5185,40 @@ function ExplorerScreen() {
         </Section>
       ) : null}
 
-      <TouchableOpacity
-        style={styles.discoverToolsToggle}
-        onPress={() => setDiscoverToolsOpen((v) => !v)}
-        activeOpacity={0.85}
-      >
-        <Text style={styles.discoverToolsToggleText}>
-          {discoverToolsOpen ? "Masquer outils" : "Outils & listes"}
-        </Text>
-        <Ionicons
-          name={discoverToolsOpen ? "chevron-up" : "chevron-down"}
-          size={16}
-          color={theme.inkMuted}
-        />
-      </TouchableOpacity>
-      {discoverToolsOpen && !simpleUi ? (
-        <OutlineButton
-          compact
-          stretch
-          label="Catalogue traces GPX"
-          icon="navigate-outline"
-          onPress={() => actionsRef.current.navigateToTrails?.()}
-        />
+      {!simpleUi ? (
+        <>
+          <TouchableOpacity
+            style={styles.discoverToolsToggle}
+            onPress={() => setDiscoverToolsOpen((v) => !v)}
+            activeOpacity={0.85}
+          >
+            <Text style={styles.discoverToolsToggleText}>
+              {discoverToolsOpen ? "Masquer options" : "Plus d’options"}
+            </Text>
+            <Ionicons
+              name={discoverToolsOpen ? "chevron-up" : "chevron-down"}
+              size={16}
+              color={theme.inkMuted}
+            />
+          </TouchableOpacity>
+          {discoverToolsOpen ? (
+            <OutlineButton
+              compact
+              stretch
+              label="Catalogue traces GPX"
+              icon="navigate-outline"
+              onPress={() => actionsRef.current.navigateToTrails?.()}
+            />
+          ) : null}
+        </>
       ) : null}
       <Section
         flat
         title="Sur la carte"
         subtitle={
           discoverReserveMode === "ravito"
-            ? "Pose un point GPS pour le ravito."
-            : "Touche une box pour l’étape 1."
+            ? "Touche la carte pour poser le point ravito."
+            : "Touche une maison (box) sur la carte."
         }
       >
         <View style={styles.explorerMapSearchRow}>
@@ -5271,7 +5275,7 @@ function ExplorerScreen() {
         mapTrailPickIds.length > 0 ? (
           <View style={styles.explorerSelectionSummary}>
             <Text style={styles.explorerSelectionSummaryText}>
-              Plan en cours : {safePickedBoxIds.length} box ·{" "}
+              Sélection : {safePickedBoxIds.length} box ·{" "}
               {mapTrailPickIds.length} trace
               {mapTrailPickIds.length > 1 ? "s" : ""}
             </Text>
@@ -6433,7 +6437,7 @@ function ExplorerScreen() {
         </Section>
       ) : null}
 
-      {discoverToolsOpen ? (
+      {!simpleUi && discoverToolsOpen ? (
       <Section flat title="Box à proximité">
         {explorerCompactFilters ? (
           <View style={styles.explorerFilterSummary}>
@@ -10904,16 +10908,16 @@ function ProfileScreen() {
           guideId="compte"
           title="Compte"
           lines={[
-            "Import GPX, rôle athlète/hôte, mot de passe.",
-            "Suivi : onglet Réservations.",
+            "Casquettes Coureur / Hôte / Ravitailleur, import GPX, mot de passe.",
+            "Mes box hôte et traces GPX se gèrent depuis ici (pas dans la barre).",
           ]}
         />
         <Section
           title="Interface"
           subtitle={
             simpleUi
-              ? "Mode simple : Découvrir (carte) → Projets (sorties) → Réservations (suivi)."
-              : "Mode complet : tous les outils avancés visibles."
+              ? "Mode simple : Découvrir → Sorties → Réservations."
+              : "Mode complet : listes, filtres et outils avancés."
           }
           icon="options-outline"
         >
@@ -10954,9 +10958,22 @@ function ProfileScreen() {
             </Text>
           </TouchableOpacity>
           <Text style={styles.helperText}>
-            Le mode simple masque les options avancées (agenda, GPX, ravito
-            déplié, etc.) pour se concentrer sur la réservation.
+            Simple = carte + demande + suivi. Complet = listes, filtres, GPX.
           </Text>
+          <OutlineButton
+            compact
+            stretch
+            label="Ouvrir Sorties"
+            icon="layers-outline"
+            onPress={() => mainTabNavigationRef.current?.navigate?.("Plans")}
+          />
+          <OutlineButton
+            compact
+            stretch
+            label="Catalogue traces GPX"
+            icon="navigate-outline"
+            onPress={() => actionsRef.current.navigateToTrails?.()}
+          />
         </Section>
         <Section
           title="Mon profil"
@@ -11487,10 +11504,10 @@ function ReservationsScreen() {
       >
         <IntentGuideBanner
           guideId="reserver"
-          title="Réserver — suivi"
+          title="Suivi des demandes"
           lines={[
             "Ici : box et ravito réservés, en attente, reçus ou envoyés.",
-            "Découvrir = carte & demande. Projets = organiser une sortie.",
+            "Découvrir = carte & demande. Sorties = organiser. Ici = suivi.",
             canHost
               ? "Bascule « Reçues » pour valider les demandes sur tes box."
               : "Les demandes non validées apparaissent « En attente ».",
@@ -11535,211 +11552,15 @@ function ReservationsScreen() {
           </View>
         ) : null}
 
-        {canBook && (!canHost || reservationTab === "athlete") ? (
-          simpleUi ? (
-            <MoreActions label="Demander un ravito sur le trajet">
-              <RavitoAthleteRequestsSection
-                token={authToken}
-                apiFetch={apiFetch}
-                onAcceptProposal={acceptRavitoProposal}
-                refreshNonce={ravitoRequestsRefreshNonce}
-              />
-            </MoreActions>
-          ) : (
-            <Section
-              title="Demandes de ravito (point GPS)"
-              subtitle="Publie un besoin sur la carte, reçois des propositions (box ou ravito mobile), puis réserve."
-              icon="megaphone-outline"
-            >
-              <RavitoAthleteRequestsSection
-                token={authToken}
-                apiFetch={apiFetch}
-                onAcceptProposal={acceptRavitoProposal}
-                refreshNonce={ravitoRequestsRefreshNonce}
-              />
-            </Section>
-          )
-        ) : null}
-
-        {canRavito &&
-        (!canHost || reservationTab === "athlete" || reservationTab === "host") ? (
-          simpleUi ? (
-            <Section
-              title="Ravitailleur"
-              subtitle="Aider au point GPS — avec ou sans box."
-              icon="bicycle-outline"
-            >
-              <RavitoHostRequestsSection
-                token={authToken}
-                apiFetch={apiFetch}
-                hostBoxes={hostBoxes || []}
-                refreshNonce={ravitoRequestsRefreshNonce}
-                volunteerLat={mapLat}
-                volunteerLon={mapLon}
-                allowMobileWithoutBox
-              />
-            </Section>
-          ) : (
-            <Section
-              title="Ravito mobile — aider sans box"
-              subtitle="Tu peux ravitailler un coureur au point GPS même sans box fixe."
-              icon="bicycle-outline"
-            >
-              <RavitoHostRequestsSection
-                token={authToken}
-                apiFetch={apiFetch}
-                hostBoxes={hostBoxes || []}
-                refreshNonce={ravitoRequestsRefreshNonce}
-                volunteerLat={mapLat}
-                volunteerLon={mapLon}
-                allowMobileWithoutBox
-              />
-            </Section>
-          )
-        ) : null}
-
-        {notifications?.length > 0 ? (
-          <Section
-            title="Notifications"
-            subtitle="Mises à jour automatiques liées à tes réservations et box."
-            icon="notifications-outline"
-          >
-            <View style={styles.roleRow}>
-              <TouchableOpacity
-                style={[
-                  styles.roleChip,
-                  !notifUnreadOnly && styles.roleChipActive,
-                ]}
-                onPress={() => setNotifUnreadOnly(false)}
-                activeOpacity={0.85}
-              >
-                <Text
-                  style={[
-                    styles.roleChipText,
-                    !notifUnreadOnly && styles.roleChipTextActive,
-                  ]}
-                >
-                  Toutes
-                </Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[
-                  styles.roleChip,
-                  notifUnreadOnly && styles.roleChipActive,
-                ]}
-                onPress={() => setNotifUnreadOnly(true)}
-                activeOpacity={0.85}
-              >
-                <Text
-                  style={[
-                    styles.roleChipText,
-                    notifUnreadOnly && styles.roleChipTextActive,
-                  ]}
-                >
-                  Non lues
-                </Text>
-              </TouchableOpacity>
-            </View>
-            {notifications.slice(0, 6).map((n) => (
-              <View key={`notif-${n.id}`} style={styles.card}>
-                <View style={styles.cardAccent} />
-                <Text style={styles.cardTitle}>
-                  {n.title || "Notification"}
-                </Text>
-                {n.body ? (
-                  <Text style={styles.cardAvailability}>{n.body}</Text>
-                ) : null}
-                {(() => {
-                  const data = parseNotificationData(n);
-                  if (!data?.before || !data?.after) return null;
-                  const changedFields = Array.isArray(data.changedFields)
-                    ? data.changedFields
-                    : [];
-                  return (
-                    <Text style={styles.cardAvailability}>
-                      Avant: {data.before.city || "?"} ·{" "}
-                      {(
-                        (Number(data.before.priceCents || 0) || 0) / 100
-                      ).toFixed(2)}{" "}
-                      €{"\n"}
-                      Après: {data.after.city || "?"} ·{" "}
-                      {(
-                        (Number(data.after.priceCents || 0) || 0) / 100
-                      ).toFixed(2)}{" "}
-                      €
-                      {changedFields.length > 0
-                        ? `\nChangements:\n${changedFields
-                            .map(
-                              (f) => `- ${f.label}: ${f.before} -> ${f.after}`
-                            )
-                            .join("\n")}`
-                        : ""}
-                    </Text>
-                  );
-                })()}
-                <Text style={styles.cardMeta}>
-                  {new Date(n.created_at).toLocaleString("fr-FR")}
-                </Text>
-              </View>
-            ))}
-          </Section>
-        ) : null}
-
-        {(canHost || canBook) && agendaEntries.length > 0 && !simpleUi ? (
-          <Section
-            title="Planning des réservations"
-            subtitle="Vue agenda claire de tes réservations en cours, validées et prévues."
-            icon="calendar-clear-outline"
-          >
-            <View style={styles.agendaLegendRow}>
-              <View style={styles.agendaLegendChip}>
-                <Text style={styles.agendaLegendText}>
-                  En cours: {agendaPhaseCounts.ongoing}
-                </Text>
-              </View>
-              <View style={styles.agendaLegendChip}>
-                <Text style={styles.agendaLegendText}>
-                  Validées à venir: {agendaPhaseCounts.upcoming}
-                </Text>
-              </View>
-              <View style={styles.agendaLegendChip}>
-                <Text style={styles.agendaLegendText}>
-                  En attente: {agendaPhaseCounts.pending}
-                </Text>
-              </View>
-            </View>
-            {agendaEntries.slice(0, 24).map((item, idx) => {
-              const prev = idx > 0 ? agendaEntries[idx - 1] : null;
-              const newDay = !prev || prev.dateKey !== item.dateKey;
-              return (
-                <View key={`agenda-${item.id}-${idx}`}>
-                  {newDay ? (
-                    <Text style={styles.agendaDayTitle}>
-                      {formatDateLongFr(item.dateKey)}
-                    </Text>
-                  ) : null}
-                  <View style={styles.agendaItemRow}>
-                    <View
-                      style={[
-                        styles.agendaItemDot,
-                        { backgroundColor: item.phase.color },
-                      ]}
-                    />
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.cardTitle}>
-                        {item.slot} · {item.title}
-                      </Text>
-                      <Text style={styles.cardMeta}>{item.subline}</Text>
-                      <Text style={styles.cardDetailLine}>
-                        Statut agenda: {item.phase.label}
-                      </Text>
-                    </View>
-                  </View>
-                </View>
-              );
-            })}
-          </Section>
-        ) : null}
+        <TouchableOpacity
+          style={[styles.discoverChipOn, { marginBottom: 12, alignSelf: "stretch" }]}
+          onPress={() => mainTabNavigationRef.current?.navigate?.("Carte")}
+          activeOpacity={0.85}
+        >
+          <Text style={styles.discoverChipTextOn}>
+            Nouvelle demande → Découvrir (carte)
+          </Text>
+        </TouchableOpacity>
 
         {canHost && reservationTab !== "athlete" ? (
           <Section
@@ -11844,8 +11665,11 @@ function ReservationsScreen() {
                       {(Number(b.host_earnings_cents || 0) / 100).toFixed(2)} €
                     </Text>
                     <Text style={styles.cardDetailLine}>
-                      Paiement: {b.payment_status || "simulated_unpaid"} ·
-                      remboursement: {b.refund_status || "none"}
+                      Paiement: {bookingPaymentLabel(b.payment_status)} ·
+                      Remboursement:{" "}
+                      {b.refund_status && b.refund_status !== "none"
+                        ? String(b.refund_status)
+                        : "aucun"}
                     </Text>
                     <Text style={styles.cardAvailability}>
                       Demande athlète :{" "}
@@ -12384,6 +12208,177 @@ function ReservationsScreen() {
           </Section>
         ) : null}
 
+        {canBook && (!canHost || reservationTab === "athlete") ? (
+        {notifications?.length > 0 ? (
+          <Section
+            title="Notifications"
+            subtitle="Mises à jour automatiques liées à tes réservations et box."
+            icon="notifications-outline"
+          >
+            <View style={styles.roleRow}>
+              <TouchableOpacity
+                style={[
+                  styles.roleChip,
+                  !notifUnreadOnly && styles.roleChipActive,
+                ]}
+                onPress={() => setNotifUnreadOnly(false)}
+                activeOpacity={0.85}
+              >
+                <Text
+                  style={[
+                    styles.roleChipText,
+                    !notifUnreadOnly && styles.roleChipTextActive,
+                  ]}
+                >
+                  Toutes
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[
+                  styles.roleChip,
+                  notifUnreadOnly && styles.roleChipActive,
+                ]}
+                onPress={() => setNotifUnreadOnly(true)}
+                activeOpacity={0.85}
+              >
+                <Text
+                  style={[
+                    styles.roleChipText,
+                    notifUnreadOnly && styles.roleChipTextActive,
+                  ]}
+                >
+                  Non lues
+                </Text>
+              </TouchableOpacity>
+            </View>
+            {notifications.slice(0, 6).map((n) => (
+              <View key={`notif-${n.id}`} style={styles.card}>
+                <View style={styles.cardAccent} />
+                <Text style={styles.cardTitle}>
+                  {n.title || "Notification"}
+                </Text>
+                {n.body ? (
+                  <Text style={styles.cardAvailability}>{n.body}</Text>
+                ) : null}
+                {(() => {
+                  const data = parseNotificationData(n);
+                  if (!data?.before || !data?.after) return null;
+                  const changedFields = Array.isArray(data.changedFields)
+                    ? data.changedFields
+                    : [];
+                  return (
+                    <Text style={styles.cardAvailability}>
+                      Avant: {data.before.city || "?"} ·{" "}
+                      {(
+                        (Number(data.before.priceCents || 0) || 0) / 100
+                      ).toFixed(2)}{" "}
+                      €{"\n"}
+                      Après: {data.after.city || "?"} ·{" "}
+                      {(
+                        (Number(data.after.priceCents || 0) || 0) / 100
+                      ).toFixed(2)}{" "}
+                      €
+                      {changedFields.length > 0
+                        ? `\nChangements:\n${changedFields
+                            .map(
+                              (f) => `- ${f.label}: ${f.before} -> ${f.after}`
+                            )
+                            .join("\n")}`
+                        : ""}
+                    </Text>
+                  );
+                })()}
+                <Text style={styles.cardMeta}>
+                  {new Date(n.created_at).toLocaleString("fr-FR")}
+                </Text>
+              </View>
+            ))}
+          </Section>
+        ) : null}
+
+        {(canHost || canBook) && agendaEntries.length > 0 && !simpleUi ? (
+          <Section
+            title="Planning des réservations"
+            subtitle="Vue agenda claire de tes réservations en cours, validées et prévues."
+            icon="calendar-clear-outline"
+          >
+            <View style={styles.agendaLegendRow}>
+              <View style={styles.agendaLegendChip}>
+                <Text style={styles.agendaLegendText}>
+                  En cours: {agendaPhaseCounts.ongoing}
+                </Text>
+              </View>
+              <View style={styles.agendaLegendChip}>
+                <Text style={styles.agendaLegendText}>
+                  Validées à venir: {agendaPhaseCounts.upcoming}
+                </Text>
+              </View>
+              <View style={styles.agendaLegendChip}>
+                <Text style={styles.agendaLegendText}>
+                  En attente: {agendaPhaseCounts.pending}
+                </Text>
+              </View>
+            </View>
+            {agendaEntries.slice(0, 24).map((item, idx) => {
+              const prev = idx > 0 ? agendaEntries[idx - 1] : null;
+              const newDay = !prev || prev.dateKey !== item.dateKey;
+              return (
+                <View key={`agenda-${item.id}-${idx}`}>
+                  {newDay ? (
+                    <Text style={styles.agendaDayTitle}>
+                      {formatDateLongFr(item.dateKey)}
+                    </Text>
+                  ) : null}
+                  <View style={styles.agendaItemRow}>
+                    <View
+                      style={[
+                        styles.agendaItemDot,
+                        { backgroundColor: item.phase.color },
+                      ]}
+                    />
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.cardTitle}>
+                        {item.slot} · {item.title}
+                      </Text>
+                      <Text style={styles.cardMeta}>{item.subline}</Text>
+                      <Text style={styles.cardDetailLine}>
+                        Statut agenda: {item.phase.label}
+                      </Text>
+                    </View>
+                  </View>
+                </View>
+              );
+            })}
+          </Section>
+        ) : null}
+
+          <MoreActions label="Suivi demandes ravito GPS">
+            <Text style={styles.helperText}>
+              Pour une nouvelle demande, utilise Découvrir → Ravito humain.
+            </Text>
+            <RavitoAthleteRequestsSection
+              token={authToken}
+              apiFetch={apiFetch}
+              onAcceptProposal={acceptRavitoProposal}
+              refreshNonce={ravitoRequestsRefreshNonce}
+            />
+          </MoreActions>
+        ) : null}
+
+        {canRavito ? (
+          <MoreActions label="Aider en ravitailleur">
+            <RavitoHostRequestsSection
+              token={authToken}
+              apiFetch={apiFetch}
+              hostBoxes={hostBoxes || []}
+              refreshNonce={ravitoRequestsRefreshNonce}
+              volunteerLat={mapLat}
+              volunteerLon={mapLon}
+              allowMobileWithoutBox
+            />
+          </MoreActions>
+        ) : null}
+
         {!canHost && !canBook && !canRavito ? (
           <Text style={styles.emptyText}>
             Dans Compte, active Coureur, Hôte ou Ravitailleur pour commencer.
@@ -12403,9 +12398,9 @@ function MainTabs() {
   const [webTabPickerVisible, setWebTabPickerVisible] = useState(false);
   const tabTargets = [
     { key: "Carte", label: "Découvrir" },
-    { key: "Plans", label: "Projets" },
+    { key: "Plans", label: "Sorties" },
     ...(!simpleUi ? [{ key: "Trails", label: "Traces GPX" }] : []),
-    ...(canHost ? [{ key: "Host", label: "Mes box" }] : []),
+    ...(canHost ? [{ key: "Host", label: "Mes box (hôte)" }] : []),
     { key: "Reservations", label: "Réservations" },
     { key: "Profil", label: "Compte" },
   ];
@@ -12418,7 +12413,7 @@ function MainTabs() {
         return;
       }
       Alert.alert(
-        "Aller a",
+        "Aller à",
         "Choisis un onglet",
         tabTargets.map((t) => ({
           text: t.label,
@@ -12532,21 +12527,17 @@ function MainTabs() {
         <Tab.Screen
           name="Plans"
           component={PlansScreen}
-          options={{ title: "Projets", tabBarLabel: "Projets" }}
+          options={{ title: "Sorties", tabBarLabel: "Sorties" }}
         />
         {canHost ? (
           <Tab.Screen
             name="Host"
             component={HostScreen}
-            options={
-              simpleUi
-                ? {
-                    title: "Mes box",
-                    tabBarButton: () => null,
-                    tabBarItemStyle: { display: "none", width: 0, height: 0 },
-                  }
-                : { title: "Mes box", tabBarLabel: "Box" }
-            }
+            options={{
+              title: "Mes box",
+              tabBarButton: () => null,
+              tabBarItemStyle: { display: "none", width: 0, height: 0 },
+            }}
           />
         ) : null}
         <Tab.Screen
@@ -12570,7 +12561,7 @@ function MainTabs() {
           <View style={styles.modalBackdrop}>
             <View style={[styles.modalSheet, { maxWidth: 360, width: "100%" }]}>
               <View style={styles.modalSheetHeader}>
-                <Text style={styles.modalSheetTitle}>Aller a</Text>
+                <Text style={styles.modalSheetTitle}>Aller à</Text>
                 <TouchableOpacity
                   onPress={() => setWebTabPickerVisible(false)}
                   style={{
@@ -15135,7 +15126,7 @@ function RavitoApp() {
       await actionsRef.current.onRavitoRequestCreated?.(created, point);
       const planHint =
         Number.isFinite(planId) && planId > 0
-          ? " Point enregistré sur ta sortie (onglet Projets)."
+          ? " Point enregistré sur ta sortie (onglet Sorties)."
           : "";
       userAlert(
         "Demande envoyée",
@@ -15285,7 +15276,7 @@ function RavitoApp() {
           : null,
         Number.isFinite(planId) && planId > 0
           ? `Sortie liée : #${planId}`
-          : "Sans sortie liée — organisable plus tard dans Projets.",
+          : "Sans sortie liée — organisable plus tard dans Sorties.",
         approval === "accepted"
           ? "Validée — tu peux payer dans Réservations."
           : "En attente de validation par l’hôte (puis paiement).",
