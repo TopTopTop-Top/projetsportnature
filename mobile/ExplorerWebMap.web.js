@@ -970,7 +970,7 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
   highlightedPlanBoxId = null,
   onPlanBoxHover,
   spotlightBoxId = null,
-  /** Appui long hors tracé → quitter la trace sélectionnée. */
+  /** Clic à côté du tracé (hors corridor serré) → quitter la sélection. */
   onRequestExitTrailSelection,
   onMapLongPress,
   onPickLocation,
@@ -1203,39 +1203,9 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
     mapPointSelectionHaloRef.current = mapPointSelectionHalo;
     probeMarkerRef.current = null;
 
-    let exitTrailTimer = null;
-    const EXIT_TRAIL_MS = 650;
-    const exitTrailMaxSnapKm = 2.5;
-    const clearExitTrailTimer = () => {
-      if (exitTrailTimer) {
-        clearTimeout(exitTrailTimer);
-        exitTrailTimer = null;
-      }
-    };
-    map.on("mousedown", (ev) => {
-      const tid = Number(activeTrailIdRef.current);
-      if (!Number.isFinite(tid)) return;
-      const lat = Number(ev?.latlng?.lat);
-      const lng = Number(ev?.latlng?.lng);
-      if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
-      const activeTrail = (trailsRef.current || []).find(
-        (t) => Number(t.id) === tid
-      );
-      if (!activeTrail) return;
-      const snap = probeTrailAt(activeTrail, lat, lng);
-      if (snap && snap.distToPointKm <= exitTrailMaxSnapKm) {
-        clearExitTrailTimer();
-        return;
-      }
-      clearExitTrailTimer();
-      exitTrailTimer = setTimeout(() => {
-        exitTrailTimer = null;
-        onRequestExitTrailSelectionRef.current?.();
-      }, EXIT_TRAIL_MS);
-    });
-    map.on("mouseup", clearExitTrailTimer);
-    map.on("mouseleave", clearExitTrailTimer);
-    map.on("dragstart", clearExitTrailTimer);
+    /** Corridor large = poser un point ; serré = encore « sur la ligne » (sinon quitter). */
+    const probeSnapKm = 2.5;
+    const exitOffTrailKm = 0.22;
 
     const emitBounds = () => {
       const fn = onVisibleBoundsChangeRef.current;
@@ -1319,37 +1289,51 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
       const activeTrail =
         Number.isFinite(tid) &&
         (trailsRef.current || []).find((t) => Number(t.id) === tid);
-      const onTrail =
+      const trailProbe = activeTrail
+        ? probeTrailAt(activeTrail, lat, lng)
+        : null;
+      const onTrailLoose =
+        trailProbe && trailProbe.distToPointKm <= probeSnapKm;
+      const onTrailTight =
+        trailProbe && trailProbe.distToPointKm <= exitOffTrailKm;
+      const canExitTrail =
+        Number.isFinite(tid) &&
         activeTrail &&
-        (() => {
-          const probe = probeTrailAt(activeTrail, lat, lng);
-          return probe && probe.distToPointKm <= 2.5;
-        })();
+        !onTrailTight &&
+        typeof onRequestExitTrailSelectionRef.current === "function";
 
       if (lockTrailProbeRef.current) {
-        if (onTrail && enableTrailProbeRef.current) {
-          const probe = probeTrailAt(activeTrail, lat, lng);
-          const fullProbe = { ...probe, trailId: tid, source: "map" };
+        if (onTrailLoose && enableTrailProbeRef.current && trailProbe) {
+          const fullProbe = { ...trailProbe, trailId: tid, source: "map" };
           onTrailProbeRef.current?.(fullProbe);
           return;
         }
         onTrailProbeLockRef.current?.(false);
         onTrailProbeRef.current?.(null);
+        if (canExitTrail) {
+          onRequestExitTrailSelectionRef.current?.();
+        }
         return;
       }
 
-      if (enableTrailProbeRef.current && activeTrail && onTrail) {
+      if (enableTrailProbeRef.current && activeTrail && onTrailLoose && trailProbe) {
         try {
           L.DomEvent.stopPropagation(ev);
         } catch (_e) {
           /* noop */
         }
-        const probe = probeTrailAt(activeTrail, lat, lng);
-        const fullProbe = { ...probe, trailId: tid, source: "map" };
+        const fullProbe = { ...trailProbe, trailId: tid, source: "map" };
         onTrailProbeRef.current?.(fullProbe);
         onTrailProbeLockRef.current?.(true);
         return;
       }
+
+      // Clic à côté du tracé → quitter (corridor serré ~220 m, pas 2,5 km).
+      if (canExitTrail) {
+        onRequestExitTrailSelectionRef.current?.();
+        return;
+      }
+
       if (typeof onPickLocationRef.current === "function") {
         onPickLocationRef.current?.(lat, lng);
       }
@@ -1368,7 +1352,6 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
     scheduleInvalidate();
 
     return () => {
-      clearExitTrailTimer();
       if (raf) cancelAnimationFrame(raf);
       window.removeEventListener("resize", onWindowResize);
       map.remove();
@@ -2135,7 +2118,7 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
         <View style={styles.hint} pointerEvents="none">
           <Text style={styles.hintText}>
             {activeTrailIdNum != null
-              ? "Orange = brouillon · violet = conseils · appui long hors tracé = quitter"
+              ? "Clic sur la trace = point · clic à côté = quitter"
               : pickerMode
               ? "Mode précis: zoom max + clic exact"
               : "OSM · zoom molette · glisser · clic trace pour la sélectionner"}

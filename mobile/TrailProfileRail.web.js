@@ -108,6 +108,9 @@ export default function TrailProfileRail({
   onFocusPlanTrailNote,
   onTogglePlanTrailNoteMapVisible,
   onDeletePlanTrailNote,
+  trailNoteDraftById = {},
+  onPlanTrailNoteDraftChange,
+  onSavePlanTrailNote,
   highlightedMapPointId = null,
   onHighlightMapPoint,
   highlightedPlanBoxId = null,
@@ -452,6 +455,9 @@ export default function TrailProfileRail({
           onFocusPlanTrailNote={onFocusPlanTrailNote}
           onTogglePlanTrailNoteMapVisible={onTogglePlanTrailNoteMapVisible}
           onDeletePlanTrailNote={onDeletePlanTrailNote}
+          trailNoteDraftById={trailNoteDraftById}
+          onPlanTrailNoteDraftChange={onPlanTrailNoteDraftChange}
+          onSavePlanTrailNote={onSavePlanTrailNote}
           highlightedMapPointId={highlightedMapPointId}
           onHighlightMapPoint={onHighlightMapPoint}
           highlightedPlanBoxId={highlightedPlanBoxId}
@@ -776,6 +782,9 @@ function TrailPlanHub({
   onFocusPlanTrailNote,
   onTogglePlanTrailNoteMapVisible,
   onDeletePlanTrailNote,
+  trailNoteDraftById = {},
+  onPlanTrailNoteDraftChange,
+  onSavePlanTrailNote,
   highlightedMapPointId = null,
   onHighlightMapPoint,
   highlightedPlanBoxId = null,
@@ -800,11 +809,9 @@ function TrailPlanHub({
 
   return (
     <View style={styles.planSaveBlock}>
-      <Text style={styles.planSaveTitle}>Mon plan (compte RavitoBox)</Text>
+      <Text style={styles.planSaveTitle}>Sortie active</Text>
       <Text style={styles.planWorkflow}>
-        Enregistre box cochées et/ou brouillons « Dans mon plan ». Pour chaque
-        point déjà enregistré ci-dessous, coche « Sur la carte » pour l’afficher
-        ou le masquer (sans le supprimer). Réservations : Réserver par box.
+        Modifie un point ci-dessous, sauve le texte, ou × pour supprimer.
       </Text>
 
       {isAuthed && plansForTrail.length > 0 ? (
@@ -919,16 +926,19 @@ function TrailPlanHub({
           {planTrailNotes.length > 0 ? (
             <View style={styles.planTrailNotesSection}>
               <Text style={styles.planSubLabel}>
-                Points enregistrés ({planTrailNotes.length}) — repère indigo si
-                « Sur la carte »
+                Points ({planTrailNotes.length})
               </Text>
               {planTrailNotes.map((n, idx) => {
+                const nid = Number(n.id);
                 const ptId = trailMapPointId("plan", n.id, idx);
                 const hi = highlightedMapPointId === ptId;
                 const onMap = isPlanTrailNoteMapVisible(n);
                 const isRavito =
                   n.ravito_request_id != null ||
                   String(n.note || "").startsWith("🟣");
+                const draftText = String(
+                  trailNoteDraftById[nid] ?? n.note ?? ""
+                );
                 return (
                   <View
                     key={`plan-trail-note-${n.id || idx}`}
@@ -942,12 +952,13 @@ function TrailPlanHub({
                       {isRavito ? (
                         <Text style={styles.savedBadgeRavito}>Ravito</Text>
                       ) : (
-                        <Text style={styles.savedBadgeDraft}>Waypoint</Text>
+                        <Text style={styles.savedBadgeDraft}>Point</Text>
                       )}
                       <Pressable
-                        onPress={() =>
-                          onTogglePlanTrailNoteMapVisible?.(n.id, !onMap)
-                        }
+                        onPress={(e) => {
+                          e?.stopPropagation?.();
+                          onTogglePlanTrailNoteMapVisible?.(n.id, !onMap);
+                        }}
                         style={[
                           styles.savedIncludeChip,
                           onMap && styles.savedIncludeChipOn,
@@ -959,12 +970,16 @@ function TrailPlanHub({
                             onMap && styles.savedIncludeChipTextOn,
                           ]}
                         >
-                          {onMap ? "Sur la carte" : "Hors carte"}
+                          {onMap ? "Carte" : "Masqué"}
                         </Text>
                       </Pressable>
                       {onDeletePlanTrailNote ? (
                         <Pressable
-                          onPress={() => onDeletePlanTrailNote(n.id)}
+                          onPress={(e) => {
+                            e?.stopPropagation?.();
+                            onDeletePlanTrailNote(n.id);
+                          }}
+                          hitSlop={10}
                           style={styles.savedRemoveBtn}
                         >
                           <Text style={styles.savedRemoveText}>×</Text>
@@ -979,16 +994,31 @@ function TrailPlanHub({
                         () => onHighlightMapPoint?.(null)
                       )}
                     >
-                      <Text style={styles.planTrailNoteText} numberOfLines={4}>
-                        {n.note || "(sans texte)"}
-                      </Text>
                       {n.point_lat != null && n.point_lon != null ? (
                         <Text style={styles.planTrailNoteMeta}>
                           {Number(n.point_lat).toFixed(4)}°,{" "}
-                          {Number(n.point_lon).toFixed(4)}° · toucher = centrer
+                          {Number(n.point_lon).toFixed(4)}° · centrer
                         </Text>
                       ) : null}
                     </Pressable>
+                    <TextInput
+                      style={[styles.planSaveInput, { marginTop: 6 }]}
+                      value={draftText}
+                      onChangeText={(v) =>
+                        onPlanTrailNoteDraftChange?.(nid, v)
+                      }
+                      placeholder="Texte du point / infos"
+                      placeholderTextColor="#94A3B8"
+                      multiline
+                    />
+                    {onSavePlanTrailNote ? (
+                      <Pressable
+                        onPress={() => onSavePlanTrailNote(nid)}
+                        style={[styles.actionBtn, { marginTop: 6 }]}
+                      >
+                        <Text style={styles.actionBtnText}>Sauver le point</Text>
+                      </Pressable>
+                    ) : null}
                   </View>
                 );
               })}

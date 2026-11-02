@@ -2976,15 +2976,12 @@ function ExplorerScreen() {
     },
     [setSelectedTrailId]
   );
-  const handleRequestExitExplorerTrail = useCallback(async () => {
+  const exitExplorerTrailNow = useCallback(() => {
     if (selectedTrailId == null) return;
-    const ok = await confirmExitTrailSelection();
-    if (!ok) return;
     setSelectedTrailId(null);
     setExplorerTrailProbe(null);
     setExplorerProbeLock(false);
     setChartProbeHover(false);
-    // Revenir à l’exploration large : ne pas garder les filtres plan/trace (picked, proximité, etc.)
     setMapShowTrails(true);
     setMapShowBoxes(true);
     setMapTrailsScope("all");
@@ -3002,6 +2999,24 @@ function ExplorerScreen() {
     setMapNearShowAllOnMap,
     setMapBoxesSlotCompatibleOnly,
   ]);
+
+  /** Bouton Quitter : confirm. Clic carte hors tracé : immédiat. */
+  const handleRequestExitExplorerTrail = useCallback(
+    async (opts = {}) => {
+      if (selectedTrailId == null) return;
+      const needConfirm = opts?.confirm !== false;
+      if (needConfirm) {
+        const ok = await confirmExitTrailSelection();
+        if (!ok) return;
+      }
+      exitExplorerTrailNow();
+    },
+    [selectedTrailId, exitExplorerTrailNow]
+  );
+
+  const handleMapExitExplorerTrail = useCallback(() => {
+    exitExplorerTrailNow();
+  }, [exitExplorerTrailNow]);
   const handleExplorerMapLongPress = useCallback(
     (lat, lng) => {
       const plat = Number(lat);
@@ -3946,15 +3961,43 @@ function ExplorerScreen() {
     async (noteId) => {
       const plan = activePlanForSelectedTrail;
       if (!plan?.id) return;
+      const okConfirm = await confirmDestructive(
+        "Supprimer ce point ?",
+        "Il disparaîtra de la sortie et de la carte."
+      );
+      if (!okConfirm) return;
       const ok = await deleteRoutePlanTrailNote?.(
         Number(plan.id),
         Number(noteId)
       );
       if (ok) {
+        setTrailNoteDraftById((prev) => {
+          const next = { ...prev };
+          delete next[Number(noteId)];
+          return next;
+        });
         await actionsRef.current.loadRoutePlanDetail?.(Number(plan.id));
       }
     },
     [activePlanForSelectedTrail, deleteRoutePlanTrailNote, actionsRef]
+  );
+
+  const savePlanTrailNoteText = useCallback(
+    async (noteId) => {
+      const plan = activePlanForSelectedTrail;
+      if (!plan?.id) return;
+      const nid = Number(noteId);
+      const note = String(trailNoteDraftById[nid] ?? "").trim();
+      const detail = await updateRoutePlanTrailNote?.(
+        Number(plan.id),
+        nid,
+        { note }
+      );
+      if (detail) {
+        userAlert("Point", "Texte du point enregistré.");
+      }
+    },
+    [activePlanForSelectedTrail, trailNoteDraftById, updateRoutePlanTrailNote]
   );
 
   const [editingPlanBookingId, setEditingPlanBookingId] = useState(null);
@@ -7247,6 +7290,14 @@ function ExplorerScreen() {
                   onFocusPlanTrailNote={focusExplorerPlanTrailNote}
                   onTogglePlanTrailNoteMapVisible={togglePlanTrailNoteOnMap}
                   onDeletePlanTrailNote={removePlanTrailNote}
+                  trailNoteDraftById={trailNoteDraftById}
+                  onPlanTrailNoteDraftChange={(noteId, text) =>
+                    setTrailNoteDraftById((prev) => ({
+                      ...prev,
+                      [Number(noteId)]: text,
+                    }))
+                  }
+                  onSavePlanTrailNote={savePlanTrailNoteText}
                   highlightedMapPointId={highlightedMapPointId}
                   onHighlightMapPoint={handleMapPointHover}
                   highlightedPlanBoxId={highlightedPlanBoxId}
@@ -7366,7 +7417,7 @@ function ExplorerScreen() {
                     onPlanBoxHover={handlePlanBoxHover}
                     lockTrailProbe={explorerProbeLocked || chartProbeHover}
                     onTrailProbeLock={setExplorerProbeLock}
-                    onRequestExitTrailSelection={handleRequestExitExplorerTrail}
+                    onRequestExitTrailSelection={handleMapExitExplorerTrail}
                     onMapLongPress={handleExplorerMapLongPress}
                     onPickLocation={handleExplorerMapTap}
                     onVisibleBoundsChange={setMapViewportBounds}
@@ -7469,7 +7520,7 @@ function ExplorerScreen() {
               onPlanBoxHover={handlePlanBoxHover}
               lockTrailProbe={explorerProbeLocked || chartProbeHover}
               onTrailProbeLock={setExplorerProbeLock}
-              onRequestExitTrailSelection={handleRequestExitExplorerTrail}
+              onRequestExitTrailSelection={handleMapExitExplorerTrail}
               onMapLongPress={handleExplorerMapLongPress}
               onPickLocation={handleExplorerMapTap}
               onVisibleBoundsChange={setMapViewportBounds}
@@ -8571,6 +8622,10 @@ function TrailsScreen() {
               onTrailProbe={setTrailsTrailProbe}
               onHoverTrail={(id) => setHoveredTrailId(id)}
               onMapLongPress={handleTrailsMapLongPress}
+              onRequestExitTrailSelection={() => {
+                setSelectedTrailId(null);
+                setTrailsTrailProbe(null);
+              }}
               followExternalCenter={false}
               autoFitToData={false}
               recenterNonce={trailsMapRecenterNonce}

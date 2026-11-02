@@ -136,6 +136,7 @@ function PlanPreviewMap({
   onMapPointClick,
   onPlanBoxHover,
   onSelectBox,
+  onRequestExitTrailSelection,
 }) {
   const trailId = Number(detail?.trail_id);
   const trail = useMemo(
@@ -207,11 +208,13 @@ function PlanPreviewMap({
           {...common}
           trailMapPoints={trailMapPoints}
           mapPointHoverEnabled={false}
+          enableTrailProbe={false}
           highlightedMapPointId={highlightedMapPointId}
           highlightedPlanBoxId={highlightedPlanBoxId}
           onMapPointHover={onMapPointHover}
           onMapPointClick={onMapPointClick}
           onPlanBoxHover={onPlanBoxHover}
+          onRequestExitTrailSelection={onRequestExitTrailSelection}
           staticOrigin={staticOrigin || ""}
         />
       ) : (
@@ -398,6 +401,7 @@ function PlanDetailPanel({
   onFocusMapCoords,
   onTogglePlanNoteMapVisible,
   onDeletePlanNote,
+  onSavePlanNote,
   onSaveProject,
   onDeleteProject,
   busy = false,
@@ -405,13 +409,25 @@ function PlanDetailPanel({
   const [editing, setEditing] = useState(false);
   const [editName, setEditName] = useState("");
   const [editNotes, setEditNotes] = useState("");
+  const [noteDraftById, setNoteDraftById] = useState({});
+
+  const trailNotesSyncKey = useMemo(() => {
+    const notes = Array.isArray(detail?.trail_notes) ? detail.trail_notes : [];
+    return notes.map((n) => `${n.id}:${String(n.note || "")}`).join("|");
+  }, [detail?.trail_notes]);
 
   useEffect(() => {
     if (!detail) return;
     setEditName(String(detail.name || ""));
     setEditNotes(String(detail.notes || ""));
     setEditing(false);
-  }, [detail?.id]);
+    const drafts = {};
+    (Array.isArray(detail.trail_notes) ? detail.trail_notes : []).forEach((n) => {
+      const nid = Number(n.id);
+      if (Number.isFinite(nid)) drafts[nid] = String(n.note || "");
+    });
+    setNoteDraftById(drafts);
+  }, [detail?.id, trailNotesSyncKey]);
 
   if (loading) {
     return (
@@ -722,16 +738,48 @@ function PlanDetailPanel({
                   onFocusMapCoords?.(n.point_lat, n.point_lon);
                 }}
               >
-                <Text style={styles.noteTitle}>
-                  {body || "Point sans texte"}
-                </Text>
                 {n.point_lat != null && n.point_lon != null ? (
                   <Text style={styles.noteMeta}>
                     {Number(n.point_lat).toFixed(5)},{" "}
-                    {Number(n.point_lon).toFixed(5)}
+                    {Number(n.point_lon).toFixed(5)} · centrer
                   </Text>
                 ) : null}
               </TouchableOpacity>
+              {isOwnProject && onSavePlanNote ? (
+                <>
+                  <TextInput
+                    style={[styles.editInput, styles.editArea, { marginTop: 6 }]}
+                    value={String(
+                      noteDraftById[Number(n.id)] ?? body ?? ""
+                    )}
+                    onChangeText={(v) =>
+                      setNoteDraftById((prev) => ({
+                        ...prev,
+                        [Number(n.id)]: v,
+                      }))
+                    }
+                    multiline
+                    placeholder="Texte / infos du point"
+                    placeholderTextColor="#94A3B8"
+                  />
+                  <TouchableOpacity
+                    style={[styles.cardActionBtn, { marginTop: 6 }]}
+                    disabled={busy}
+                    onPress={() =>
+                      onSavePlanNote(
+                        n.id,
+                        String(noteDraftById[Number(n.id)] ?? "").trim()
+                      )
+                    }
+                  >
+                    <Text style={styles.cardActionText}>Sauver le point</Text>
+                  </TouchableOpacity>
+                </>
+              ) : (
+                <Text style={styles.noteTitle}>
+                  {body || "Point sans texte"}
+                </Text>
+              )}
             </View>
           );
         })
@@ -1101,6 +1149,14 @@ export default function PlansScreen({ appMain = {} }) {
           onMapPointClick={handleMapPointClick}
           onPlanBoxHover={handlePlanBoxHover}
           onSelectBox={handleHighlightPlanBox}
+          onRequestExitTrailSelection={() => {
+            setSelectedId(null);
+            setSelectedKind(null);
+            setDetail(null);
+            setVoteEligibility(null);
+            setHighlightedMapPointId(null);
+            setHighlightedPlanBoxId(null);
+          }}
         />
       ) : (
         <PlansOverviewMap
@@ -1294,7 +1350,7 @@ export default function PlansScreen({ appMain = {} }) {
                 onVoteRelevance={votePlanRelevance}
                 onOpenExplorer={() => openOnExplorer(selectedId, selectedKind)}
                 onTogglePlanNoteMapVisible={
-                  isAuthed && detail?.id
+                  isAuthed && detail?.id && selectedKind !== "discover"
                     ? async (noteId, visible) => {
                         await actionsRef.current.updateRoutePlanTrailNote?.(
                           Number(detail.id),
@@ -1305,21 +1361,54 @@ export default function PlansScreen({ appMain = {} }) {
                       }
                     : undefined
                 }
+                onSavePlanNote={
+                  isAuthed && detail?.id && selectedKind !== "discover"
+                    ? async (noteId, noteText) => {
+                        await actionsRef.current.updateRoutePlanTrailNote?.(
+                          Number(detail.id),
+                          Number(noteId),
+                          { note: String(noteText || "") }
+                        );
+                        await loadDetail(selectedId, selectedKind);
+                      }
+                    : undefined
+                }
                 onDeletePlanNote={
-                  isAuthed && detail?.id
+                  isAuthed && detail?.id && selectedKind !== "discover"
                     ? async (noteId) => {
+                        const ok =
+                          Platform.OS === "web"
+                            ? typeof globalThis.confirm === "function"
+                              ? globalThis.confirm(
+                                  "Supprimer ce point ?\n\nIl disparaîtra de la sortie et de la carte."
+                                )
+                              : true
+                            : await new Promise((resolve) => {
+                                Alert.alert(
+                                  "Supprimer ce point ?",
+                                  "Il disparaîtra de la sortie et de la carte.",
+                                  [
+                                    {
+                                      text: "Annuler",
+                                      style: "cancel",
+                                      onPress: () => resolve(false),
+                                    },
+                                    {
+                                      text: "Supprimer",
+                                      style: "destructive",
+                                      onPress: () => resolve(true),
+                                    },
+                                  ]
+                                );
+                              });
+                        if (!ok) return;
                         const pid = Number(detail.id);
-                        try {
+                        const deleted =
                           await actionsRef.current.deleteRoutePlanTrailNote?.(
                             pid,
                             Number(noteId)
                           );
-                        } catch (_e) {
-                          await actionsRef.current
-                            .loadRoutePlanDetail?.(pid)
-                            .then(() => loadDetail(selectedId, selectedKind));
-                          return;
-                        }
+                        if (deleted === false) return;
                         await loadDetail(selectedId, selectedKind);
                       }
                     : undefined
