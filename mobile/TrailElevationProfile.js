@@ -422,19 +422,11 @@ export default function TrailElevationProfile({
       ) : null}
       {!showChart ? (
         <View style={styles.noElevBox}>
-          <Text style={styles.noElevTitle}>
-            {altMeta.status === "none"
-              ? "Pas de profil altimétrique"
-              : "Profil altimétrique non disponible"}
-          </Text>
-          <Text style={styles.empty}>
-            {altMeta.missingMessage ||
-              "Re-importe un GPX contenant des altitudes (<ele>)."}
-          </Text>
-          {altMeta.status === "gain_only" && altMeta.elevationM > 0 ? (
-            <Text style={styles.noElevHint}>
-              D+ enregistré pour cette trace : {altMeta.elevationM} m (sans
-              courbe ni suivi carte).
+          <Text style={styles.noElevTitle}>Pas de dénivelé sur ce GPX</Text>
+          {!isRail ? (
+            <Text style={styles.empty}>
+              {altMeta.missingMessage ||
+                "Réimporte un GPX avec altitudes si besoin."}
             </Text>
           ) : null}
         </View>

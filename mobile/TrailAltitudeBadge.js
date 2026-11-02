@@ -32,6 +32,8 @@ export default function TrailAltitudeBadge({ trail, compact = false }) {
     [trail]
   );
   if (!meta) return null;
+  // En compact : ne pas polluer l’UI si aucun dénivelé
+  if (compact && meta.status === "none") return null;
   const v = VARIANT_STYLES[meta.status] || VARIANT_STYLES.none;
 
   return (

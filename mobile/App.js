@@ -4888,9 +4888,6 @@ function ExplorerScreen() {
           <View style={{ flex: 1, minWidth: 0 }}>
             <Text style={styles.discoverCoachKicker}>RavitoBox</Text>
             <Text style={styles.discoverCoachTitle}>Découvrir</Text>
-            <Text style={styles.discoverCoachLabel}>
-              Carte · box ou ravito · créneau. Suivi dans Réservations.
-            </Text>
           </View>
           {webDesktopSplit ? (
             <TouchableOpacity
@@ -4905,7 +4902,6 @@ function ExplorerScreen() {
         </View>
         {canBook ? (
           <View style={styles.discoverProjectBlock}>
-            <Text style={styles.discoverCoachLabel}>Sortie (optionnel)</Text>
             <TouchableOpacity
               style={styles.discoverProjectSelect}
               onPress={() => setDiscoverProjectPickerOpen((v) => !v)}
@@ -4914,35 +4910,13 @@ function ExplorerScreen() {
               accessibilityLabel="Choisir une sortie"
             >
               <View style={{ flex: 1, minWidth: 0 }}>
+                <Text style={styles.discoverCoachLabel}>Sortie</Text>
                 <Text style={styles.discoverProjectSelectValue} numberOfLines={1}>
                   {selectedRoutePlanId
                     ? (Array.isArray(routePlans) ? routePlans : []).find(
                         (p) => Number(p.id) === Number(selectedRoutePlanId)
                       )?.name || `Sortie #${selectedRoutePlanId}`
-                    : "Exploration (sans sortie)"}
-                </Text>
-                <Text
-                  style={styles.discoverProjectSelectMeta}
-                  numberOfLines={1}
-                >
-                  {selectedRoutePlanId
-                    ? (() => {
-                        const plans = Array.isArray(routePlans)
-                          ? routePlans
-                          : [];
-                        const cur = plans.find(
-                          (p) => Number(p.id) === Number(selectedRoutePlanId)
-                        );
-                        const recap = planPreviewRecap(
-                          selectedRoutePlanDetail &&
-                            Number(selectedRoutePlanDetail.id) ===
-                              Number(selectedRoutePlanId)
-                            ? selectedRoutePlanDetail
-                            : cur
-                        );
-                        return recap.lines.slice(0, 2).join(" · ") || null;
-                      })()
-                    : "Demande libre — organise plus tard dans Sorties"}
+                    : "Sans sortie"}
                 </Text>
               </View>
               <Ionicons
@@ -5044,145 +5018,94 @@ function ExplorerScreen() {
               </View>
             ) : null}
             {projectDiscoverRecap ? (
-              <View style={styles.discoverProjectRecap}>
-                <Text style={styles.discoverProjectRecapTitle}>
-                  Sur cette sortie
-                </Text>
-                {projectDiscoverRecap.trailName ? (
-                  <Text style={styles.discoverProjectRecapLine}>
-                    Trace · {projectDiscoverRecap.trailName}
-                  </Text>
-                ) : null}
-                <Text style={styles.discoverProjectRecapLine}>
-                  {projectDiscoverRecap.boxCount} box
-                  {projectDiscoverRecap.boxes.length
-                    ? ` · ${projectDiscoverRecap.boxes
-                        .slice(0, 3)
-                        .map((b) => b.title || b.box_title || `#${b.id}`)
-                        .join(", ")}`
-                    : ""}
-                  {projectDiscoverRecap.boxCount > 3 ? "…" : ""}
-                </Text>
-                <Text style={styles.discoverProjectRecapLine}>
-                  Ravito GPS · {projectDiscoverRecap.trailNotes.length} point
-                  {projectDiscoverRecap.trailNotes.length > 1 ? "s" : ""}
-                </Text>
-                {projectDiscoverRecap.bookings.length > 0 ? (
-                  <Text style={styles.discoverProjectRecapLine}>
-                    Horaires ·{" "}
-                    {projectDiscoverRecap.bookings
-                      .slice(0, 2)
-                      .map((b) => {
-                        const d = b.booking_date || b.date || "";
-                        const st = b.start_time || "";
-                        const en = b.end_time || "";
-                        return [d, st && en ? `${st}–${en}` : st]
-                          .filter(Boolean)
-                          .join(" ");
-                      })
-                      .filter(Boolean)
-                      .join(" · ")}
-                  </Text>
-                ) : (
-                  <Text style={styles.discoverProjectRecapLine}>
-                    Horaires · aucune réservation encore
-                  </Text>
-                )}
-                <TouchableOpacity
-                  style={styles.discoverProjectRecapLink}
-                  onPress={() =>
-                    mainTabNavigationRef.current?.navigate?.("Plans")
-                  }
-                  activeOpacity={0.85}
+              <TouchableOpacity
+                style={styles.discoverProjectRecap}
+                onPress={() =>
+                  mainTabNavigationRef.current?.navigate?.("Plans")
+                }
+                activeOpacity={0.85}
+              >
+                <Text
+                  style={styles.discoverProjectRecapLine}
+                  numberOfLines={2}
                 >
-                  <Text style={styles.discoverProjectRecapLinkText}>
-                    Gérer dans Sorties
-                  </Text>
-                </TouchableOpacity>
-              </View>
+                  {[
+                    projectDiscoverRecap.trailName
+                      ? `Trace · ${projectDiscoverRecap.trailName}`
+                      : null,
+                    `${projectDiscoverRecap.boxCount} box`,
+                    projectDiscoverRecap.trailNotes.length
+                      ? `${projectDiscoverRecap.trailNotes.length} ravito`
+                      : null,
+                  ]
+                    .filter(Boolean)
+                    .join(" · ")}
+                </Text>
+                <Text style={styles.discoverProjectRecapLinkText}>
+                  Ouvrir Sorties →
+                </Text>
+              </TouchableOpacity>
             ) : null}
           </View>
         ) : null}
       </View>
 
       {canBook ? (
-        <Section
-          flat
-          title="Aide sur le trajet"
-          subtitle="Maison = box fixe · Marcheur = ravito humain."
-        >
-          <View style={styles.discoverMapLegendRow}>
-            <View style={styles.discoverMapLegendItem}>
-              <Ionicons name="home" size={14} color={theme.primary} />
-              <Text style={styles.discoverMapLegendText}>Box fixe</Text>
-            </View>
-            <View style={styles.discoverMapLegendItem}>
-              <Ionicons name="walk" size={14} color="#C2410C" />
-              <Text style={styles.discoverMapLegendText}>Ravito humain</Text>
-            </View>
-          </View>
-          <View style={styles.discoverReserveModeRow}>
-            <TouchableOpacity
+        <View style={styles.discoverReserveModeRow}>
+          <TouchableOpacity
+            style={[
+              styles.discoverReserveModeBtn,
+              discoverReserveMode === "box" && styles.discoverReserveModeBtnOn,
+            ]}
+            onPress={() => {
+              setDiscoverReserveMode("box");
+              setDiscoverBookStep(selectedBox ? 2 : 1);
+            }}
+            activeOpacity={0.88}
+          >
+            <Ionicons
+              name="home-outline"
+              size={18}
+              color={discoverReserveMode === "box" ? "#fff" : theme.ink}
+            />
+            <Text
               style={[
-                styles.discoverReserveModeBtn,
-                discoverReserveMode === "box" && styles.discoverReserveModeBtnOn,
+                styles.discoverReserveModeText,
+                discoverReserveMode === "box" &&
+                  styles.discoverReserveModeTextOn,
               ]}
-              onPress={() => {
-                setDiscoverReserveMode("box");
-                setDiscoverBookStep(selectedBox ? 2 : 1);
-              }}
-              activeOpacity={0.88}
             >
-              <Ionicons
-                name="home-outline"
-                size={18}
-                color={discoverReserveMode === "box" ? "#fff" : theme.ink}
-              />
-              <Text
-                style={[
-                  styles.discoverReserveModeText,
-                  discoverReserveMode === "box" &&
-                    styles.discoverReserveModeTextOn,
-                ]}
-              >
-                Box fixe
-              </Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[
-                styles.discoverReserveModeBtn,
-                discoverReserveMode === "ravito" &&
-                  styles.discoverReserveModeBtnOn,
-              ]}
-              onPress={() => {
-                setDiscoverReserveMode("ravito");
-                setSelectedBoxId(null);
-              }}
-              activeOpacity={0.88}
-            >
-              <Ionicons
-                name="walk-outline"
-                size={18}
-                color={discoverReserveMode === "ravito" ? "#fff" : theme.ink}
-              />
-              <Text
-                style={[
-                  styles.discoverReserveModeText,
-                  discoverReserveMode === "ravito" &&
-                    styles.discoverReserveModeTextOn,
-                ]}
-              >
-                Ravito humain
-              </Text>
-            </TouchableOpacity>
-          </View>
-          {!discoverReserveMode ? (
-            <Text style={styles.helperText}>
-              Choisis un type, puis touche la carte. Une sortie liée est
-              optionnelle.
+              Box
             </Text>
-          ) : null}
-        </Section>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[
+              styles.discoverReserveModeBtn,
+              discoverReserveMode === "ravito" &&
+                styles.discoverReserveModeBtnOn,
+            ]}
+            onPress={() => {
+              setDiscoverReserveMode("ravito");
+              setSelectedBoxId(null);
+            }}
+            activeOpacity={0.88}
+          >
+            <Ionicons
+              name="walk-outline"
+              size={18}
+              color={discoverReserveMode === "ravito" ? "#fff" : theme.ink}
+            />
+            <Text
+              style={[
+                styles.discoverReserveModeText,
+                discoverReserveMode === "ravito" &&
+                  styles.discoverReserveModeTextOn,
+              ]}
+            >
+              Ravito
+            </Text>
+          </TouchableOpacity>
+        </View>
       ) : null}
 
       {!simpleUi ? (
@@ -5212,13 +5135,14 @@ function ExplorerScreen() {
           ) : null}
         </>
       ) : null}
+      {!simpleUi ? (
       <Section
         flat
-        title="Sur la carte"
+        title="Zone carte"
         subtitle={
           discoverReserveMode === "ravito"
-            ? "Touche la carte pour poser le point ravito."
-            : "Touche une maison (box) sur la carte."
+            ? "Clique la carte pour le point ravito."
+            : "Clique une box (icône maison)."
         }
       >
         <View style={styles.explorerMapSearchRow}>
@@ -5230,10 +5154,10 @@ function ExplorerScreen() {
             <Ionicons name="options-outline" size={18} color={theme.ink} />
             <Text style={styles.explorerFilterCTAText}>
               {mapListSource === "city"
-                ? "Zone : ville"
+                ? "Ville"
                 : mapListSource === "nearby"
-                ? "Zone : GPS"
-                : "Zone visible"}
+                ? "GPS"
+                : "Visible"}
             </Text>
           </TouchableOpacity>
           {mapListSource === "city" ? (
@@ -5250,41 +5174,10 @@ function ExplorerScreen() {
             />
           ) : null}
         </View>
-        <View style={styles.statBanner}>
-          <Ionicons
-            name="cube-outline"
-            size={18}
-            color={theme.inkMuted}
-            style={styles.statBannerIcon}
-          />
-          <View style={{ flex: 1 }}>
-            <Text style={styles.statBannerTitle}>
-              {boxes.length === 0
-                ? "Aucune box dans cette zone"
-                : `${boxes.length} box dans la zone`}
-            </Text>
-            {boxes.length === 0 ? (
-              <Text style={styles.statBannerText}>
-                Déplace la carte ou change la zone.
-              </Text>
-            ) : null}
-          </View>
-        </View>
-        {!simpleUi ||
-        safePickedBoxIds.length > 0 ||
-        mapTrailPickIds.length > 0 ? (
-          <View style={styles.explorerSelectionSummary}>
-            <Text style={styles.explorerSelectionSummaryText}>
-              Sélection : {safePickedBoxIds.length} box ·{" "}
-              {mapTrailPickIds.length} trace
-              {mapTrailPickIds.length > 1 ? "s" : ""}
-            </Text>
-          </View>
-        ) : null}
         {activePlanOnMap ? (
           <View style={styles.discoverPlanFilter}>
             <Text style={styles.discoverPlanFilterTitle} numberOfLines={1}>
-              {activePlanOnMap.name || "Plan"} · {activePlanBoxIds.length} box
+              {activePlanOnMap.name || "Sortie"} · {activePlanBoxIds.length} box
             </Text>
             <View style={styles.discoverPlanFilterSeg}>
               <TouchableOpacity
@@ -5309,7 +5202,7 @@ function ExplorerScreen() {
                       styles.discoverPlanFilterBtnTextOn,
                   ]}
                 >
-                  Plan
+                  Sortie
                 </Text>
               </TouchableOpacity>
               <TouchableOpacity
@@ -5396,26 +5289,15 @@ function ExplorerScreen() {
             </TouchableOpacity>
           </View>
         ) : null}
-        {lastMapTapCoords ? (
+        {lastMapTapCoords && canBook && user ? (
           <View style={styles.mapCoordCard}>
-            <Text style={styles.mapCoordTitle}>Coordonnées sélectionnées</Text>
-            <Text style={styles.mapCoordValue}>
-              Lat {Number(lastMapTapCoords.lat).toFixed(6)} · Lon{" "}
-              {Number(lastMapTapCoords.lng).toFixed(6)}
-            </Text>
-            <Text style={styles.helperText}>
-              Astuce: copie ces coordonnées dans une note de parcours pour
-              positionner un repère précis.
-            </Text>
-            {canBook && user ? (
-              <OutlineButton
-                compact
-                stretch
-                label="Demander un ravito ici"
-                icon="megaphone-outline"
-                onPress={requestRavitoAtMapTap}
-              />
-            ) : null}
+            <OutlineButton
+              compact
+              stretch
+              label="Demander un ravito ici"
+              icon="megaphone-outline"
+              onPress={requestRavitoAtMapTap}
+            />
           </View>
         ) : null}
         {selectedBox ? (
@@ -5594,14 +5476,6 @@ function ExplorerScreen() {
                   actionsRef.current.replaceTrailGpx?.(selectedTrail.id)
                 }
               />
-            ) : null}
-            {webDesktopSplit ? (
-              <View style={[styles.infoBanner, { marginTop: 8 }]}>
-                <Text style={styles.infoBannerText}>
-                  Composition du parcours (trace, box, points, partage) : colonne
-                  centrale — Brouillon · Mon plan · Communauté.
-                </Text>
-              </View>
             ) : null}
             {!webDesktopSplit ? (
             <>
@@ -6174,21 +6048,18 @@ function ExplorerScreen() {
           </View>
         ) : null}
       </Section>
+      ) : null}
 
       {canBook && discoverReserveMode === "ravito" ? (
         <Section
           flat
-          title="Ravito humain"
-          subtitle="Quelqu’un te rejoint au point GPS."
+          title="Ravito"
+          subtitle="Clique la carte, puis envoie."
         >
-          <Text style={styles.helperText}>
-            Place un point sur la carte (ou sur une trace), puis envoie la
-            demande.
-          </Text>
           <PrimaryButton
             compact
             stretch
-            label="Demander un ravito GPS"
+            label="Demander un ravito ici"
             icon="navigate-outline"
             onPress={() => {
               if (lastMapTapCoords) {
@@ -6202,15 +6073,6 @@ function ExplorerScreen() {
               }
             }}
           />
-          <OutlineButton
-            compact
-            stretch
-            label="Plutôt réserver une box"
-            onPress={() => {
-              setDiscoverReserveMode("box");
-              setDiscoverBookStep(selectedBox ? 2 : 1);
-            }}
-          />
         </Section>
       ) : null}
 
@@ -6219,21 +6081,21 @@ function ExplorerScreen() {
           flat
           title={
             discoverBookStep === 1
-              ? "1 · Sélectionner une box"
+              ? "1 · Box"
               : discoverBookStep === 2
               ? "2 · Créneau"
               : discoverBookStep === 3
               ? "3 · Besoins"
-              : "4 · Récap & envoi"
+              : "4 · Envoi"
           }
           subtitle={
             discoverBookStep === 1
-              ? "Touche une box sur la carte."
+              ? "Clique une box sur la carte."
               : discoverBookStep === 2
-              ? "Quand comptes-tu arriver ?"
+              ? "Date et horaires."
               : discoverBookStep === 3
-              ? "Allège ton sac — l’hôte le voit."
-              : "Vérifie puis envoie la demande."
+              ? "Ce dont tu as besoin."
+              : "Vérifie et envoie."
           }
           onLayout={(event) => {
             bookingSectionYRef.current = event?.nativeEvent?.layout?.y || 0;

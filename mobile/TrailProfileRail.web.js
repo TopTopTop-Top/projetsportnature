@@ -255,22 +255,11 @@ export default function TrailProfileRail({
           ) : null}
         </View>
 
-        <View style={styles.workspaceLegend}>
-          <Text style={styles.workspaceLegendText}>
-            <Text style={styles.workspaceLegendBold}>Brouillon</Text> (orange) =
-            toi, sur cet appareil ·{" "}
-            <Text style={styles.workspaceLegendBold}>Conseil public</Text> (violet)
-            = tous, indépendant du brouillon ·{" "}
-            <Text style={styles.workspaceLegendBold}>Mon plan</Text> = compte
-            (box seules possibles, trace optionnelle)
-          </Text>
-        </View>
-
         <View style={styles.tabBar}>
           {[
-            { id: "composer", label: "Brouillon" },
-            { id: "plan", label: "Mon plan" },
-            { id: "community", label: "Communauté" },
+            { id: "composer", label: "Notes" },
+            { id: "plan", label: "Sortie" },
+            { id: "community", label: "Public" },
           ].map((t) => (
             <Pressable
               key={t.id}
@@ -354,27 +343,13 @@ export default function TrailProfileRail({
             <Text style={styles.probeCoords} numberOfLines={2}>
               {formatTrailProbeCoords(probe)}
             </Text>
-            {probeLocked ? (
-              <Text style={styles.probeLockedLabel}>
-                Point figé — survol libre · autre clic sur la courbe ou le tracé déplace le
-                point · Déverrouiller pour quitter le mode figé
-              </Text>
-            ) : (
-              <Text style={styles.probeHint}>
-                Clic sur la courbe ou le tracé pour figer · survol = suivi libre
-              </Text>
-            )}
-            <Text style={styles.probeExplain}>
-              Deux actions distinctes : le brouillon ne retire jamais un conseil
-              déjà public pour les autres.
-            </Text>
             <View style={styles.probeActions}>
               <Pressable
                 onPress={onSaveProbe}
                 style={[styles.actionBtn, styles.actionBtnPrimary]}
               >
                 <Text style={styles.actionBtnTextPrimary}>
-                  Brouillon local
+                  Sauver le point
                 </Text>
               </Pressable>
               {onRequestRavito && Number.isFinite(probe?.lat) ? (
@@ -403,25 +378,14 @@ export default function TrailProfileRail({
             </View>
           </View>
         ) : (
-          <Text style={styles.hint}>
-            Clique sur la carte ou la courbe pour positionner · reclic pour figer
-          </Text>
+          <Text style={styles.hint}>Clique la carte ou la courbe.</Text>
         )}
-
-        <View style={styles.composerHintBox}>
-          <Text style={styles.composerHintTitle}>Brouillon local</Text>
-          <Text style={styles.composerHintText}>
-            Ici tu notes des points sur la trace (orange sur la carte). Pour
-            modifier box, GPS et réservations enregistrés → onglet Mon plan.
-            Coche « Dans mon plan » sur chaque brouillon à inclure.
-          </Text>
-        </View>
 
         {savedProbes.length > 0 ? (
           <View style={styles.savedBlock}>
             <View style={styles.savedHeader}>
               <Text style={styles.savedTitle}>
-                Brouillon — points ({savedProbes.length})
+                Points ({savedProbes.length})
               </Text>
               {onClearSavedProbes ? (
                 <Pressable onPress={onClearSavedProbes}>
@@ -429,10 +393,6 @@ export default function TrailProfileRail({
                 </Pressable>
               ) : null}
             </View>
-            <Text style={styles.savedHint}>
-              Brouillon ≠ conseil public. Supprimer le brouillon ne retire pas le
-              violet pour les autres.
-            </Text>
             {savedProbes.map((entry) => (
               <SavedProbeCard
                 key={entry.id}
