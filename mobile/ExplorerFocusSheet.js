@@ -198,17 +198,17 @@ const styles = StyleSheet.create({
     borderColor: theme.borderSoft,
   },
   kicker: {
-    fontSize: 11,
-    fontWeight: "800",
+    fontSize: 12,
+    fontWeight: "700",
     color: theme.primary,
-    textTransform: "uppercase",
-    letterSpacing: 0.6,
+    letterSpacing: 0.2,
     marginBottom: 2,
   },
   title: {
     fontSize: 18,
-    fontWeight: "800",
+    fontWeight: "700",
     color: theme.ink,
+    fontFamily: theme.fontDisplay,
   },
   subtitle: {
     marginTop: 4,

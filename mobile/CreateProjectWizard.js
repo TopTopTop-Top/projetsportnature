@@ -222,13 +222,13 @@ export default function CreateProjectWizard({
                   activeOpacity={0.85}
                 >
                   {uploading ? (
-                    <ActivityIndicator color="#fff" />
+                    <ActivityIndicator color={theme.primary} />
                   ) : (
                     <>
                       <Ionicons
                         name="cloud-upload-outline"
-                        size={20}
-                        color="#fff"
+                        size={22}
+                        color={theme.primary}
                       />
                       <Text style={styles.uploadBtnText}>
                         Importer mon GPX
@@ -437,13 +437,16 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     gap: 8,
-    backgroundColor: theme.primary,
-    borderRadius: 12,
-    paddingVertical: 14,
+    backgroundColor: theme.primarySoft,
+    borderRadius: theme.radius.lg,
+    borderWidth: 1.5,
+    borderColor: theme.primary,
+    borderStyle: "dashed",
+    paddingVertical: 22,
     marginBottom: 14,
   },
   uploadBtnText: {
-    color: "#fff",
+    color: theme.primary,
     fontWeight: "700",
     fontSize: 15,
   },

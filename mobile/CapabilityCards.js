@@ -109,33 +109,32 @@ const styles = StyleSheet.create({
       : null),
   },
   cardOn: {
-    backgroundColor: theme.surfaceMuted,
+    backgroundColor: theme.primarySoft,
   },
   iconWrap: {
     width: 36,
     height: 36,
-    borderRadius: theme.radius.sm,
+    borderRadius: theme.radius.md,
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: theme.surfaceMuted,
   },
   iconWrapOn: {
-    backgroundColor: theme.ink,
+    backgroundColor: theme.primary,
   },
   textCol: {
     flex: 1,
     minWidth: 0,
   },
   title: {
-    fontSize: 14,
-    fontWeight: "800",
+    fontSize: 15,
+    fontWeight: "700",
     color: theme.ink,
-    letterSpacing: 0.2,
-    textTransform: "uppercase",
-    fontFamily: theme.fontDisplay,
+    letterSpacing: 0,
+    fontFamily: theme.font,
   },
   titleOn: {
-    color: theme.ink,
+    color: theme.primary,
   },
   subtitle: {
     marginTop: 2,

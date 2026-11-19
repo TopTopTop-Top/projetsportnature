@@ -80,11 +80,10 @@ const styles = StyleSheet.create({
     borderWidth: 0,
   },
   title: {
-    fontSize: 12,
-    fontWeight: "800",
+    fontSize: 14,
+    fontWeight: "700",
     color: theme.ink,
-    letterSpacing: 0.4,
-    textTransform: "uppercase",
+    letterSpacing: -0.1,
     fontFamily: theme.fontDisplay,
   },
   line: {

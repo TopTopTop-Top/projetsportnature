@@ -1188,10 +1188,12 @@ export default function PlansScreen({ appMain = {} }) {
         >
         <View style={styles.projectHero}>
           <Text style={styles.projectHeroKicker}>RavitoBox</Text>
-          <Text style={styles.projectHeroTitle}>Sorties</Text>
+          <Text style={styles.projectHeroTitle}>
+            La prochaine sortie commence ici
+          </Text>
           <Text style={styles.projectHeroText}>
-            Carnet de sorties : trace, box, ravito. Demande sur Découvrir ;
-            suivi dans Réservations. La carte ci-dessous est un aperçu.
+            Crée une sortie, lie une trace, puis ajoute box ou ravito sur la
+            carte. Le suivi reste dans Réservations.
           </Text>
           {isAuthed ? (
             <TouchableOpacity
@@ -1512,45 +1514,43 @@ export default function PlansScreen({ appMain = {} }) {
 
 const styles = StyleSheet.create({
   projectHero: {
-    borderRadius: 0,
-    paddingVertical: 24,
-    paddingHorizontal: 16,
+    borderRadius: theme.radius.lg,
+    paddingVertical: 22,
+    paddingHorizontal: 18,
     marginBottom: 18,
-    marginHorizontal: -16,
-    marginTop: -16,
-    backgroundColor: theme.hero,
+    backgroundColor: theme.surface,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: theme.borderSoft,
     overflow: "hidden",
   },
   projectHeroKicker: {
-    fontSize: 10,
-    fontWeight: "800",
-    color: theme.heroAccent,
-    letterSpacing: 1.8,
-    textTransform: "uppercase",
+    fontSize: 12,
+    fontWeight: "700",
+    color: theme.primary,
+    letterSpacing: 0.4,
     marginBottom: 6,
     fontFamily: theme.font,
   },
   projectHeroTitle: {
-    fontSize: 36,
+    fontSize: 28,
     fontWeight: "800",
-    color: "#FAFAFA",
-    letterSpacing: -0.5,
+    color: theme.ink,
+    letterSpacing: -0.6,
     fontFamily: theme.fontDisplay,
-    textTransform: "uppercase",
   },
   projectHeroText: {
     marginTop: 10,
     fontSize: 14,
-    lineHeight: 20,
-    color: "rgba(250,250,250,0.7)",
+    lineHeight: 21,
+    color: theme.inkMuted,
     fontFamily: theme.font,
-    maxWidth: 360,
+    maxWidth: 420,
   },
   projectHeroHint: {
     marginTop: 6,
     fontSize: 12,
     lineHeight: 17,
-    color: "rgba(250,250,250,0.55)",
+    color: theme.inkMuted,
   },
   projectHeroCta: {
     marginTop: 18,
@@ -1559,18 +1559,17 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 6,
     backgroundColor: theme.primary,
-    paddingHorizontal: 14,
-    paddingVertical: 11,
-    borderRadius: theme.radius.sm,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderRadius: theme.radius.md,
     shadowOpacity: 0,
   },
   projectHeroCtaText: {
-    fontWeight: "800",
+    fontWeight: "700",
     color: "#fff",
-    fontSize: 13,
-    letterSpacing: 0.5,
-    fontFamily: theme.fontDisplay,
-    textTransform: "uppercase",
+    fontSize: 14,
+    letterSpacing: 0.1,
+    fontFamily: theme.font,
   },
   screen: { flex: 1, backgroundColor: theme.bg },
   root: { flex: 1 },
@@ -1662,23 +1661,23 @@ const styles = StyleSheet.create({
   },
   tabChip: {
     paddingVertical: 9,
-    paddingHorizontal: 12,
-    borderRadius: theme.radius?.sm || 12,
+    paddingHorizontal: 14,
+    borderRadius: theme.radius?.md || 16,
     backgroundColor: theme.surface,
     borderWidth: 1,
     borderColor: theme.borderSoft,
   },
   tabChipActive: {
-    backgroundColor: theme.hero,
-    borderColor: theme.hero,
+    backgroundColor: theme.primarySoft,
+    borderColor: theme.primary,
   },
-  tabChipText: { fontSize: 12, fontWeight: "700", color: theme.inkMuted },
-  tabChipTextActive: { color: "#fff" },
+  tabChipText: { fontSize: 13, fontWeight: "600", color: theme.inkMuted },
+  tabChipTextActive: { color: theme.primary, fontWeight: "700" },
   searchInput: {
-    backgroundColor: theme.surface,
+    backgroundColor: theme.surfaceMuted,
     borderWidth: 1,
     borderColor: theme.border,
-    borderRadius: theme.radius?.sm || 12,
+    borderRadius: theme.radius?.md || 16,
     paddingHorizontal: 14,
     paddingVertical: 12,
     fontSize: 15,
@@ -1688,7 +1687,7 @@ const styles = StyleSheet.create({
   },
   card: {
     backgroundColor: theme.surface,
-    borderRadius: theme.radius.md,
+    borderRadius: theme.radius.lg,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: theme.border,
     padding: 14,
@@ -1696,7 +1695,7 @@ const styles = StyleSheet.create({
     shadowOpacity: 0,
     elevation: 0,
   },
-  cardSelected: { borderColor: theme.ink, borderWidth: 1.5 },
+  cardSelected: { borderColor: theme.primary, borderWidth: 1.5 },
   cardOwnPublic: {
     backgroundColor: theme.surface,
     borderColor: theme.border,
@@ -1792,20 +1791,20 @@ const styles = StyleSheet.create({
   primaryBtn: {
     marginTop: 10,
     backgroundColor: theme.primary,
-    borderRadius: 10,
-    paddingVertical: 10,
+    borderRadius: theme.radius.md,
+    paddingVertical: 12,
     alignItems: "center",
   },
-  primaryBtnText: { color: "#fff", fontWeight: "800", fontSize: 14 },
+  primaryBtnText: { color: "#fff", fontWeight: "700", fontSize: 15 },
   detailPanel: {
     marginTop: 12,
     padding: 14,
     backgroundColor: theme.surfaceMuted,
-    borderRadius: 12,
+    borderRadius: theme.radius.lg,
     borderWidth: 1,
     borderColor: theme.border,
   },
-  detailTitle: { fontSize: 17, fontWeight: "800", color: theme.ink },
+  detailTitle: { fontSize: 17, fontWeight: "700", color: theme.ink },
   detailMeta: { fontSize: 12, color: theme.inkMuted, marginTop: 4 },
   detailBody: {
     fontSize: 13,
@@ -1814,13 +1813,12 @@ const styles = StyleSheet.create({
     lineHeight: 18,
   },
   detailSection: {
-    fontSize: 12,
-    fontWeight: "800",
-    color: theme.hero,
+    fontSize: 13,
+    fontWeight: "700",
+    color: theme.primary,
     marginTop: 14,
     marginBottom: 6,
-    textTransform: "uppercase",
-    letterSpacing: 0.3,
+    letterSpacing: 0.1,
   },
   secondaryBtn: {
     flexDirection: "row",
