@@ -4,28 +4,13 @@ import { Ionicons } from "@expo/vector-icons";
 import theme from "./theme";
 
 const CARDS = [
-  {
-    key: "user",
-    title: "Coureur",
-    subtitle: "Réserver une box ou demander un ravito sur le trajet.",
-    icon: "walk-outline",
-  },
-  {
-    key: "host",
-    title: "Hôte",
-    subtitle: "Publier une box fixe (eau, nourriture, accès).",
-    icon: "home-outline",
-  },
-  {
-    key: "ravito",
-    title: "Ravitailleur",
-    subtitle: "Aider un coureur au point GPS, même sans box.",
-    icon: "bicycle-outline",
-  },
+  { key: "user", title: "Coureur", icon: "checkmark" },
+  { key: "host", title: "Hôte", icon: "add" },
+  { key: "ravito", title: "Ravitailleur", icon: "add" },
 ];
 
 /**
- * Choix des casquettes — un compte, plusieurs activités (cumulables).
+ * Casquettes Figma — pastilles horizontales cumulables.
  */
 export default function CapabilityCards({
   value = { user: true, host: false, ravito: false },
@@ -53,101 +38,62 @@ export default function CapabilityCards({
         return (
           <TouchableOpacity
             key={c.key}
-            style={[styles.card, on && styles.cardOn]}
+            style={[styles.pill, on && styles.pillOn]}
             onPress={() => toggle(c.key)}
             activeOpacity={0.88}
             disabled={busy}
             accessibilityRole="checkbox"
             accessibilityState={{ checked: on }}
           >
-            <View style={[styles.iconWrap, on && styles.iconWrapOn]}>
-              <Ionicons
-                name={c.icon}
-                size={18}
-                color={on ? "#fff" : theme.ink}
-              />
-            </View>
-            <View style={styles.textCol}>
-              <Text style={[styles.title, on && styles.titleOn]}>{c.title}</Text>
-              <Text style={styles.subtitle}>{c.subtitle}</Text>
-            </View>
             <Ionicons
               name={on ? "checkmark" : "add"}
-              size={18}
-              color={on ? theme.primary : theme.inkMuted}
+              size={14}
+              color={on ? "#fff" : theme.primary}
+              style={styles.icon}
             />
+            <Text style={[styles.label, on && styles.labelOn]}>
+              {on ? c.title : `+ ${c.title}`}
+            </Text>
           </TouchableOpacity>
         );
       })}
-      <Text style={styles.hint}>
-        Tu peux tout cumuler. Change d’avis quand tu veux dans Compte.
-      </Text>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   wrap: {
-    gap: 0,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: theme.border,
-    borderRadius: theme.radius.md,
-    overflow: "hidden",
-    backgroundColor: theme.surface,
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
   },
-  card: {
+  pill: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 12,
-    paddingVertical: 14,
+    paddingVertical: 10,
     paddingHorizontal: 14,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: theme.borderSoft,
-    backgroundColor: theme.surface,
+    borderRadius: theme.radius.pill,
+    backgroundColor: theme.primarySoft,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: theme.border,
     ...(Platform.OS === "web"
       ? { transition: "background-color 140ms ease" }
       : null),
   },
-  cardOn: {
-    backgroundColor: theme.primarySoft,
-  },
-  iconWrap: {
-    width: 36,
-    height: 36,
-    borderRadius: theme.radius.md,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: theme.surfaceMuted,
-  },
-  iconWrapOn: {
+  pillOn: {
     backgroundColor: theme.primary,
+    borderColor: theme.primary,
   },
-  textCol: {
-    flex: 1,
-    minWidth: 0,
+  icon: {
+    marginRight: 6,
   },
-  title: {
-    fontSize: 15,
+  label: {
+    fontSize: 14,
     fontWeight: "700",
-    color: theme.ink,
-    letterSpacing: 0,
-    fontFamily: theme.font,
-  },
-  titleOn: {
     color: theme.primary,
-  },
-  subtitle: {
-    marginTop: 2,
-    fontSize: 12,
-    lineHeight: 16,
-    color: theme.inkMuted,
     fontFamily: theme.font,
   },
-  hint: {
-    marginTop: 10,
-    fontSize: 12,
-    lineHeight: 17,
-    color: theme.inkMuted,
-    paddingHorizontal: 2,
+  labelOn: {
+    color: "#fff",
   },
 });

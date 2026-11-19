@@ -274,8 +274,30 @@ function PlansOverviewMap({
   );
 }
 
+/** Date de départ saisie dans le wizard (stockée dans les notes). */
+function planDepartureDate(plan) {
+  const m = String(plan?.notes || "").match(
+    /Date de départ\s*:\s*(\d{4}-\d{2}-\d{2})/
+  );
+  if (!m) return "";
+  return formatPlanDate(`${m[1]}T12:00:00`);
+}
+
+function planStatus(plan) {
+  const bookings = Number(
+    plan?.booking_count ?? plan?.active_booking_count ?? 0
+  );
+  if (bookings > 0) return { label: "Réservée", tone: "ok" };
+  const items =
+    Number(plan?.selected_box_count ?? plan?.box_count ?? 0) +
+    Number(plan?.ravito_count ?? 0);
+  if (items > 0) return { label: "En préparation", tone: "progress" };
+  return { label: "À préparer", tone: "todo" };
+}
+
 function PlanListCard({
   plan,
+  trail,
   selected,
   onPress,
   onToggleVisibility,
@@ -286,6 +308,27 @@ function PlanListCard({
 }) {
   const pid = Number(plan.id);
   const isPublic = String(plan.visibility) === "shared";
+  const dist = Number(plan.trail_distance_km ?? plan.distance_km ?? trail?.distance_km);
+  const elev = Number(plan.trail_elevation_m ?? trail?.elevation_m);
+  const depDate = planDepartureDate(plan);
+  const statChips = [
+    depDate ? { key: "date", icon: "calendar-outline", text: depDate } : null,
+    Number.isFinite(dist) && dist > 0
+      ? {
+          key: "dist",
+          icon: "trail-sign-outline",
+          text: `${Math.round(dist * 10) / 10} km`,
+        }
+      : null,
+    Number.isFinite(elev) && elev > 0
+      ? {
+          key: "elev",
+          icon: "trending-up-outline",
+          text: `D+ ${Math.round(elev)} m`,
+        }
+      : null,
+  ].filter(Boolean);
+  const status = !isCommunity ? planStatus(plan) : null;
 
   return (
     <TouchableOpacity
@@ -330,6 +373,37 @@ function PlanListCard({
           ? ` · ${plan.ravito_count} ravito`
           : ""}
       </Text>
+      {statChips.length > 0 || (!isCommunity && status) ? (
+        <View style={styles.cardStatRow}>
+          {statChips.map((c) => (
+            <View key={c.key} style={styles.statChip}>
+              <Ionicons name={c.icon} size={12} color={theme.primary} />
+              <Text style={styles.statChipText}>{c.text}</Text>
+            </View>
+          ))}
+          {!isCommunity && status ? (
+            <View
+              style={[
+                styles.statusPill,
+                status.tone === "todo" && styles.statusPillTodo,
+                status.tone === "progress" && styles.statusPillProgress,
+                status.tone === "ok" && styles.statusPillOk,
+              ]}
+            >
+              <Text
+                style={[
+                  styles.statusPillText,
+                  status.tone === "todo" && styles.statusPillTextTodo,
+                  status.tone === "progress" && styles.statusPillTextProgress,
+                  status.tone === "ok" && styles.statusPillTextOk,
+                ]}
+              >
+                {status.label}
+              </Text>
+            </View>
+          ) : null}
+        </View>
+      ) : null}
       <View style={styles.cardSignalsRow}>
         <RelevanceBadge
           avg={plan.relevance_avg_score}
@@ -998,6 +1072,22 @@ export default function PlansScreen({ appMain = {} }) {
     [trailsForMap, trails]
   );
 
+  const privateCount = useMemo(
+    () =>
+      (routePlans || []).filter((p) => String(p.visibility) !== "shared")
+        .length,
+    [routePlans]
+  );
+
+  const trailsById = useMemo(() => {
+    const m = new Map();
+    for (const t of [...overviewTrails, ...(Array.isArray(trails) ? trails : [])]) {
+      const id = Number(t?.id);
+      if (Number.isFinite(id) && !m.has(id)) m.set(id, t);
+    }
+    return m;
+  }, [overviewTrails, trails]);
+
   const publicCounts = useMemo(
     () => ({
       all: publicPlansMerged.length,
@@ -1187,9 +1277,8 @@ export default function PlansScreen({ appMain = {} }) {
           showsVerticalScrollIndicator={Platform.OS === "web"}
         >
         <View style={styles.projectHero}>
-          <Text style={styles.projectHeroKicker}>RavitoBox</Text>
           <Text style={styles.projectHeroTitle}>
-            La prochaine sortie commence ici
+            Vos sorties, votre terrain.
           </Text>
           <Text style={styles.projectHeroText}>
             Crée une sortie, lie une trace, puis ajoute box ou ravito sur la
@@ -1201,24 +1290,26 @@ export default function PlansScreen({ appMain = {} }) {
               onPress={() => setCreateWizardOpen(true)}
               activeOpacity={0.88}
             >
-              <Ionicons name="add" size={18} color="#fff" />
-              <Text style={styles.projectHeroCtaText}>Créer une sortie</Text>
+              <Text style={styles.projectHeroCtaText}>+ Créer une sortie</Text>
             </TouchableOpacity>
           ) : null}
         </View>
 
           {!wideLayout ? mapPane : null}
 
-          <View style={styles.tabRow}>
+          <View style={styles.tabUnderlineRow}>
             {[
-              { id: "private", label: "Mes sorties" },
-              { id: "public", label: "Sorties publiques" },
+              {
+                id: "private",
+                label: isAuthed ? `Mes sorties (${privateCount})` : "Mes sorties",
+              },
+              { id: "public", label: "Publiques" },
             ].map((t) => (
               <TouchableOpacity
                 key={t.id}
                 style={[
-                  styles.tabChip,
-                  section === t.id && styles.tabChipActive,
+                  styles.tabUnderline,
+                  section === t.id && styles.tabUnderlineActive,
                 ]}
                 onPress={() => {
                   setSection(t.id);
@@ -1232,8 +1323,8 @@ export default function PlansScreen({ appMain = {} }) {
               >
                 <Text
                   style={[
-                    styles.tabChipText,
-                    section === t.id && styles.tabChipTextActive,
+                    styles.tabUnderlineText,
+                    section === t.id && styles.tabUnderlineTextActive,
                   ]}
                 >
                   {t.label}
@@ -1273,13 +1364,21 @@ export default function PlansScreen({ appMain = {} }) {
             </View>
           ) : null}
 
-          <TextInput
-            style={styles.searchInput}
-            value={search}
-            onChangeText={setSearch}
-            placeholder="Rechercher une sortie, une trace, une ville…"
-            placeholderTextColor="#94A3B8"
-          />
+          <View style={styles.searchWrap}>
+            <Ionicons name="search" size={18} color={theme.inkMuted} />
+            <TextInput
+              style={styles.searchField}
+              value={search}
+              onChangeText={setSearch}
+              placeholder="Rechercher une sortie, une trace, une ville…"
+              placeholderTextColor={theme.inkMuted}
+            />
+            {search ? (
+              <TouchableOpacity onPress={() => setSearch("")} hitSlop={10}>
+                <Ionicons name="close-circle" size={18} color={theme.inkMuted} />
+              </TouchableOpacity>
+            ) : null}
+          </View>
           {!isAuthed && section === "private" ? (
             <Text style={styles.emptyHint}>
               Connecte-toi pour voir et gérer tes plans.
@@ -1312,6 +1411,7 @@ export default function PlansScreen({ appMain = {} }) {
                   <PlanListCard
                     key={`${kind}-${pid}`}
                     plan={plan}
+                    trail={trailsById.get(Number(plan.trail_id))}
                     selected={selected}
                     isOwn={Boolean(plan.isOwn)}
                     isCommunity={Boolean(plan.isCommunity)}
@@ -1484,15 +1584,24 @@ export default function PlansScreen({ appMain = {} }) {
         onUploadGpx={async ({ activity, name }) =>
           actionsRef?.current?.uploadGpxForProject?.({ activity, name })
         }
-        onCreate={async ({ name, activity, needs, trailId }) => {
+        onCreate={async ({
+          name,
+          activity,
+          needs,
+          trailId,
+          visibility,
+          departureDate,
+        }) => {
           const detail = await actionsRef?.current?.createAdventureProject?.({
             name,
             activity,
             needs,
             trailId,
+            visibility,
+            departureDate,
           });
           if (detail?.id) {
-            setSection("private");
+            setSection(String(detail.visibility) === "shared" ? "public" : "private");
             setSelectedId(Number(detail.id));
             setSelectedKind("mine");
             setDetail(detail);
@@ -1673,6 +1782,79 @@ const styles = StyleSheet.create({
   },
   tabChipText: { fontSize: 13, fontWeight: "600", color: theme.inkMuted },
   tabChipTextActive: { color: theme.primary, fontWeight: "700" },
+  tabUnderlineRow: {
+    flexDirection: "row",
+    gap: 24,
+    marginBottom: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: theme.border,
+  },
+  tabUnderline: {
+    paddingVertical: 10,
+    borderBottomWidth: 2,
+    borderBottomColor: "transparent",
+    marginBottom: -1,
+  },
+  tabUnderlineActive: { borderBottomColor: theme.primary },
+  tabUnderlineText: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: theme.inkMuted,
+    fontFamily: theme.font,
+  },
+  tabUnderlineTextActive: { color: theme.primary, fontWeight: "800" },
+  searchWrap: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    backgroundColor: theme.surface,
+    borderWidth: 1,
+    borderColor: theme.border,
+    borderRadius: theme.radius.md,
+    paddingHorizontal: 14,
+    marginBottom: 14,
+  },
+  searchField: {
+    flex: 1,
+    paddingVertical: 12,
+    fontSize: 15,
+    color: theme.ink,
+    fontFamily: theme.font,
+  },
+  cardStatRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    alignItems: "center",
+    gap: 8,
+    marginTop: 10,
+  },
+  statChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: theme.radius.pill,
+    backgroundColor: theme.surfaceMuted,
+  },
+  statChipText: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: theme.ink,
+    fontFamily: theme.font,
+  },
+  statusPill: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: theme.radius.pill,
+  },
+  statusPillTodo: { backgroundColor: theme.warnBg },
+  statusPillProgress: { backgroundColor: theme.primarySoft },
+  statusPillOk: { backgroundColor: theme.lime },
+  statusPillText: { fontSize: 11, fontWeight: "800", fontFamily: theme.font },
+  statusPillTextTodo: { color: "#92400E" },
+  statusPillTextProgress: { color: theme.primary },
+  statusPillTextOk: { color: theme.limeInk },
   searchInput: {
     backgroundColor: theme.surfaceMuted,
     borderWidth: 1,
@@ -1715,9 +1897,8 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "800",
     color: theme.ink,
-    letterSpacing: 0.2,
+    letterSpacing: -0.2,
     fontFamily: theme.fontDisplay,
-    textTransform: "uppercase",
   },
   cardAuthor: { fontSize: 11, color: theme.inkMuted, fontWeight: "600" },
   cardSignalsRow: {

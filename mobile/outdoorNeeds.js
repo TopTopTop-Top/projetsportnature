@@ -52,10 +52,10 @@ export const RAVITO_OFFER_TAGS = [
 ];
 
 export const PROJECT_ACTIVITIES = [
-  { id: "trail_run", label: "Trail / course nature" },
+  { id: "trail_run", label: "Trail" },
   { id: "hike", label: "Randonnée" },
-  { id: "road_bike", label: "Vélo route" },
-  { id: "mtb", label: "VTT / enduro" },
+  { id: "road_bike", label: "Vélo" },
+  { id: "mtb", label: "VTT" },
   { id: "gravel", label: "Gravel" },
   { id: "other", label: "Autre" },
 ];

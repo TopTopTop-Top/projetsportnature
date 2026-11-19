@@ -133,7 +133,7 @@ export default function ExplorerFocusSheet({
                 activeOpacity={0.85}
               >
                 <Ionicons name="calendar-outline" size={18} color="#fff" />
-                <Text style={styles.btnPrimaryText}>Choisir le créneau</Text>
+                <Text style={styles.btnPrimaryText}>Choisir cette box →</Text>
               </TouchableOpacity>
             ) : null}
             {kind === "trail" && onSavePlan ? (

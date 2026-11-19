@@ -145,32 +145,39 @@ export function RavitoRequestModal({
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <View style={styles.backdrop}>
         <View style={styles.sheet}>
-          <View style={styles.header}>
-            <Text style={styles.title}>Demander un ravito ici</Text>
-            <TouchableOpacity onPress={onClose} hitSlop={12}>
-              <Ionicons name="close" size={26} color={theme.ink} />
+          <View style={styles.rmHeader}>
+            <View style={{ flex: 1, minWidth: 0 }}>
+              <Text style={styles.rmKicker}>RAVITO HUMAIN</Text>
+              <Text style={styles.rmTitle}>Un coup de main, au bon endroit.</Text>
+            </View>
+            <TouchableOpacity
+              onPress={onClose}
+              hitSlop={12}
+              style={styles.rmClose}
+              accessibilityLabel="Fermer"
+            >
+              <Ionicons name="close" size={18} color={theme.inkMuted} />
             </TouchableOpacity>
           </View>
           <ScrollView style={styles.body} keyboardShouldPersistTaps="handled">
-            <Text style={styles.lead}>
-              Les hôtes proches pourront proposer un ravito sur place (accueil,
-              eau, transfert…). Avec une trace active, le point est enregistré dans
-              ton plan. Tu retiens une proposition puis tu réserves la box si besoin.
+            <Text style={styles.rmSubtitle}>
+              Indiquez le point GPS où vous avez besoin d’aide : les hôtes
+              proches pourront vous proposer eau, accueil ou transfert sur place.
             </Text>
             {slotPicker ? (
               <View style={styles.slotBlock}>{slotPicker}</View>
             ) : null}
-            <Text style={styles.label}>Latitude / longitude</Text>
+            <Text style={styles.rmLabel}>Point GPS</Text>
             <View style={styles.coordRow}>
               <TextInput
-                style={[styles.input, styles.coordInput]}
+                style={[styles.rmInput, styles.coordInput]}
                 value={latText}
                 onChangeText={setLatText}
                 keyboardType="decimal-pad"
                 placeholder="Latitude"
               />
               <TextInput
-                style={[styles.input, styles.coordInput]}
+                style={[styles.rmInput, styles.coordInput]}
                 value={lonText}
                 onChangeText={setLonText}
                 keyboardType="decimal-pad"
@@ -182,7 +189,7 @@ export function RavitoRequestModal({
             ) : point?.source === "map" ? (
               <Text style={styles.hint}>Point choisi sur la carte</Text>
             ) : null}
-            <Text style={styles.label}>Rayon de recherche (km)</Text>
+            <Text style={styles.rmLabel}>Rayon de recherche</Text>
             <View style={styles.chipRow}>
               {RADIUS_KM_OPTIONS.map((km) => {
                 const on = String(radiusKm) === String(km);
@@ -200,7 +207,7 @@ export function RavitoRequestModal({
                 );
               })}
             </View>
-            <Text style={styles.label}>Tes besoins (allègement sac)</Text>
+            <Text style={styles.rmLabel}>Vos besoins</Text>
             <View style={styles.chipRow}>
               {ATHLETE_NEED_TAGS.slice(0, 8).map((chip) => {
                 const on = textHasTag(specialRequest, chip);
@@ -221,15 +228,15 @@ export function RavitoRequestModal({
               })}
             </View>
             <TextInput
-              style={[styles.input, styles.area]}
+              style={[styles.rmInput, styles.area]}
               value={specialRequest}
               onChangeText={setSpecialRequest}
               multiline
               placeholder="Ex. 2 L d’eau + barres, sans gluten…"
             />
-            <Text style={styles.label}>Note pour le ravitailleur</Text>
+            <Text style={styles.rmLabel}>Note pour le ravitailleur</Text>
             <TextInput
-              style={[styles.input, styles.area]}
+              style={[styles.rmInput, styles.area]}
               value={note}
               onChangeText={setNote}
               multiline
@@ -237,15 +244,33 @@ export function RavitoRequestModal({
             />
             {error ? <Text style={styles.err}>{error}</Text> : null}
           </ScrollView>
-          <View style={styles.footer}>
-            <Btn label="Annuler" onPress={onClose} />
-            <Btn
-              label="Publier la demande"
-              primary
-              icon="megaphone-outline"
-              loading={submitting}
+          <View style={styles.rmFooter}>
+            <TouchableOpacity
+              style={[styles.rmPrimary, submitting && { opacity: 0.7 }]}
               onPress={handleSubmit}
-            />
+              disabled={submitting}
+              activeOpacity={0.88}
+              accessibilityRole="button"
+            >
+              {submitting ? (
+                <ActivityIndicator color="#fff" size="small" />
+              ) : (
+                <Text style={styles.rmPrimaryText}>
+                  Envoyer la demande de ravito →
+                </Text>
+              )}
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={onClose}
+              style={styles.rmCancel}
+              disabled={submitting}
+              accessibilityRole="button"
+            >
+              <Text style={styles.rmCancelText}>Annuler</Text>
+            </TouchableOpacity>
+            <Text style={styles.rmCaption}>
+              Les modalités seront convenues avec le ravitailleur.
+            </Text>
           </View>
         </View>
       </View>
@@ -668,6 +693,76 @@ const styles = StyleSheet.create({
     color: theme.ink,
     letterSpacing: -0.3,
     fontFamily: theme.fontDisplay,
+  },
+  rmHeader: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 10,
+    marginBottom: 10,
+  },
+  rmKicker: {
+    fontSize: 11,
+    fontWeight: "800",
+    letterSpacing: 1.2,
+    color: theme.primary,
+    marginBottom: 4,
+  },
+  rmTitle: {
+    fontSize: 22,
+    lineHeight: 28,
+    fontWeight: "800",
+    color: theme.ink,
+    letterSpacing: -0.4,
+    fontFamily: theme.fontDisplay,
+  },
+  rmClose: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: theme.surfaceMuted,
+  },
+  rmSubtitle: {
+    fontSize: 14,
+    lineHeight: 20,
+    color: theme.inkMuted,
+    marginBottom: 12,
+  },
+  rmLabel: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: theme.ink,
+    marginTop: 14,
+  },
+  rmInput: {
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: theme.border,
+    borderRadius: theme.radius?.md || 16,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    marginTop: 8,
+    fontSize: 15,
+    backgroundColor: theme.surfaceMuted,
+    color: theme.ink,
+  },
+  rmFooter: { marginTop: 14, gap: 4 },
+  rmPrimary: {
+    minHeight: 50,
+    borderRadius: theme.radius?.pill || 999,
+    backgroundColor: theme.primary,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 16,
+  },
+  rmPrimaryText: { color: "#fff", fontSize: 15, fontWeight: "800" },
+  rmCancel: { alignItems: "center", paddingVertical: 10 },
+  rmCancelText: { fontSize: 14, fontWeight: "700", color: theme.inkMuted },
+  rmCaption: {
+    fontSize: 12,
+    lineHeight: 17,
+    textAlign: "center",
+    color: theme.inkMuted,
   },
   body: { maxHeight: 400 },
   lead: { fontSize: 13, color: theme.inkMuted, lineHeight: 18, marginBottom: 10 },

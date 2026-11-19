@@ -68,7 +68,6 @@ import {
   syncPublishedTipIdsForTrail,
   isEntryPublishedOnTrail,
 } from "./explorerSavedProbesStorage";
-import IntentGuideBanner from "./IntentGuideBanner";
 import ExplorerFocusSheet from "./ExplorerFocusSheet";
 import DiscoverMobileBookingSheet from "./DiscoverMobileBookingSheet";
 import MoreActions from "./MoreActions";
@@ -5902,7 +5901,7 @@ function ExplorerScreen() {
                               ) : (
                                 <OutlineButton
                                   compact
-                                  label="Réserver cette box"
+                                  label="Choisir cette box →"
                                   icon="calendar-outline"
                                   onPress={() =>
                                     startBookingFromExplorer(Number(b.id))
@@ -10818,18 +10817,18 @@ function ProfileScreen() {
   const [recoveryRegenBusy, setRecoveryRegenBusy] = useState(false);
   const [recoveryRegenPassword, setRecoveryRegenPassword] = useState("");
   const [hasRecoveryCode, setHasRecoveryCode] = useState(null);
-  const roleLabel = formatCapabilitiesLabel(capabilities);
-  const today = todayIsoDate();
-  const todayBookingsCount = useMemo(
-    () =>
-      (athleteBookings || []).filter((b) => b.booking_date === today).length,
-    [athleteBookings, today]
-  );
-  const unreadNotificationsCount = useMemo(
-    () =>
-      (notifications || []).filter((n) => Number(n.is_read || 0) === 0).length,
-    [notifications]
-  );
+  const scrollRef = useRef(null);
+  const passwordSectionYRef = useRef(0);
+  const profileFirstName = useMemo(() => {
+    const full = String(user?.full_name || "").trim();
+    return full ? full.split(/\s+/)[0] : "";
+  }, [user?.full_name]);
+  const scrollToPasswordSection = useCallback(() => {
+    scrollRef.current?.scrollTo?.({
+      y: Math.max(0, passwordSectionYRef.current - 12),
+      animated: true,
+    });
+  }, []);
 
   useEffect(() => {
     if (!isFocused) return;
@@ -10855,6 +10854,7 @@ function ProfileScreen() {
   return (
     <SafeAreaView style={styles.screen} edges={["left", "right"]}>
       <ScrollView
+        ref={scrollRef}
         style={styles.scrollFlex}
         contentContainerStyle={[
           styles.content,
@@ -10864,100 +10864,29 @@ function ProfileScreen() {
         showsVerticalScrollIndicator={Platform.OS === "web"}
         keyboardShouldPersistTaps="handled"
       >
-        <IntentGuideBanner
-          guideId="compte"
-          title="Compte"
-          lines={[
-            "Casquettes Coureur / Hôte / Ravitailleur, import GPX, mot de passe.",
-            "Mes box hôte et traces GPX se gèrent depuis ici (pas dans la barre).",
-          ]}
-        />
-        <Section
-          title="Interface"
-          subtitle={
-            simpleUi
-              ? "Mode simple : Découvrir → Sorties → Réservations."
-              : "Mode complet : listes, filtres et outils avancés."
-          }
-          icon="options-outline"
-        >
-          <TouchableOpacity
-            style={[
-              styles.roleChip,
-              simpleUi && styles.roleChipActive,
-              { alignSelf: "flex-start", marginBottom: 8 },
-            ]}
-            onPress={() => setSimpleUi(true)}
-            activeOpacity={0.85}
-          >
-            <Text
-              style={[
-                styles.roleChipText,
-                simpleUi && styles.roleChipTextActive,
-              ]}
-            >
-              Simple
-            </Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[
-              styles.roleChip,
-              !simpleUi && styles.roleChipActive,
-              { alignSelf: "flex-start", marginBottom: 8 },
-            ]}
-            onPress={() => setSimpleUi(false)}
-            activeOpacity={0.85}
-          >
-            <Text
-              style={[
-                styles.roleChipText,
-                !simpleUi && styles.roleChipTextActive,
-              ]}
-            >
-              Complet
-            </Text>
-          </TouchableOpacity>
-          <Text style={styles.helperText}>
-            Simple = carte + demande + suivi. Complet = listes, filtres, GPX.
+        <View style={styles.compteHero}>
+          <Text style={styles.compteGreeting}>
+            Bonjour {profileFirstName ? `${profileFirstName}.` : "."}
           </Text>
-          <OutlineButton
-            compact
-            stretch
-            label="Ouvrir Sorties"
-            icon="layers-outline"
-            onPress={() => mainTabNavigationRef.current?.navigate?.("Plans")}
-          />
-          <OutlineButton
-            compact
-            stretch
-            label="Catalogue traces GPX"
-            icon="navigate-outline"
-            onPress={() => actionsRef.current.navigateToTrails?.()}
-          />
-        </Section>
-        <Section
-          title="Mon profil"
-          subtitle="Un compte — plusieurs casquettes."
-          icon="person-outline"
-        >
-          <View style={styles.profileCard}>
-            <View style={styles.profileAvatar}>
-              <Text style={styles.profileAvatarText}>
-                {(user?.full_name || "?").trim().charAt(0).toUpperCase()}
-              </Text>
-            </View>
-            <Text style={styles.profileName}>{user?.full_name}</Text>
-            <Text style={styles.profileEmail}>{user?.email}</Text>
-            <View style={styles.profileRolePill}>
-              <Text style={styles.profileRoleText}>{roleLabel}</Text>
-            </View>
-          </View>
-        </Section>
-        <Section
-          title="Mes activités"
-          subtitle="Active ce que tu fais. Tu peux tout cumuler."
-          icon="sparkles-outline"
-        >
+          {user?.email ? (
+            <Text style={styles.compteEmail}>{user.email}</Text>
+          ) : null}
+          <TouchableOpacity
+            onPress={scrollToPasswordSection}
+            activeOpacity={0.7}
+            accessibilityRole="link"
+            accessibilityLabel="Modifier mon profil"
+            style={styles.compteEditLink}
+          >
+            <Text style={styles.compteEditLinkText}>Modifier mon profil ↗</Text>
+          </TouchableOpacity>
+        </View>
+
+        <View style={styles.compteBlock}>
+          <Text style={styles.compteBlockTitle}>Vos casquettes</Text>
+          <Text style={styles.compteBlockHint}>
+            Un compte, plusieurs rôles. Vous pouvez tout cumuler.
+          </Text>
           <CapabilityCards
             value={capabilities}
             busy={capabilitiesBusy}
@@ -10965,21 +10894,109 @@ function ProfileScreen() {
               actionsRef.current.updateCapabilities?.(next)
             }
           />
-          {capabilities.host ? (
-            <PrimaryButton
-              label="Gérer mes box"
-              icon="home-outline"
+        </View>
+
+        <View style={styles.compteBlock}>
+          <Text style={styles.compteBlockTitle}>Votre mode</Text>
+          <View style={styles.compteModeRow}>
+            <TouchableOpacity
+              style={[
+                styles.compteModePill,
+                simpleUi && styles.compteModePillActive,
+              ]}
+              onPress={() => setSimpleUi(true)}
+              activeOpacity={0.85}
+              accessibilityRole="button"
+              accessibilityState={{ selected: !!simpleUi }}
+            >
+              <Text
+                style={[
+                  styles.compteModePillText,
+                  simpleUi && styles.compteModePillTextActive,
+                ]}
+              >
+                Simple
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[
+                styles.compteModePill,
+                !simpleUi && styles.compteModePillActive,
+              ]}
+              onPress={() => setSimpleUi(false)}
+              activeOpacity={0.85}
+              accessibilityRole="button"
+              accessibilityState={{ selected: !simpleUi }}
+            >
+              <Text
+                style={[
+                  styles.compteModePillText,
+                  !simpleUi && styles.compteModePillTextActive,
+                ]}
+              >
+                Complet
+              </Text>
+            </TouchableOpacity>
+          </View>
+          <Text style={styles.compteBlockHint}>
+            {simpleUi
+              ? "L'essentiel pour préparer et réserver."
+              : "Listes, filtres et outils avancés (GPX, planning)."}
+          </Text>
+        </View>
+
+        <View style={styles.compteMenu}>
+          <TouchableOpacity
+            style={[
+              styles.compteMenuRow,
+              !(capabilities?.host || canHost) && styles.compteMenuRowLast,
+            ]}
+            onPress={() => actionsRef.current.navigateToTrails?.()}
+            activeOpacity={0.8}
+            accessibilityRole="button"
+          >
+            <Ionicons
+              name="navigate-outline"
+              size={20}
+              color={theme.primary}
+              style={styles.compteMenuIcon}
+            />
+            <Text style={styles.compteMenuLabel}>Traces GPX</Text>
+            <Ionicons
+              name="chevron-forward"
+              size={18}
+              color={theme.inkMuted}
+            />
+          </TouchableOpacity>
+          {capabilities?.host || canHost ? (
+            <TouchableOpacity
+              style={[styles.compteMenuRow, styles.compteMenuRowLast]}
               onPress={() => {
                 const nav = mainTabNavigationRef.current;
                 if (nav?.navigate) nav.navigate("Host");
               }}
-            />
+              activeOpacity={0.8}
+              accessibilityRole="button"
+            >
+              <Ionicons
+                name="home-outline"
+                size={20}
+                color={theme.primary}
+                style={styles.compteMenuIcon}
+              />
+              <Text style={styles.compteMenuLabel}>Mes box / Espace hôte</Text>
+              <Ionicons
+                name="chevron-forward"
+                size={18}
+                color={theme.inkMuted}
+              />
+            </TouchableOpacity>
           ) : null}
-        </Section>
+        </View>
         <Section
+          flat
           title="Mes abonnements"
           subtitle="Hôtes et créateurs que tu suis — filtre « Abonnements » sur la carte."
-          icon="people-outline"
         >
           {followingUsers.length === 0 ? (
             <Text style={styles.emptyText}>
@@ -11022,21 +11039,9 @@ function ProfileScreen() {
             />
           ) : null}
         </Section>
-        <Section
-          title="Actions"
-          subtitle="Accès directs."
-          icon="flash-outline"
-        >
-          <View style={styles.card}>
-            <View style={styles.cardAccent} />
-            <Text style={styles.cardMeta}>
-              Réservations du jour: {todayBookingsCount}
-            </Text>
-            <Text style={styles.cardMeta}>
-              Notifications non lues: {unreadNotificationsCount}
-            </Text>
-          </View>
-          <PrimaryButton
+        <Section flat title="Outils">
+          <OutlineButton
+            stretch
             label="Importer une trace GPX"
             icon="cloud-upload-outline"
             onPress={() => {
@@ -11069,19 +11074,14 @@ function ProfileScreen() {
                   userAlert("Synchronisation", "Données mises à jour.");
                 }}
               />
-              <SecondaryButton
-                label="Catalogue traces GPX"
-                icon="navigate-outline"
-                onPress={() => actionsRef.current.navigateToTrails?.()}
-              />
             </>
           ) : null}
         </Section>
 
         <Section
+          flat
           title="Code de compte"
           subtitle="Reçu à l’inscription ; uniquement si tu oublies ton mot de passe."
-          icon="shield-checkmark-outline"
         >
           <Text style={styles.helperText}>
             {hasRecoveryCode === false
@@ -11134,9 +11134,12 @@ function ProfileScreen() {
         </Section>
 
         <Section
+          flat
           title="Mot de passe"
           subtitle="Change-le ici si tu es connecté et que tu connais l’ancien."
-          icon="key-outline"
+          onLayout={(e) => {
+            passwordSectionYRef.current = e.nativeEvent.layout.y;
+          }}
         >
           <Text style={styles.inputLabel}>Mot de passe actuel</Text>
           <TextInput
@@ -11206,9 +11209,9 @@ function ProfileScreen() {
         </Section>
 
         <Section
+          flat
           title="Réputation"
           subtitle="Notes reçues par les autres utilisateurs."
-          icon="star-outline"
         >
           <Text style={styles.cardMeta}>
             Note moyenne: {Number(myReviewsSummary?.avg_score || 0).toFixed(2)}{" "}
@@ -11244,17 +11247,23 @@ function ProfileScreen() {
           ) : null}
         </Section>
         {!simpleUi ? (
-          <PrimaryButton
+          <OutlineButton
+            stretch
             label="Rafraîchir la session"
             icon="refresh-outline"
             onPress={() => actionsRef.current.refreshSession()}
           />
         ) : null}
-        <SecondaryButton
-          label="Se déconnecter"
-          icon="log-out-outline"
+        <TouchableOpacity
+          style={styles.compteLogout}
           onPress={() => actionsRef.current.logout()}
-        />
+          activeOpacity={0.8}
+          accessibilityRole="button"
+          accessibilityLabel="Se déconnecter"
+        >
+          <Ionicons name="log-out-outline" size={18} color={theme.danger} />
+          <Text style={styles.compteLogoutText}>Se déconnecter</Text>
+        </TouchableOpacity>
       </ScrollView>
     </SafeAreaView>
   );
@@ -11475,51 +11484,55 @@ function ReservationsScreen() {
         showsVerticalScrollIndicator={Platform.OS === "web"}
         keyboardShouldPersistTaps="handled"
       >
-        <IntentGuideBanner
-          guideId="reserver"
-          title="Suivi des demandes"
-          lines={[
-            "Ici : box et ravito réservés, en attente, reçus ou envoyés.",
-            "Découvrir = carte & demande. Sorties = organiser. Ici = suivi.",
-            canHost
-              ? "Bascule « Reçues » pour valider les demandes sur tes box."
-              : "Les demandes non validées apparaissent « En attente ».",
-          ]}
-        />
+        <View style={styles.resaHero}>
+          <Text style={styles.resaKicker}>RÉSERVATIONS</Text>
+          <Text style={styles.resaTitle}>
+            {hostViewActive ? "Les prochains passages." : "Vos prochains relais."}
+          </Text>
+          <Text style={styles.resaSubtitle}>
+            {hostViewActive
+              ? "Validez les demandes reçues sur vos box."
+              : "Suivez vos demandes de box et de ravito."}
+          </Text>
+        </View>
         {canHost && canBook ? (
-          <View style={[styles.roleRow, { marginBottom: 8 }]}>
+          <View style={styles.resaTabs}>
             <TouchableOpacity
               style={[
-                styles.roleChip,
-                reservationTab === "host" && styles.roleChipActive,
+                styles.resaTab,
+                reservationTab === "athlete" && styles.resaTabActive,
               ]}
-              onPress={() => setReservationTab("host")}
-              activeOpacity={0.85}
+              onPress={() => setReservationTab("athlete")}
+              activeOpacity={0.8}
+              accessibilityRole="tab"
+              accessibilityState={{ selected: reservationTab === "athlete" }}
             >
               <Text
                 style={[
-                  styles.roleChipText,
-                  reservationTab === "host" && styles.roleChipTextActive,
+                  styles.resaTabText,
+                  reservationTab === "athlete" && styles.resaTabTextActive,
                 ]}
               >
-                Reçues
+                Envoyées ({(athleteBookings || []).length})
               </Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={[
-                styles.roleChip,
-                reservationTab === "athlete" && styles.roleChipActive,
+                styles.resaTab,
+                reservationTab === "host" && styles.resaTabActive,
               ]}
-              onPress={() => setReservationTab("athlete")}
-              activeOpacity={0.85}
+              onPress={() => setReservationTab("host")}
+              activeOpacity={0.8}
+              accessibilityRole="tab"
+              accessibilityState={{ selected: reservationTab === "host" }}
             >
               <Text
                 style={[
-                  styles.roleChipText,
-                  reservationTab === "athlete" && styles.roleChipTextActive,
+                  styles.resaTabText,
+                  reservationTab === "host" && styles.resaTabTextActive,
                 ]}
               >
-                Envoyées
+                Reçues ({(hostBookings || []).length})
               </Text>
             </TouchableOpacity>
           </View>
@@ -11537,9 +11550,9 @@ function ReservationsScreen() {
 
         {canHost && reservationTab !== "athlete" ? (
           <Section
-            title="Réservations reçues (hôte)"
+            flat
+            title="Demandes reçues"
             subtitle="Accepte ou refuse les demandes des athlètes."
-            icon="calendar-outline"
           >
             {editingHostBookingId != null ? (
               <View style={[styles.infoBanner, { marginBottom: 10 }]}>
@@ -11812,13 +11825,13 @@ function ReservationsScreen() {
 
         {canBook && reservationTab !== "host" ? (
           <Section
-            title="Mes réservations"
+            flat
+            title="Mes demandes"
             subtitle={
               simpleUi
                 ? "Statut, code d’accès, arrivée."
                 : "Tes demandes de box : modifier, supprimer ou tout effacer."
             }
-            icon="time-outline"
           >
             {editingAthleteBookingId != null ? (
               <View style={[styles.infoBanner, { marginBottom: 10 }]}>
@@ -12183,9 +12196,9 @@ function ReservationsScreen() {
 
         {notifications?.length > 0 ? (
           <Section
+            flat
             title="Notifications"
             subtitle="Mises à jour automatiques liées à tes réservations et box."
-            icon="notifications-outline"
           >
             <View style={styles.roleRow}>
               <TouchableOpacity
@@ -12270,9 +12283,9 @@ function ReservationsScreen() {
 
         {(canHost || canBook) && agendaEntries.length > 0 && !simpleUi ? (
           <Section
+            flat
             title="Planning des réservations"
             subtitle="Vue agenda claire de tes réservations en cours, validées et prévues."
-            icon="calendar-clear-outline"
           >
             <View style={styles.agendaLegendRow}>
               <View style={styles.agendaLegendChip}>
@@ -14393,6 +14406,8 @@ function RavitoApp() {
     activity,
     needs,
     trailId,
+    visibility,
+    departureDate,
   } = {}) => {
     const actLabel =
       PROJECT_ACTIVITIES.find((a) => a.id === activity)?.label ||
@@ -14400,15 +14415,21 @@ function RavitoApp() {
       "Trail";
     const notesParts = [
       `Activité : ${actLabel}`,
+      departureDate ? `Date de départ : ${departureDate}` : null,
       needs ? `Besoins : ${needs}` : null,
     ].filter(Boolean);
-    return createRoutePlanFromSelection({
+    const detail = await createRoutePlanFromSelection({
       trailId,
       boxIds: [],
       name,
       notes: notesParts.join("\n"),
       silent: true,
     });
+    if (detail?.id && visibility === "shared") {
+      const updated = await updateRoutePlan(detail.id, { visibility });
+      return updated?.id ? { ...detail, ...updated } : detail;
+    }
+    return detail;
   };
 
   const upsertRoutePlanBoxes = async (
@@ -17594,6 +17615,136 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingHorizontal: 16,
   },
+  authFigmaMain: {
+    flex: 1,
+    paddingHorizontal: 24,
+    paddingTop: 32,
+    paddingBottom: 24,
+  },
+  authFigmaBrand: {
+    fontSize: 22,
+    fontWeight: "800",
+    color: theme.primary,
+    letterSpacing: -0.3,
+    fontFamily: theme.fontDisplay,
+    marginBottom: 28,
+  },
+  authFigmaTitle: {
+    fontSize: 32,
+    lineHeight: 38,
+    fontWeight: "800",
+    color: theme.ink,
+    letterSpacing: -0.6,
+    fontFamily: theme.fontDisplay,
+    marginBottom: 16,
+  },
+  authFigmaHint: {
+    fontSize: 14,
+    lineHeight: 20,
+    color: theme.inkMuted,
+    fontFamily: theme.font,
+    marginBottom: 4,
+  },
+  authFigmaLabel: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: theme.ink,
+    fontFamily: theme.font,
+    marginTop: 16,
+    marginBottom: 6,
+  },
+  authFigmaInput: {
+    backgroundColor: theme.surface,
+    borderWidth: 1,
+    borderColor: theme.border,
+    borderRadius: 14,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    fontSize: 16,
+    color: theme.ink,
+    fontFamily: theme.font,
+  },
+  authFigmaFieldHint: {
+    fontSize: 12,
+    color: theme.inkMuted,
+    fontFamily: theme.font,
+    marginTop: 6,
+  },
+  authFigmaForgotWrap: {
+    alignSelf: "flex-end",
+    paddingVertical: 8,
+    marginTop: 4,
+  },
+  authFigmaForgotText: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: theme.primary,
+    fontFamily: theme.font,
+  },
+  authFigmaCta: {
+    marginTop: 20,
+  },
+  authFigmaSwitchWrap: {
+    alignSelf: "center",
+    paddingVertical: 14,
+    marginTop: 8,
+  },
+  authFigmaSwitchText: {
+    fontSize: 14,
+    color: theme.inkMuted,
+    fontFamily: theme.font,
+    textAlign: "center",
+  },
+  authFigmaSwitchLink: {
+    fontSize: 14,
+    fontWeight: "800",
+    color: theme.primary,
+    fontFamily: theme.font,
+  },
+  authFigmaBanner: {
+    backgroundColor: theme.lime,
+    paddingHorizontal: 24,
+    paddingTop: 28,
+    paddingBottom: 36,
+    overflow: "hidden",
+    minHeight: 130,
+    justifyContent: "center",
+  },
+  authFigmaTopo: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  authFigmaRing: {
+    position: "absolute",
+    borderWidth: 1.5,
+    borderColor: "rgba(45, 90, 76, 0.16)",
+    borderRadius: 999,
+  },
+  authFigmaRing1: {
+    width: 220,
+    height: 220,
+    right: -70,
+    top: -90,
+  },
+  authFigmaRing2: {
+    width: 150,
+    height: 150,
+    right: -35,
+    top: -55,
+  },
+  authFigmaRing3: {
+    width: 320,
+    height: 320,
+    left: -150,
+    bottom: -210,
+  },
+  authFigmaBannerText: {
+    fontSize: 18,
+    lineHeight: 25,
+    fontWeight: "700",
+    color: theme.limeInk,
+    fontFamily: theme.fontDisplay,
+    maxWidth: 300,
+  },
   mapCoordCard: {
     marginTop: 8,
     borderWidth: 1,
@@ -18473,29 +18624,29 @@ const styles = StyleSheet.create({
   },
   primaryButton: {
     backgroundColor: theme.primary,
-    borderRadius: theme.radius.md,
-    paddingVertical: 14,
+    borderRadius: theme.radius.lg,
+    paddingVertical: 15,
     paddingHorizontal: 18,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     marginBottom: 10,
     marginTop: 8,
-    minHeight: 48,
+    minHeight: 52,
     shadowOpacity: 0,
     elevation: 0,
   },
   primaryButtonCompact: {
     paddingVertical: 10,
     paddingHorizontal: 14,
-    minHeight: 42,
+    minHeight: 44,
     borderRadius: theme.radius.md,
     marginTop: 6,
   },
   primaryButtonText: {
     color: "#fff",
     fontWeight: "700",
-    fontSize: 15,
+    fontSize: 16,
     letterSpacing: 0.1,
     fontFamily: theme.font,
   },
@@ -18943,6 +19094,177 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingVertical: 8,
   },
+  compteHero: {
+    paddingTop: 8,
+    paddingBottom: 20,
+  },
+  compteGreeting: {
+    fontSize: 30,
+    fontWeight: "800",
+    color: theme.ink,
+    letterSpacing: -0.6,
+    fontFamily: theme.fontDisplay,
+  },
+  compteEmail: {
+    marginTop: 4,
+    fontSize: 14,
+    color: theme.inkMuted,
+    fontFamily: theme.font,
+  },
+  compteEditLink: {
+    alignSelf: "flex-start",
+    marginTop: 10,
+    paddingVertical: 4,
+  },
+  compteEditLinkText: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: theme.primary,
+    fontFamily: theme.font,
+  },
+  compteBlock: {
+    marginBottom: 22,
+  },
+  compteBlockTitle: {
+    fontSize: 18,
+    fontWeight: "800",
+    color: theme.ink,
+    letterSpacing: -0.2,
+    marginBottom: 4,
+    fontFamily: theme.fontDisplay,
+  },
+  compteBlockHint: {
+    fontSize: 13,
+    lineHeight: 18,
+    color: theme.inkMuted,
+    marginBottom: 10,
+    fontFamily: theme.font,
+  },
+  compteModeRow: {
+    flexDirection: "row",
+    gap: 10,
+    marginTop: 6,
+    marginBottom: 10,
+  },
+  compteModePill: {
+    flex: 1,
+    alignItems: "center",
+    paddingVertical: 12,
+    borderRadius: theme.radius.pill,
+    backgroundColor: theme.surface,
+    borderWidth: 1,
+    borderColor: theme.border,
+  },
+  compteModePillActive: {
+    backgroundColor: theme.primary,
+    borderColor: theme.primary,
+  },
+  compteModePillText: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: theme.ink,
+    fontFamily: theme.font,
+  },
+  compteModePillTextActive: {
+    color: theme.white,
+  },
+  compteMenu: {
+    backgroundColor: theme.surface,
+    borderRadius: theme.radius.lg,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: theme.border,
+    marginBottom: 24,
+    overflow: "hidden",
+  },
+  compteMenuRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 16,
+    paddingVertical: 16,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: theme.borderSoft,
+  },
+  compteMenuRowLast: {
+    borderBottomWidth: 0,
+  },
+  compteMenuIcon: {
+    marginRight: 12,
+  },
+  compteMenuLabel: {
+    flex: 1,
+    fontSize: 15,
+    fontWeight: "600",
+    color: theme.ink,
+    fontFamily: theme.font,
+  },
+  compteLogout: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    marginTop: 8,
+    paddingVertical: 14,
+    borderRadius: theme.radius.pill,
+    backgroundColor: theme.dangerSoft,
+  },
+  compteLogoutText: {
+    fontSize: 15,
+    fontWeight: "700",
+    color: theme.danger,
+    fontFamily: theme.font,
+  },
+  resaHero: {
+    paddingTop: 8,
+    paddingBottom: 14,
+  },
+  resaKicker: {
+    fontSize: 11,
+    fontWeight: "800",
+    letterSpacing: 1.2,
+    color: theme.primary,
+    marginBottom: 6,
+    fontFamily: theme.font,
+  },
+  resaTitle: {
+    fontSize: 30,
+    fontWeight: "800",
+    color: theme.ink,
+    letterSpacing: -0.6,
+    fontFamily: theme.fontDisplay,
+  },
+  resaSubtitle: {
+    marginTop: 6,
+    fontSize: 14,
+    lineHeight: 20,
+    color: theme.inkMuted,
+    fontFamily: theme.font,
+  },
+  resaTabs: {
+    flexDirection: "row",
+    gap: 22,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: theme.border,
+    marginBottom: 16,
+  },
+  resaTab: {
+    paddingVertical: 10,
+    borderBottomWidth: 2,
+    borderBottomColor: "transparent",
+    marginBottom: -StyleSheet.hairlineWidth,
+  },
+  resaTabActive: {
+    borderBottomColor: theme.primary,
+  },
+  resaTabText: {
+    fontSize: 15,
+    fontWeight: "600",
+    color: theme.inkMuted,
+    fontFamily: theme.font,
+  },
+  resaTabTextActive: {
+    color: theme.primary,
+    fontWeight: "800",
+  },
   hostHeroBanner: {
     borderRadius: 0,
     paddingVertical: 20,
@@ -19109,9 +19431,19 @@ function AuthScreen() {
   const isRegister = authMode === "register";
   const isResetConfirm = resetStep === "confirm";
 
+  const title = isResetConfirm
+    ? "On vous remet en chemin."
+    : isRegister
+      ? "Rejoignez l’aventure."
+      : "Le chemin commence ici.";
+  const bannerText = isResetConfirm
+    ? "Un nouveau départ. Votre code de compte vous remet en chemin."
+    : "Plus loin, bien entouré. Vos traces, vos relais, votre aventure.";
+  const webPointer = Platform.OS === "web" ? { cursor: "pointer" } : null;
+
   return (
     <SafeAreaView style={styles.screen} edges={["top", "left", "right"]}>
-      <StatusBar style="light" />
+      <StatusBar style="dark" />
       <ScrollView
         keyboardShouldPersistTaps="always"
         contentContainerStyle={[
@@ -19120,231 +19452,165 @@ function AuthScreen() {
         ]}
         showsVerticalScrollIndicator={false}
       >
-        <View style={[styles.authColumn, AUTH_COLUMN]}>
-          <View style={styles.hero}>
-            <View style={styles.heroDecor} pointerEvents="none">
-              <View style={[styles.heroBlob, styles.heroBlob1]} />
-              <View style={[styles.heroBlob, styles.heroBlob2]} />
-            </View>
-            <View style={styles.heroBrandRow}>
-              <View style={styles.heroLogoMark}>
-                <Ionicons name="leaf" size={24} color="#fff" />
-              </View>
-              <View style={styles.heroTitleBlock}>
-                <Text style={styles.heroKicker}>Outdoor & ravitaillement</Text>
-                <Text style={styles.heroTitle}>RavitoBox</Text>
-              </View>
-            </View>
-            <Text style={styles.heroSubtitle}>
-              Un compte pour courir, accueillir ou ravitailler — tu choisiras
-              après.
-            </Text>
-          </View>
+        <View style={[styles.authFigmaMain, AUTH_COLUMN]}>
+          <Text style={styles.authFigmaBrand}>ravitobox</Text>
+          <Text style={styles.authFigmaTitle}>{title}</Text>
 
-          <View style={styles.panel}>
-            {isResetConfirm ? (
-              <>
-                <Text style={styles.panelHint}>
-                  Saisis l’email du compte et le code de compte reçu à
-                  l’inscription (format RB-XXXX-XXXX-XXXX). Ce code sert uniquement
-                  si tu as oublié ton mot de passe.
-                </Text>
-                <Text style={styles.inputLabel}>Email</Text>
-                <TextInput
-                  style={styles.input}
-                  value={email}
-                  onChangeText={setEmail}
-                  autoCapitalize="none"
-                  keyboardType="email-address"
-                  editable={!authLoading}
-                />
-                <Text style={styles.inputLabel}>Code de compte</Text>
-                <TextInput
-                  style={styles.input}
-                  placeholder="RB-XXXX-XXXX-XXXX"
-                  placeholderTextColor={theme.inkMuted}
-                  value={resetCodeInput}
-                  onChangeText={setResetCodeInput}
-                  autoCapitalize="characters"
-                  autoCorrect={false}
-                  editable={!authLoading}
-                />
-                <Text style={styles.inputLabel}>Nouveau mot de passe</Text>
-                <TextInput
-                  style={styles.input}
-                  placeholder="Au moins 6 caractères"
-                  placeholderTextColor={theme.inkMuted}
-                  value={password}
-                  onChangeText={setPassword}
-                  secureTextEntry
-                  editable={!authLoading}
-                />
+          {isResetConfirm ? (
+            <>
+              <Text style={styles.authFigmaHint}>
+                Saisissez l’adresse e-mail du compte et le code de compte reçu à
+                l’inscription (format RB-XXXX-XXXX-XXXX).
+              </Text>
+              <Text style={styles.authFigmaLabel}>Adresse e-mail</Text>
+              <TextInput
+                style={styles.authFigmaInput}
+                placeholder="vous@exemple.com"
+                placeholderTextColor={theme.inkMuted}
+                value={email}
+                onChangeText={setEmail}
+                autoCapitalize="none"
+                keyboardType="email-address"
+                autoComplete="email"
+                textContentType="emailAddress"
+                editable={!authLoading}
+              />
+              <Text style={styles.authFigmaLabel}>Code de compte</Text>
+              <TextInput
+                style={styles.authFigmaInput}
+                placeholder="RB-XXXX-XXXX-XXXX"
+                placeholderTextColor={theme.inkMuted}
+                value={resetCodeInput}
+                onChangeText={setResetCodeInput}
+                autoCapitalize="characters"
+                autoCorrect={false}
+                editable={!authLoading}
+              />
+              <Text style={styles.authFigmaLabel}>Nouveau mot de passe</Text>
+              <TextInput
+                style={styles.authFigmaInput}
+                placeholder="••••••••"
+                placeholderTextColor={theme.inkMuted}
+                value={password}
+                onChangeText={setPassword}
+                secureTextEntry
+                textContentType="newPassword"
+                autoComplete="password-new"
+                editable={!authLoading}
+              />
+              <View style={styles.authFigmaCta}>
                 <PrimaryButton
-                  label="Valider le nouveau mot de passe"
-                  icon="checkmark-circle-outline"
+                  label="Valider le nouveau mot de passe →"
                   onPress={() => confirmPasswordReset(resetCodeInput)}
                   loading={authLoading}
                 />
-                <TouchableOpacity
-                  onPress={cancelPasswordReset}
-                  style={styles.forgotLinkWrap}
-                  disabled={authLoading}
-                >
-                  <Text style={styles.forgotLinkText}>Retour à la connexion</Text>
-                </TouchableOpacity>
-              </>
-            ) : (
+              </View>
+              <TouchableOpacity
+                onPress={cancelPasswordReset}
+                style={[styles.authFigmaSwitchWrap, webPointer]}
+                activeOpacity={0.7}
+                disabled={authLoading}
+              >
+                <Text style={styles.authFigmaSwitchLink}>
+                  Retour à la connexion
+                </Text>
+              </TouchableOpacity>
+            </>
+          ) : (
             <>
-            <View style={styles.authSegment}>
-              <TouchableOpacity
-                style={[
-                  styles.authSegmentBtn,
-                  !isRegister && styles.authSegmentBtnActive,
-                  Platform.OS === "web" && { cursor: "pointer" },
-                ]}
-                onPress={() => setAuthMode("login")}
-                activeOpacity={0.9}
-                disabled={authLoading}
-              >
-                <Ionicons
-                  name="log-in-outline"
-                  size={18}
-                  color={!isRegister ? "#fff" : theme.inkMuted}
-                  style={styles.authSegmentIcon}
-                  pointerEvents="none"
-                />
-                <Text
-                  pointerEvents="none"
-                  style={[
-                    styles.authSegmentLabel,
-                    !isRegister && styles.authSegmentLabelActive,
-                  ]}
-                >
-                  Connexion
+              {isRegister ? (
+                <>
+                  <Text style={styles.authFigmaLabel}>Votre nom</Text>
+                  <TextInput
+                    style={styles.authFigmaInput}
+                    placeholder="Camille Martin"
+                    placeholderTextColor={theme.inkMuted}
+                    value={fullName}
+                    onChangeText={setFullName}
+                    autoCapitalize="words"
+                    textContentType="name"
+                    autoComplete="name"
+                    editable={!authLoading}
+                  />
+                </>
+              ) : null}
+
+              <Text style={styles.authFigmaLabel}>Adresse e-mail</Text>
+              <TextInput
+                style={styles.authFigmaInput}
+                placeholder="vous@exemple.com"
+                placeholderTextColor={theme.inkMuted}
+                value={email}
+                onChangeText={setEmail}
+                autoCapitalize="none"
+                keyboardType="email-address"
+                autoComplete="email"
+                textContentType="emailAddress"
+                editable={!authLoading}
+              />
+
+              <Text style={styles.authFigmaLabel}>Mot de passe</Text>
+              <TextInput
+                style={styles.authFigmaInput}
+                placeholder="••••••••"
+                placeholderTextColor={theme.inkMuted}
+                value={password}
+                onChangeText={setPassword}
+                secureTextEntry
+                textContentType={isRegister ? "newPassword" : "password"}
+                autoComplete={isRegister ? "password-new" : "password"}
+                editable={!authLoading}
+              />
+
+              {isRegister ? (
+                <Text style={styles.authFigmaFieldHint}>
+                  12 caractères minimum.
                 </Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[
-                  styles.authSegmentBtn,
-                  isRegister && styles.authSegmentBtnActive,
-                  Platform.OS === "web" && { cursor: "pointer" },
-                ]}
-                onPress={() => setAuthMode("register")}
-                activeOpacity={0.9}
-                disabled={authLoading}
-              >
-                <Ionicons
-                  name="person-add-outline"
-                  size={18}
-                  color={isRegister ? "#fff" : theme.inkMuted}
-                  style={styles.authSegmentIcon}
-                  pointerEvents="none"
-                />
-                <Text
-                  pointerEvents="none"
-                  style={[
-                    styles.authSegmentLabel,
-                    isRegister && styles.authSegmentLabelActive,
-                  ]}
-                >
-                  Inscription
-                </Text>
-              </TouchableOpacity>
-            </View>
-
-            <Text style={styles.panelHint}>
-              {isRegister
-                ? "Crée un compte : nom affiché, email et mot de passe. Choisis ton rôle."
-                : "Connecte-toi uniquement avec ton email et ton mot de passe."}
-            </Text>
-
-            {isRegister ? (
-              <>
-                <Text style={styles.inputLabel}>Nom affiché</Text>
-                <TextInput
-                  style={styles.input}
-                  placeholder="Ex. Camille Martin"
-                  placeholderTextColor={theme.inkMuted}
-                  value={fullName}
-                  onChangeText={setFullName}
-                  autoCapitalize="words"
-                  editable={!authLoading}
-                />
-              </>
-            ) : null}
-
-            <Text style={styles.inputLabel}>Email</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="toi@exemple.com"
-              placeholderTextColor={theme.inkMuted}
-              value={email}
-              onChangeText={setEmail}
-              autoCapitalize="none"
-              keyboardType="email-address"
-              autoComplete="email"
-              textContentType="emailAddress"
-              editable={!authLoading}
-            />
-
-            <Text style={styles.inputLabel}>Mot de passe</Text>
-            <TextInput
-              style={styles.input}
-              placeholder={
-                isRegister ? "Au moins 6 caractères" : "Ton mot de passe"
-              }
-              placeholderTextColor={theme.inkMuted}
-              value={password}
-              onChangeText={setPassword}
-              secureTextEntry
-              textContentType={isRegister ? "newPassword" : "password"}
-              autoComplete={isRegister ? "password-new" : "password"}
-              editable={!authLoading}
-            />
-
-            {isRegister ? (
-              <>
-                <Text style={styles.roleHelp}>
-                  Un seul compte pour tout le monde. Après l’inscription, tu
-                  actives ce que tu veux : utilisateur, hôte, ravitailleur — ou
-                  les trois.
-                </Text>
-                <PrimaryButton
-                  label="Créer mon compte"
-                  icon="checkmark-circle-outline"
-                  onPress={register}
-                  loading={authLoading}
-                />
-              </>
-            ) : (
-              <>
-                <PrimaryButton
-                  label="Se connecter"
-                  icon="arrow-forward-outline"
-                  onPress={login}
-                  loading={authLoading}
-                />
+              ) : (
                 <TouchableOpacity
                   onPress={openPasswordReset}
-                  style={[
-                    styles.forgotLinkWrap,
-                    Platform.OS === "web" && { cursor: "pointer" },
-                  ]}
+                  style={[styles.authFigmaForgotWrap, webPointer]}
                   activeOpacity={0.7}
                   disabled={authLoading}
                 >
-                  <Text style={styles.forgotLinkText} pointerEvents="none">
+                  <Text style={styles.authFigmaForgotText} pointerEvents="none">
                     Mot de passe oublié ?
                   </Text>
                 </TouchableOpacity>
-                <Text style={[styles.helperText, { textAlign: "center" }]}>
-                  Utilise le code de compte reçu à l’inscription (pas d’email).
+              )}
+
+              <View style={styles.authFigmaCta}>
+                <PrimaryButton
+                  label={isRegister ? "Créer mon compte →" : "Se connecter →"}
+                  onPress={isRegister ? register : login}
+                  loading={authLoading}
+                />
+              </View>
+
+              <TouchableOpacity
+                onPress={() => setAuthMode(isRegister ? "login" : "register")}
+                style={[styles.authFigmaSwitchWrap, webPointer]}
+                activeOpacity={0.7}
+                disabled={authLoading}
+              >
+                <Text style={styles.authFigmaSwitchText}>
+                  {isRegister ? "Déjà un compte ? " : "Pas encore de compte ? "}
+                  <Text style={styles.authFigmaSwitchLink}>
+                    {isRegister ? "Se connecter" : "S'inscrire"}
+                  </Text>
                 </Text>
-              </>
-            )}
+              </TouchableOpacity>
             </>
-            )}
+          )}
+        </View>
+
+        <View style={styles.authFigmaBanner}>
+          <View style={styles.authFigmaTopo} pointerEvents="none">
+            <View style={[styles.authFigmaRing, styles.authFigmaRing1]} />
+            <View style={[styles.authFigmaRing, styles.authFigmaRing2]} />
+            <View style={[styles.authFigmaRing, styles.authFigmaRing3]} />
           </View>
+          <Text style={styles.authFigmaBannerText}>{bannerText}</Text>
         </View>
       </ScrollView>
     </SafeAreaView>

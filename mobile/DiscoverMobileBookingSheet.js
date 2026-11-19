@@ -13,6 +13,13 @@ import { Ionicons } from "@expo/vector-icons";
 import theme from "./theme";
 import { toggleTagInText, textHasTag } from "./outdoorNeeds";
 
+const STEP_LABELS = [
+  { n: 1, label: "Box" },
+  { n: 2, label: "Créneau" },
+  { n: 3, label: "Besoins" },
+  { n: 4, label: "Envoi" },
+];
+
 /**
  * Bottom sheet mobile autonome : créneau → besoins → récap (box déjà choisie).
  */
@@ -74,9 +81,7 @@ export default function DiscoverMobileBookingSheet({
           <View style={styles.grabber} />
           <View style={styles.header}>
             <View style={{ flex: 1, minWidth: 0 }}>
-              <Text style={styles.kicker}>
-                Réserver une box · étape {step}/4
-              </Text>
+              <Text style={styles.kicker}>RÉSERVER UNE BOX</Text>
               <Text style={styles.title} numberOfLines={2}>
                 {box.title || "Box"}
               </Text>
@@ -96,21 +101,31 @@ export default function DiscoverMobileBookingSheet({
           </View>
 
           <View style={styles.steps}>
-            {[1, 2, 3, 4].map((n) => (
-              <View
-                key={`s-${n}`}
-                style={[
-                  styles.dot,
-                  step === n && styles.dotOn,
-                  step > n && styles.dotDone,
-                  n === 1 && styles.dotDone,
-                ]}
-              >
-                <Text style={[styles.dotText, (step >= n || n === 1) && styles.dotTextOn]}>
-                  {n}
-                </Text>
-              </View>
-            ))}
+            {STEP_LABELS.map(({ n, label }) => {
+              const active = step === n;
+              const canGoBack = n >= 2 && n < step;
+              return (
+                <TouchableOpacity
+                  key={`s-${n}`}
+                  style={[styles.stepTab, active && styles.stepTabOn]}
+                  disabled={!canGoBack}
+                  onPress={() => setStep(n)}
+                  activeOpacity={0.8}
+                  accessibilityRole="tab"
+                  accessibilityState={{ selected: active }}
+                >
+                  <Text
+                    style={[
+                      styles.stepTabText,
+                      (active || n < step) && styles.stepTabTextOn,
+                    ]}
+                    numberOfLines={1}
+                  >
+                    {n} {label}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
           </View>
 
           <ScrollView
@@ -121,7 +136,7 @@ export default function DiscoverMobileBookingSheet({
           >
             {step === 2 ? (
               <>
-                <Text style={styles.sectionLabel}>2 · Créneau d’arrivée</Text>
+                <Text style={styles.sectionLabel}>Quand passez-vous ?</Text>
                 {DateTimeSelector ? (
                   <DateTimeSelector
                     dateValue={bookingDate}
@@ -137,7 +152,7 @@ export default function DiscoverMobileBookingSheet({
 
             {step === 3 ? (
               <>
-                <Text style={styles.sectionLabel}>3 · Besoins</Text>
+                <Text style={styles.sectionLabel}>De quoi avez-vous besoin ?</Text>
                 <View style={styles.chipRow}>
                   {needChips.map((chip) => {
                     const on = textHasTag(specialRequest, chip);
@@ -172,7 +187,7 @@ export default function DiscoverMobileBookingSheet({
 
             {step === 4 ? (
               <>
-                <Text style={styles.sectionLabel}>4 · Récap</Text>
+                <Text style={styles.sectionLabel}>Tout est prêt pour l’envoi.</Text>
                 {offerLines.map((line, i) => (
                   <Text key={`off-${i}`} style={styles.offerLine}>
                     • {line}
@@ -187,6 +202,18 @@ export default function DiscoverMobileBookingSheet({
                     ? activeNeeds.join(", ")
                     : specialRequest || "Aucun"}
                 </Text>
+                <View style={styles.infoBox}>
+                  <Ionicons
+                    name="information-circle-outline"
+                    size={18}
+                    color={theme.primary}
+                    style={{ marginTop: 1 }}
+                  />
+                  <Text style={styles.infoBoxText}>
+                    Aucun paiement maintenant. L’hôte valide d’abord votre
+                    demande ; vous ne payez qu’après son acceptation.
+                  </Text>
+                </View>
               </>
             ) : null}
           </ScrollView>
@@ -199,7 +226,7 @@ export default function DiscoverMobileBookingSheet({
                 onPress={() => setStep(3)}
                 activeOpacity={0.88}
               >
-                <Text style={styles.btnPrimaryText}>Continuer — besoins</Text>
+                <Text style={styles.btnPrimaryText}>Continuer →</Text>
               </TouchableOpacity>
             ) : null}
             {step === 3 ? (
@@ -215,7 +242,7 @@ export default function DiscoverMobileBookingSheet({
                   onPress={() => setStep(4)}
                   activeOpacity={0.88}
                 >
-                  <Text style={styles.btnPrimaryText}>Voir le récap</Text>
+                  <Text style={styles.btnPrimaryText}>Vérifier ma demande →</Text>
                 </TouchableOpacity>
               </View>
             ) : null}
@@ -226,8 +253,9 @@ export default function DiscoverMobileBookingSheet({
                   onPress={onSubmit}
                   activeOpacity={0.88}
                 >
-                  <Ionicons name="send-outline" size={18} color="#fff" />
-                  <Text style={styles.btnPrimaryText}>Envoyer la demande</Text>
+                  <Text style={styles.btnPrimaryText}>
+                    Envoyer ma demande →
+                  </Text>
                 </TouchableOpacity>
                 <TouchableOpacity
                   style={styles.btnGhost}
@@ -293,10 +321,10 @@ const styles = StyleSheet.create({
     backgroundColor: theme.surfaceMuted,
   },
   kicker: {
-    fontSize: 12,
-    fontWeight: "700",
+    fontSize: 11,
+    fontWeight: "800",
     color: theme.primary,
-    letterSpacing: 0.2,
+    letterSpacing: 1.1,
     marginBottom: 2,
   },
   title: {
@@ -312,36 +340,51 @@ const styles = StyleSheet.create({
   },
   steps: {
     flexDirection: "row",
-    justifyContent: "center",
-    gap: 8,
-    marginBottom: 10,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: theme.border,
+    marginBottom: 14,
   },
-  dot: {
-    width: 26,
-    height: 26,
-    borderRadius: 13,
-    borderWidth: 1.5,
-    borderColor: theme.border,
+  stepTab: {
+    flex: 1,
     alignItems: "center",
-    justifyContent: "center",
+    paddingVertical: 9,
+    borderBottomWidth: 2,
+    borderBottomColor: "transparent",
+    marginBottom: -StyleSheet.hairlineWidth,
   },
-  dotOn: {
-    backgroundColor: theme.primary,
-    borderColor: theme.primary,
-  },
-  dotDone: {
-    backgroundColor: theme.ink,
-    borderColor: theme.ink,
-  },
-  dotText: { fontSize: 12, fontWeight: "800", color: theme.inkMuted },
-  dotTextOn: { color: "#fff" },
-  body: { maxHeight: 380 },
-  sectionLabel: {
-    marginBottom: 8,
-    fontSize: 13,
+  stepTabOn: { borderBottomColor: theme.primary },
+  stepTabText: {
+    fontSize: 12,
     fontWeight: "700",
     color: theme.inkMuted,
-    letterSpacing: 0.1,
+    fontFamily: theme.font,
+  },
+  stepTabTextOn: { color: theme.primary },
+  body: { maxHeight: 380 },
+  sectionLabel: {
+    marginBottom: 12,
+    fontSize: 20,
+    fontWeight: "800",
+    color: theme.ink,
+    letterSpacing: -0.3,
+    fontFamily: theme.fontDisplay,
+  },
+  infoBox: {
+    flexDirection: "row",
+    gap: 8,
+    marginTop: 10,
+    padding: 12,
+    borderRadius: theme.radius.md,
+    backgroundColor: theme.primarySoft,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: theme.infoBorder,
+  },
+  infoBoxText: {
+    flex: 1,
+    fontSize: 13,
+    lineHeight: 18,
+    color: theme.ink,
+    fontFamily: theme.font,
   },
   offerLine: {
     fontSize: 13,
@@ -388,8 +431,8 @@ const styles = StyleSheet.create({
   footerRow: { flexDirection: "row", alignItems: "center", gap: 10 },
   btnPrimary: {
     backgroundColor: theme.primary,
-    borderRadius: theme.radius.md,
-    minHeight: 48,
+    borderRadius: theme.radius.pill,
+    minHeight: 50,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",

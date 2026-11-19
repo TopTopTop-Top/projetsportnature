@@ -1,71 +1,74 @@
 import { Platform } from "react-native";
 
 /**
- * RavitoBox — direction visuelle Figma « Relais / ravito »
- * Vert forêt CTA, fond sage clair, cards blanches, coins généreux.
+ * RavitoBox — tokens alignés maquettes Figma Relais
+ * Forêt profonde, crème sage, accent lime, Manrope.
  */
 
 const fontSans = Platform.select({
-  web: "'Manrope', 'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif",
+  web: "'Manrope', 'Segoe UI', system-ui, -apple-system, sans-serif",
   ios: "System",
   android: "sans-serif",
   default: undefined,
 });
 
 const fontDisplay = Platform.select({
-  web: "'Manrope', 'Inter', system-ui, sans-serif",
+  web: "'Manrope', system-ui, sans-serif",
   ios: "System",
   android: "sans-serif",
   default: undefined,
 });
 
 export const theme = {
-  // Surfaces — sage clair Figma
-  bg: "#EEF3F0",
+  // Surfaces Figma
+  bg: "#F6F8F1",
   surface: "#FFFFFF",
-  surfaceMuted: "#E4EDE8",
-  ink: "#0F1F1A",
-  inkMuted: "#5C6B64",
-  border: "#D5E0DA",
-  borderSoft: "#E8EFEB",
+  surfaceMuted: "#EEF2E8",
+  ink: "#1A2E28",
+  inkMuted: "#6B7A72",
+  border: "#D7E0D6",
+  borderSoft: "#E8EEE4",
 
-  // Marque — forêt nuit (headers sombres optionnels)
-  hero: "#0B3D36",
-  heroAccent: "#8FD6C4",
+  // Marque
+  hero: "#1F3F36",
+  heroAccent: "#C5D98A",
 
-  // Action principale — vert forêt Figma (~#004D40 / #005F54)
-  primary: "#005F54",
-  primaryPressed: "#004940",
-  primarySoft: "#E3F2EE",
+  // CTA forêt Figma (~#2D5A4C)
+  primary: "#2D5A4C",
+  primaryPressed: "#23483D",
+  primarySoft: "#E4EFE9",
 
-  secondary: "#0F1F1A",
-  secondaryInk: "#0F1F1A",
-  accent: "#005F54",
-  accentSoft: "#E3F2EE",
-  focus: "#005F54",
-  focusSoft: "rgba(0, 95, 84, 0.14)",
+  secondary: "#1A2E28",
+  secondaryInk: "#1A2E28",
+  accent: "#2D5A4C",
+  accentSoft: "#E4EFE9",
+  focus: "#2D5A4C",
+  focusSoft: "rgba(45, 90, 76, 0.14)",
 
-  // Carte / sélection
-  picked: "#0A6B5C",
-  pickedSoft: "#E8F6F2",
-  mapTeal: "#0D8A74",
+  // Lime bandeaux auth / badges
+  lime: "#D8E8A0",
+  limeInk: "#2D5A4C",
 
-  chipBg: "#E4EDE8",
-  chipBorder: "#D5E0DA",
-  infoBg: "#E4EDE8",
-  infoBorder: "#D5E0DA",
-  warnBg: "#FFF8EB",
-  warnBorder: "#E8D29A",
-  danger: "#C43C3C",
-  dangerSoft: "#FCEEEE",
-  success: "#005F54",
-  shadow: "rgba(15, 31, 26, 0.08)",
+  picked: "#2D5A4C",
+  pickedSoft: "#E8F3EE",
+  mapTeal: "#3A7A68",
+
+  chipBg: "#EEF2E8",
+  chipBorder: "#D7E0D6",
+  infoBg: "#EEF2E8",
+  infoBorder: "#D7E0D6",
+  warnBg: "#FFF5E6",
+  warnBorder: "#E8C99A",
+  danger: "#C45C3A",
+  dangerSoft: "#FCEEE8",
+  success: "#2D5A4C",
+  shadow: "rgba(26, 46, 40, 0.08)",
   white: "#FFFFFF",
 
   font: fontSans,
   fontDisplay,
   type: {
-    display: 30,
+    display: 32,
     title: 22,
     section: 15,
     body: 15,
@@ -73,9 +76,9 @@ export const theme = {
     micro: 11,
   },
   radius: {
-    sm: 10,
-    md: 14,
-    lg: 18,
+    sm: 12,
+    md: 16,
+    lg: 22,
     pill: 999,
   },
   space: {
@@ -112,7 +115,7 @@ export function ensureAthleticFonts() {
       font-family: inherit;
     }
     ::selection {
-      background: rgba(0, 95, 84, 0.2);
+      background: rgba(45, 90, 76, 0.2);
     }
   `;
   document.head.appendChild(style);
