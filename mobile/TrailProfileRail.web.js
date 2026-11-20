@@ -44,6 +44,38 @@ function webHoverHandlers(onEnter, onLeave) {
   };
 }
 
+/**
+ * Sépare le préfixe auto (Point N · km · D+) des notes libres
+ * pour afficher un vrai champ « Notes ».
+ */
+function splitPlanPointNote(raw) {
+  const text = String(raw || "").trim();
+  if (!text) return { meta: "", notes: "" };
+  if (text.startsWith("🟣")) {
+    const rest = text.replace(/^🟣\s*/, "");
+    const parts = rest.split(/\s*·\s*/);
+    if (parts.length <= 1) return { meta: "Ravito", notes: rest };
+    return {
+      meta: `Ravito · ${parts[0]}`.trim(),
+      notes: parts.slice(1).join(" · ").trim(),
+    };
+  }
+  const m = text.match(
+    /^(Point\s+\d+(?:\s*·\s*[\d.,]+\s*km)?(?:\s*·\s*-?\d+\s*m)?(?:\s*·\s*D\+\s*\d+\s*m)?(?:\s*·\s*Box:\s*[^·]+)?)\s*(?:·\s*([\s\S]*))?$/i
+  );
+  if (m) {
+    return { meta: m[1].trim(), notes: String(m[2] || "").trim() };
+  }
+  return { meta: "", notes: text };
+}
+
+function joinPlanPointNote(meta, notes) {
+  const m = String(meta || "").trim();
+  const n = String(notes || "").trim();
+  if (m && n) return `${m} · ${n}`;
+  return m || n;
+}
+
 const DIFFICULTY_LABELS = {
   easy: "Facile",
   medium: "Modéré",
@@ -927,9 +959,16 @@ function TrailPlanHub({
                 const isRavito =
                   n.ravito_request_id != null ||
                   String(n.note || "").startsWith("🟣");
-                const draftText = String(
+                const rawDraft = String(
                   trailNoteDraftById[nid] ?? n.note ?? ""
                 );
+                const serverSplit = splitPlanPointNote(n.note || "");
+                const draftSplit = splitPlanPointNote(rawDraft);
+                const metaLabel = serverSplit.meta || draftSplit.meta;
+                const notesValue =
+                  trailNoteDraftById[nid] !== undefined
+                    ? draftSplit.notes
+                    : serverSplit.notes;
                 return (
                   <View
                     key={`plan-trail-note-${n.id || idx}`}
@@ -985,6 +1024,11 @@ function TrailPlanHub({
                         () => onHighlightMapPoint?.(null)
                       )}
                     >
+                      {metaLabel ? (
+                        <Text style={styles.planPointMetaLine} numberOfLines={2}>
+                          {metaLabel}
+                        </Text>
+                      ) : null}
                       {n.point_lat != null && n.point_lon != null ? (
                         <Text style={styles.planTrailNoteMeta}>
                           {Number(n.point_lat).toFixed(4)}°,{" "}
@@ -992,24 +1036,42 @@ function TrailPlanHub({
                         </Text>
                       ) : null}
                     </Pressable>
-                    <TextInput
-                      style={[styles.planSaveInput, { marginTop: 6 }]}
-                      value={draftText}
-                      onChangeText={(v) =>
-                        onPlanTrailNoteDraftChange?.(nid, v)
-                      }
-                      placeholder="Texte du point / infos"
-                      placeholderTextColor={theme.inkMuted}
-                      multiline
-                    />
-                    {onSavePlanTrailNote ? (
-                      <Pressable
-                        onPress={() => onSavePlanTrailNote(nid)}
-                        style={[styles.actionBtn, { marginTop: 6 }]}
-                      >
-                        <Text style={styles.actionBtnText}>Sauver le point</Text>
-                      </Pressable>
-                    ) : null}
+
+                    <View style={styles.pointNotesBlock}>
+                      <Text style={styles.pointNotesLabel}>Notes</Text>
+                      <Text style={styles.pointNotesHint}>
+                        Visible dans cette sortie
+                        {activePlan?.name ? ` « ${activePlan.name} »` : ""}.
+                      </Text>
+                      <TextInput
+                        style={styles.pointNotesInput}
+                        value={notesValue}
+                        onChangeText={(v) =>
+                          onPlanTrailNoteDraftChange?.(
+                            nid,
+                            joinPlanPointNote(metaLabel, v)
+                          )
+                        }
+                        placeholder="Ex. ravito, vigilance, passage délicat…"
+                        placeholderTextColor={theme.inkMuted}
+                        multiline
+                        textAlignVertical="top"
+                      />
+                      {onSavePlanTrailNote ? (
+                        <Pressable
+                          onPress={() => onSavePlanTrailNote(nid)}
+                          style={[
+                            styles.actionBtn,
+                            styles.actionBtnPrimary,
+                            { marginTop: 8 },
+                          ]}
+                        >
+                          <Text style={styles.actionBtnTextPrimary}>
+                            Enregistrer les notes
+                          </Text>
+                        </Pressable>
+                      ) : null}
+                    </View>
                   </View>
                 );
               })}
@@ -2218,6 +2280,50 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: theme.ink,
     lineHeight: 15,
+  },
+  planPointMetaLine: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: theme.ink,
+    fontFamily: theme.font,
+    marginBottom: 2,
+  },
+  pointNotesBlock: {
+    marginTop: 10,
+    padding: 10,
+    borderRadius: 12,
+    backgroundColor: theme.bg || "#F6F8F1",
+    borderWidth: 1,
+    borderColor: theme.border,
+  },
+  pointNotesLabel: {
+    fontSize: 12,
+    fontWeight: "800",
+    letterSpacing: 0.3,
+    textTransform: "uppercase",
+    color: theme.primary,
+    fontFamily: theme.font,
+  },
+  pointNotesHint: {
+    marginTop: 2,
+    marginBottom: 8,
+    fontSize: 11,
+    lineHeight: 15,
+    color: theme.inkMuted,
+    fontFamily: theme.font,
+  },
+  pointNotesInput: {
+    minHeight: 72,
+    backgroundColor: theme.surface || "#FFFFFF",
+    borderWidth: 1,
+    borderColor: theme.border,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 14,
+    lineHeight: 20,
+    color: theme.ink,
+    fontFamily: theme.font,
   },
   planTrailNoteMeta: {
     marginTop: 4,

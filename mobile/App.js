@@ -3887,7 +3887,7 @@ function ExplorerScreen() {
         { note }
       );
       if (detail) {
-        userAlert("Point", "Texte du point enregistré.");
+        userAlert("Notes", "Notes du point enregistrées.");
       }
     },
     [activePlanForSelectedTrail, trailNoteDraftById, updateRoutePlanTrailNote]
