@@ -86,13 +86,18 @@ ok("mobile/api.js exports session helpers");
 
 const appSrc = fs.readFileSync(path.join(root, "mobile/App.js"), "utf8");
 assert.match(appSrc, /from ["']\.\/api["']/);
+assert.match(appSrc, /from ["']\.\/AuthScreen["']/);
 assert.match(appSrc, /apiOffline/);
 assert.doesNotMatch(
   appSrc,
   /Causes fréquentes : \(1\) EXPO_PUBLIC_API_URL/,
   "App.js must not show raw Render debug HTML errors to users"
 );
-ok("App.js uses mobile/api + offline banner");
+ok("App.js uses mobile/api + AuthScreen + offline banner");
+
+assert.ok(fs.existsSync(path.join(root, "mobile/AuthScreen.js")));
+assert.ok(fs.existsSync(path.join(root, "mobile/authUiContext.js")));
+ok("AuthScreen extracted");
 
 console.log("\nSmoke API OK");
 process.exit(0);

@@ -13,7 +13,14 @@ Sans clés externes, l’API reste utilisable :
 | **GPX** | Dossier `uploads/` (éphémère sur Render free) | `AWS_*` ou `R2_*` |
 | **Push** | Ignoré si pas de token Expo | `expo-notifications` + `eas.projectId` |
 
-Tests rapides : `npm test` (smoke). Workflow CI : `.github/workflows/ci.yml` (copie de secours dans `scripts/github-ci.yml` si le token GitHub n’a pas le scope `workflow`).
+Tests rapides : `npm test` (smoke). Prod bêta : `npm run verify:beta`.
+
+Workflow CI : copie dans `scripts/github-ci.yml` (à coller dans `.github/workflows/ci.yml` via l’UI GitHub si le token n’a pas le scope `workflow`).
+
+### URLs bêta
+
+- API : https://projetsportnature.onrender.com/api/health
+- Web : https://projetsportnature-1.onrender.com/
 
 ## Installation
 

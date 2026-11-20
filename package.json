@@ -10,7 +10,8 @@
     "start": "node src/server.js",
     "deploy:render-api": "bash scripts/trigger-render-api-deploy.sh",
     "test": "node scripts/smoke-api.js",
-    "smoke": "node scripts/smoke-api.js"
+    "smoke": "node scripts/smoke-api.js",
+    "verify:beta": "node scripts/verify-beta.js"
   },
   "keywords": [],
   "author": "",
