@@ -2,3 +2,10 @@ node_modules
 data.sqlite
 data.sqlite-*
 .DS_Store
+.env
+.env.*
+!.env.example
+uploads/*
+!uploads/.gitkeep
+mobile/dist
+*.log

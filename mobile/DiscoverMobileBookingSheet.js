@@ -212,6 +212,9 @@ export default function DiscoverMobileBookingSheet({
                   <Text style={styles.infoBoxText}>
                     Aucun paiement maintenant. L’hôte valide d’abord votre
                     demande ; vous ne payez qu’après son acceptation.
+                    {"\n\n"}
+                    Annulation : 100 % remboursé au-delà de 48 h avant le
+                    créneau, 50 % entre 24 h et 48 h, 0 % à moins de 24 h.
                   </Text>
                 </View>
               </>

@@ -101,6 +101,7 @@ import {
 } from "./RavitoRequestsUi";
 import {
   readAuthSession,
+  hydrateAuthSession,
   writeAuthSession,
   clearAuthSession,
 } from "./authSessionStorage";
@@ -11321,6 +11322,8 @@ function ReservationsScreen() {
   const [reservationTab, setReservationTab] = useState(
     canHost && !canBook ? "host" : "athlete"
   );
+  const [reviewDraft, setReviewDraft] = useState(null);
+  const [reviewBusy, setReviewBusy] = useState(false);
   const [notifUnreadOnly, setNotifUnreadOnly] = useState(false);
   const [liveShareBookingId, setLiveShareBookingId] = useState(null);
   const [liveShareBusy, setLiveShareBusy] = useState(false);
@@ -11363,7 +11366,6 @@ function ReservationsScreen() {
     if (canHost) actionsRef.current.loadHostBookings();
     if (canBook) actionsRef.current.loadAthleteBookings();
     actionsRef.current.loadNotifications({ unreadOnly: notifUnreadOnly });
-    actionsRef.current.markAllNotificationsRead?.();
     const id = setInterval(() => {
       if (canHost) actionsRef.current.loadHostBookings();
       if (canBook) actionsRef.current.loadAthleteBookings();
@@ -11817,13 +11819,14 @@ function ReservationsScreen() {
                       {b.status === "completed" ? (
                         <OutlineButton
                           compact
-                          label="Noter l'athlète (5★)"
+                          label="Noter l'athlète"
                           icon="star-outline"
                           onPress={() =>
-                            actionsRef.current.submitReview({
+                            setReviewDraft({
                               bookingId: b.id,
+                              title: b.athlete_full_name || "Athlète",
                               score: 5,
-                              comment: "Athlète recommandé.",
+                              comment: "",
                             })
                           }
                         />
@@ -12186,13 +12189,14 @@ function ReservationsScreen() {
                       {b.status === "completed" ? (
                         <OutlineButton
                           compact
-                          label="Noter l'hôte (5★)"
+                          label="Noter l'hôte"
                           icon="star-outline"
                           onPress={() =>
-                            actionsRef.current.submitReview({
+                            setReviewDraft({
                               bookingId: b.id,
+                              title: b.host_full_name || b.box_title || "Hôte",
                               score: 5,
-                              comment: "Hôte recommandé.",
+                              comment: "",
                             })
                           }
                         />
@@ -12253,10 +12257,20 @@ function ReservationsScreen() {
               </TouchableOpacity>
             </View>
             {notifications.slice(0, 6).map((n) => (
-              <View key={`notif-${n.id}`} style={styles.card}>
+              <TouchableOpacity
+                key={`notif-${n.id}`}
+                style={styles.card}
+                activeOpacity={0.85}
+                onPress={() => {
+                  if (Number(n.is_read) === 0) {
+                    actionsRef.current.markNotificationRead?.(n.id);
+                  }
+                }}
+              >
                 <View style={styles.cardAccent} />
                 <Text style={styles.cardTitle}>
                   {n.title || "Notification"}
+                  {Number(n.is_read) === 0 ? " · non lue" : ""}
                 </Text>
                 {n.body ? (
                   <Text style={styles.cardAvailability}>{n.body}</Text>
@@ -12292,7 +12306,7 @@ function ReservationsScreen() {
                 <Text style={styles.cardMeta}>
                   {new Date(n.created_at).toLocaleString("fr-FR")}
                 </Text>
-              </View>
+              </TouchableOpacity>
             ))}
           </Section>
         ) : null}
@@ -12368,7 +12382,11 @@ function ReservationsScreen() {
         ) : null}
 
         {canRavito ? (
-          <MoreActions label="Aider en ravitailleur">
+          <Section
+            flat
+            title="Aider en ravitailleur"
+            subtitle="Demandes GPS près de toi — propose ton aide."
+          >
             <RavitoHostRequestsSection
               token={authToken}
               apiFetch={apiFetch}
@@ -12378,7 +12396,7 @@ function ReservationsScreen() {
               volunteerLon={mapLon}
               allowMobileWithoutBox
             />
-          </MoreActions>
+          </Section>
         ) : null}
 
         {!canHost && !canBook && !canRavito ? (
@@ -12387,6 +12405,86 @@ function ReservationsScreen() {
           </Text>
         ) : null}
       </ScrollView>
+
+      <Modal
+        visible={Boolean(reviewDraft)}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setReviewDraft(null)}
+      >
+        <View style={styles.reviewModalBackdrop}>
+          <View style={styles.reviewModalCard}>
+            <Text style={styles.reviewModalTitle}>
+              Noter {reviewDraft?.title || "la réservation"}
+            </Text>
+            <Text style={styles.reviewModalHint}>Choisis une note de 1 à 5</Text>
+            <View style={styles.reviewStarsRow}>
+              {[1, 2, 3, 4, 5].map((score) => {
+                const on = Number(reviewDraft?.score) === score;
+                return (
+                  <TouchableOpacity
+                    key={`rev-score-${score}`}
+                    style={[
+                      styles.reviewStarBtn,
+                      on && styles.reviewStarBtnOn,
+                    ]}
+                    onPress={() =>
+                      setReviewDraft((prev) =>
+                        prev ? { ...prev, score } : prev
+                      )
+                    }
+                    activeOpacity={0.85}
+                  >
+                    <Text
+                      style={[
+                        styles.reviewStarText,
+                        on && styles.reviewStarTextOn,
+                      ]}
+                    >
+                      {score}★
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+            <TextInput
+              style={[styles.input, styles.reviewComment]}
+              value={reviewDraft?.comment || ""}
+              onChangeText={(text) =>
+                setReviewDraft((prev) =>
+                  prev ? { ...prev, comment: text } : prev
+                )
+              }
+              placeholder="Commentaire (optionnel)"
+              placeholderTextColor={theme.inkMuted}
+              multiline
+            />
+            <PrimaryButton
+              label="Envoyer mon avis →"
+              loading={reviewBusy}
+              onPress={async () => {
+                if (!reviewDraft?.bookingId) return;
+                setReviewBusy(true);
+                try {
+                  await actionsRef.current.submitReview({
+                    bookingId: reviewDraft.bookingId,
+                    score: Number(reviewDraft.score) || 5,
+                    comment: reviewDraft.comment || "",
+                  });
+                  setReviewDraft(null);
+                } finally {
+                  setReviewBusy(false);
+                }
+              }}
+            />
+            <OutlineButton
+              stretch
+              label="Annuler"
+              onPress={() => setReviewDraft(null)}
+            />
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -12815,7 +12913,8 @@ function RavitoApp() {
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const stored = readAuthSession();
+      const stored =
+        (await hydrateAuthSession()) || readAuthSession();
       if (!stored?.refreshToken) {
         if (!cancelled) setSessionReady(true);
         return;
@@ -13894,6 +13993,24 @@ function RavitoApp() {
       });
     } catch (_error) {
       // Silent fail: reading notifications should not block core flows.
+    }
+  };
+
+  const markNotificationRead = async (notificationId) => {
+    const id = Number(notificationId);
+    if (!token || !Number.isFinite(id) || id <= 0) return;
+    try {
+      await apiFetch(`/notifications/${id}/read`, {
+        method: "PATCH",
+        token,
+      });
+      setNotifications((prev) =>
+        (Array.isArray(prev) ? prev : []).map((n) =>
+          Number(n.id) === id ? { ...n, is_read: 1 } : n
+        )
+      );
+    } catch (_error) {
+      /* silent */
     }
   };
 
@@ -16385,6 +16502,7 @@ function RavitoApp() {
     unfollowUser,
     showFollowingOnMap,
     markAllNotificationsRead,
+    markNotificationRead,
     showBookingTimeline,
     notifyBookingEnRoute,
     pushBookingLiveLocation,
@@ -19107,6 +19225,58 @@ const styles = StyleSheet.create({
     marginTop: 6,
     fontSize: 14,
   },
+  reviewModalBackdrop: {
+    flex: 1,
+    backgroundColor: theme.overlay,
+    justifyContent: "center",
+    padding: 20,
+  },
+  reviewModalCard: {
+    backgroundColor: theme.surface,
+    borderRadius: theme.radius.lg,
+    padding: 18,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: theme.border,
+    gap: 10,
+  },
+  reviewModalTitle: {
+    fontSize: 20,
+    fontWeight: "800",
+    color: theme.ink,
+    fontFamily: theme.fontDisplay,
+  },
+  reviewModalHint: {
+    fontSize: 13,
+    color: theme.inkMuted,
+  },
+  reviewStarsRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+  },
+  reviewStarBtn: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: theme.radius.pill,
+    backgroundColor: theme.primarySoft,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: theme.border,
+  },
+  reviewStarBtnOn: {
+    backgroundColor: theme.primary,
+    borderColor: theme.primary,
+  },
+  reviewStarText: {
+    fontWeight: "700",
+    color: theme.primary,
+  },
+  reviewStarTextOn: {
+    color: theme.white,
+  },
+  reviewComment: {
+    minHeight: 72,
+    textAlignVertical: "top",
+  },
   profileCard: {
     alignItems: "center",
     paddingVertical: 8,
@@ -19581,7 +19751,7 @@ function AuthScreen() {
 
               {isRegister ? (
                 <Text style={styles.authFigmaFieldHint}>
-                  12 caractères minimum.
+                  8 caractères minimum.
                 </Text>
               ) : (
                 <TouchableOpacity

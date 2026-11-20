@@ -8,6 +8,11 @@ const { migrate } = require("./db/database");
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// Derrière le proxy Render : nécessaire pour que req.ip (rate limit auth) soit l'IP client.
+if (process.env.RENDER || process.env.NODE_ENV === "production") {
+  app.set("trust proxy", 1);
+}
+
 app.use(cors());
 app.use(express.json());
 app.use(morgan("dev"));

@@ -48,8 +48,46 @@ const availabilityScheduleSchema = z
   })
   .optional();
 
+// Colonnes publiques d'une box — ne JAMAIS inclure access_code / access_instructions.
+const BOX_PUBLIC_COLUMNS = `b.id, b.host_user_id, b.title, b.description, b.city, b.latitude, b.longitude,
+  b.capacity_liters, b.has_water, b.price_cents, b.access_method,
+  b.access_display_before_min, b.access_display_after_min,
+  b.criteria_json, b.criteria_note, b.availability_note,
+  b.availability_schedule_json, b.is_active, b.created_at`;
+
+// Rate limiter en mémoire (par IP) pour les routes d'auth sensibles.
+const AUTH_RATE_LIMIT_MAX = 20;
+const AUTH_RATE_LIMIT_WINDOW_MS = 15 * 60 * 1000;
+const authRateBuckets = new Map();
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, bucket] of authRateBuckets) {
+    if (bucket.resetAt <= now) authRateBuckets.delete(key);
+  }
+}, 5 * 60 * 1000).unref();
+
+function authRateLimit(req, res, next) {
+  const now = Date.now();
+  const key = `${req.path}|${req.ip || req.socket?.remoteAddress || "unknown"}`;
+  let bucket = authRateBuckets.get(key);
+  if (!bucket || bucket.resetAt <= now) {
+    bucket = { count: 0, resetAt: now + AUTH_RATE_LIMIT_WINDOW_MS };
+    authRateBuckets.set(key, bucket);
+  }
+  bucket.count += 1;
+  if (bucket.count > AUTH_RATE_LIMIT_MAX) {
+    const retryAfter = Math.max(1, Math.ceil((bucket.resetAt - now) / 1000));
+    res.set("Retry-After", String(retryAfter));
+    return res
+      .status(429)
+      .json({ error: "Too many attempts, please try again later" });
+  }
+  return next();
+}
+
 const upload = multer({
   storage,
+  limits: { fileSize: 20 * 1024 * 1024 },
   fileFilter: (_req, file, cb) => {
     cb(
       null,
@@ -90,7 +128,7 @@ function verifyStoredPassword(password, passwordHash) {
 const createUserSchema = z.object({
   fullName: z.string().min(2),
   email: authEmailSchema,
-  password: z.string().min(6),
+  password: z.string().min(8),
   role: z.enum(["athlete", "host", "both"]),
   city: z.string().min(2).optional(),
 });
@@ -580,12 +618,12 @@ const passwordResetConfirmSchema = z.object({
     .min(8)
     .max(32)
     .transform((v) => normalizeAccountRecoveryCode(v)),
-  newPassword: z.string().min(6),
+  newPassword: z.string().min(8),
 });
 
 const changePasswordSchema = z.object({
   currentPassword: z.string().min(1),
-  newPassword: z.string().min(6),
+  newPassword: z.string().min(8),
 });
 
 const regenerateRecoveryCodeSchema = z.object({
@@ -1302,7 +1340,7 @@ router.get("/geocode/search", async (req, res) => {
   }
 });
 
-router.post("/auth/register", async (req, res) => {
+router.post("/auth/register", authRateLimit, async (req, res) => {
   const parsed = createUserSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: parsed.error.flatten() });
@@ -1409,7 +1447,7 @@ router.post("/auth/register", async (req, res) => {
   }
 });
 
-router.post("/auth/login", async (req, res) => {
+router.post("/auth/login", authRateLimit, async (req, res) => {
   const parsed = loginSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: parsed.error.flatten() });
@@ -1498,7 +1536,7 @@ router.post("/auth/logout", async (req, res) => {
 });
 
 /** Mot de passe oublié : code de compte transmis à l’inscription (pas d’email). */
-router.post("/auth/password-reset/confirm", async (req, res) => {
+router.post("/auth/password-reset/confirm", authRateLimit, async (req, res) => {
   const parsed = passwordResetConfirmSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: parsed.error.flatten() });
@@ -1547,7 +1585,7 @@ router.post("/auth/password-reset/confirm", async (req, res) => {
 
 router.get("/users", requireAuth, async (_req, res) => {
   const { rows } = await pool.query(
-    `SELECT id, full_name, email, role, city, created_at FROM users ORDER BY created_at DESC`
+    `SELECT id, full_name, role, city, created_at FROM users ORDER BY created_at DESC`
   );
   res.json(rows);
 });
@@ -1997,7 +2035,7 @@ router.get("/boxes/bounds", async (req, res) => {
   }
   const lim = limit ?? 200;
   const { rows } = await pool.query(
-    `SELECT b.*,
+    `SELECT ${BOX_PUBLIC_COLUMNS},
             u.full_name AS host_full_name,
             (SELECT COUNT(*)::int FROM reviews r WHERE r.reviewee_user_id = b.host_user_id) AS host_review_count,
             (SELECT COALESCE(AVG(score), 0)::float FROM reviews r WHERE r.reviewee_user_id = b.host_user_id) AS host_avg_score
@@ -2021,7 +2059,7 @@ router.get("/boxes/nearby", async (req, res) => {
   const { lat, lon, limit } = parsed.data;
   const lim = limit ?? 30;
   const { rows } = await pool.query(
-    `SELECT b.*,
+    `SELECT ${BOX_PUBLIC_COLUMNS},
             u.full_name AS host_full_name,
             (SELECT COUNT(*)::int FROM reviews r WHERE r.reviewee_user_id = b.host_user_id) AS host_review_count,
             (SELECT COALESCE(AVG(score), 0)::float FROM reviews r WHERE r.reviewee_user_id = b.host_user_id) AS host_avg_score,
@@ -2045,7 +2083,7 @@ router.get("/boxes", async (req, res) => {
   const city = req.query.city;
   const { rows } = city
     ? await pool.query(
-        `SELECT b.*,
+        `SELECT ${BOX_PUBLIC_COLUMNS},
                 u.full_name AS host_full_name,
                 (SELECT COUNT(*)::int FROM reviews r WHERE r.reviewee_user_id = b.host_user_id) AS host_review_count,
                 (SELECT COALESCE(AVG(score), 0)::float FROM reviews r WHERE r.reviewee_user_id = b.host_user_id) AS host_avg_score
@@ -2056,7 +2094,7 @@ router.get("/boxes", async (req, res) => {
         [city]
       )
     : await pool.query(
-        `SELECT b.*,
+        `SELECT ${BOX_PUBLIC_COLUMNS},
                 u.full_name AS host_full_name,
                 (SELECT COUNT(*)::int FROM reviews r WHERE r.reviewee_user_id = b.host_user_id) AS host_review_count,
                 (SELECT COALESCE(AVG(score), 0)::float FROM reviews r WHERE r.reviewee_user_id = b.host_user_id) AS host_avg_score
@@ -4140,7 +4178,28 @@ router.post("/bookings", requireAuth, async (req, res) => {
   return res.status(201).json(payload);
 });
 
+// Passe en 'completed' les réservations acceptées dont le créneau (UTC) est terminé.
+async function completePastBookings() {
+  try {
+    await pool.query(
+      `UPDATE bookings
+       SET status = 'completed'
+       WHERE approval_status = 'accepted'
+         AND status NOT IN ('cancelled', 'completed')
+         AND CASE
+               WHEN booking_date ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
+                AND end_time ~ '^[0-9]{1,2}:[0-9]{2}(:[0-9]{2})?$'
+               THEN (booking_date || ' ' || end_time)::timestamp < (NOW() AT TIME ZONE 'UTC')
+               ELSE FALSE
+             END`
+    );
+  } catch (error) {
+    console.error("completePastBookings failed:", error.message);
+  }
+}
+
 router.get("/host/bookings", requireAuth, async (req, res) => {
+  await completePastBookings();
   const { rows } = await pool.query(
     `SELECT
       b.*,
@@ -4342,6 +4401,30 @@ router.patch("/host/bookings/:id/decision", requireAuth, async (req, res) => {
      RETURNING *`,
     [bookingId]
   );
+  // Rejet d'une réservation déjà payée/autorisée: remboursement intégral (file simulée).
+  const rejectRefundCents = Number(booking.amount_cents) || 0;
+  if (isBookingPaymentSettled(booking.payment_status) && rejectRefundCents > 0) {
+    await pool.query(
+      `INSERT INTO refunds (booking_id, athlete_user_id, host_user_id, box_id, amount_cents, reason, status)
+       VALUES ($1, $2, $3, $4, $5, $6, 'pending')
+       ON CONFLICT (booking_id) DO NOTHING`,
+      [
+        bookingId,
+        booking.athlete_user_id,
+        booking.host_user_id,
+        booking.box_id,
+        rejectRefundCents,
+        "rejected_by_host",
+      ]
+    );
+    await pool.query(
+      `UPDATE bookings
+       SET refund_status = 'pending',
+           refund_amount_cents = $2
+       WHERE id = $1`,
+      [bookingId, rejectRefundCents]
+    );
+  }
   await createNotification({
     recipientUserId: booking.athlete_user_id,
     type: "booking_rejected",
@@ -4361,6 +4444,7 @@ router.patch("/host/bookings/:id/decision", requireAuth, async (req, res) => {
 });
 
 router.get("/bookings", requireAuth, async (req, res) => {
+  await completePastBookings();
   const { rows } = await pool.query(
     `SELECT b.*, bx.title AS box_title, bx.city AS box_city,
             bx.host_user_id,
@@ -4498,7 +4582,7 @@ router.get("/users/me/following/boxes", requireAuth, async (req, res) => {
   }
   params.push(limit);
   const { rows } = await pool.query(
-    `SELECT b.*,
+    `SELECT ${BOX_PUBLIC_COLUMNS},
             u.full_name AS host_full_name,
             (SELECT COUNT(*)::int FROM reviews r WHERE r.reviewee_user_id = b.host_user_id) AS host_review_count,
             (SELECT COALESCE(AVG(score), 0)::float FROM reviews r WHERE r.reviewee_user_id = b.host_user_id) AS host_avg_score
@@ -5449,8 +5533,8 @@ router.delete("/bookings/:id", requireAuth, async (req, res) => {
   }
   if (refundAmountCents > 0) {
     await pool.query(
-      `INSERT INTO refunds (booking_id, athlete_user_id, box_id, amount_cents, reason, status)
-       VALUES ($1, $2, $3, $4, $5, 'pending')
+      `INSERT INTO refunds (booking_id, athlete_user_id, host_user_id, box_id, amount_cents, reason, status)
+       VALUES ($1, $2, (SELECT host_user_id FROM boxes WHERE id = $3), $3, $4, $5, 'pending')
        ON CONFLICT (booking_id) DO NOTHING`,
       [
         bookingId,
@@ -5504,8 +5588,8 @@ router.delete("/bookings", requireAuth, async (req, res) => {
     );
     if (refundAmountCents > 0) {
       await pool.query(
-        `INSERT INTO refunds (booking_id, athlete_user_id, box_id, amount_cents, reason, status)
-         VALUES ($1, $2, $3, $4, $5, 'pending')
+        `INSERT INTO refunds (booking_id, athlete_user_id, host_user_id, box_id, amount_cents, reason, status)
+         VALUES ($1, $2, (SELECT host_user_id FROM boxes WHERE id = $3), $3, $4, $5, 'pending')
          ON CONFLICT (booking_id) DO NOTHING`,
         [
           row.id,

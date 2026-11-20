@@ -1,5 +1,14 @@
 const jwt = require("jsonwebtoken");
 
+const IS_PRODUCTION =
+  process.env.NODE_ENV === "production" || Boolean(process.env.RENDER);
+
+if (IS_PRODUCTION && !process.env.JWT_SECRET) {
+  throw new Error(
+    "JWT_SECRET environment variable is required in production (refusing to use the dev secret)"
+  );
+}
+
 const JWT_SECRET = process.env.JWT_SECRET || "dev-secret-change-me";
 const ACCESS_EXPIRES_IN = "15m";
 
