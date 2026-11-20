@@ -99,5 +99,18 @@ assert.ok(fs.existsSync(path.join(root, "mobile/AuthScreen.js")));
 assert.ok(fs.existsSync(path.join(root, "mobile/authUiContext.js")));
 ok("AuthScreen extracted");
 
+const railSrc = fs.readFileSync(
+  path.join(root, "mobile/TrailProfileRail.web.js"),
+  "utf8"
+);
+assert.match(railSrc, /sortieBanner/);
+assert.match(railSrc, /Ajouter à/);
+assert.doesNotMatch(
+  railSrc,
+  /\{ id: "composer", label: "Notes" \}/,
+  "Notes/Sortie/Public tabs must be removed"
+);
+ok("TrailProfileRail unified sortie panel");
+
 console.log("\nSmoke API OK");
 process.exit(0);

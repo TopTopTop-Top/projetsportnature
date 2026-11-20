@@ -2163,29 +2163,100 @@ function ExplorerScreen() {
     persistExplorerSavedProbes(explorerSavedProbes);
   }, [explorerSavedProbes]);
 
-  const saveExplorerProbe = useCallback(() => {
+  /**
+   * Un point cliqué va directement dans la sortie active (créée si besoin).
+   * Plus de brouillon « Notes » orphelin.
+   */
+  const saveExplorerProbe = useCallback(async () => {
     if (!explorerTrailProbe || selectedTrailId == null) return;
+    if (!user) {
+      userAlert(
+        "Connexion",
+        "Connecte-toi pour ajouter un point à ta sortie."
+      );
+      return;
+    }
     const tid = Number(selectedTrailId);
     if (Number(explorerTrailProbe.trailId) !== tid) return;
-    const n =
-      explorerSavedProbes.filter((e) => Number(e.trailId) === tid).length + 1;
-    setExplorerSavedProbes((prev) => [
-      ...prev,
-      {
-        id: `sp-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-        trailId: tid,
-        label: `Point ${n}`,
-        notes: "",
-        savedAt: Date.now(),
-        updatedAt: Date.now(),
-        probe: { ...explorerTrailProbe },
-      },
-    ]);
-    setExplorerProbeLock(false);
+    const lat = Number(explorerTrailProbe.lat);
+    const lon = Number(explorerTrailProbe.lng);
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
+
+    let planId = Number(selectedRoutePlanId);
+    let detail =
+      selectedRoutePlanDetail &&
+      Number(selectedRoutePlanDetail.id) === planId &&
+      Number(selectedRoutePlanDetail.trail_id) === tid
+        ? selectedRoutePlanDetail
+        : null;
+
+    if (!detail || !Number.isFinite(planId) || planId <= 0) {
+      const existingForTrail = (Array.isArray(routePlans) ? routePlans : []).find(
+        (p) => Number(p.trail_id) === tid
+      );
+      if (existingForTrail?.id) {
+        planId = Number(existingForTrail.id);
+        const loaded =
+          await actionsRef.current.loadRoutePlanDetail?.(planId);
+        detail = loaded || existingForTrail;
+        setSelectedRoutePlanId(planId);
+        if (loaded) setSelectedRoutePlanDetail(loaded);
+      } else {
+        const boxIds = Array.isArray(mapPickedBoxIds)
+          ? mapPickedBoxIds.map((x) => Number(x)).filter(Number.isFinite)
+          : [];
+        const created =
+          await actionsRef.current.createRoutePlanFromSelection?.({
+            trailId: tid,
+            boxIds,
+            silent: true,
+          });
+        if (!created?.id) return;
+        planId = Number(created.id);
+        detail = created;
+        setSelectedRoutePlanId(planId);
+        setSelectedRoutePlanDetail(created);
+      }
+    }
+
+    const existingNotes = Array.isArray(detail?.trail_notes)
+      ? detail.trail_notes
+      : [];
+    const n = existingNotes.length + 1;
+    const noteText = formatExplorerProbePlanNote({
+      label: `Point ${n}`,
+      notes: "",
+      probe: explorerTrailProbe,
+    });
+    if (!noteText) return;
+
+    const ok = await addRoutePlanTrailNote(planId, {
+      note: noteText,
+      pointLat: lat,
+      pointLon: lon,
+      sortIndex: existingNotes.length,
+      mapVisible: true,
+    });
+    if (ok) {
+      setExplorerProbeLock(false);
+      setExplorerTrailProbe(null);
+      userAlert(
+        "Point ajouté",
+        `Dans la sortie « ${detail?.name || `#${planId}`} ».`
+      );
+    }
   }, [
     explorerTrailProbe,
     selectedTrailId,
-    explorerSavedProbes,
+    user,
+    selectedRoutePlanId,
+    selectedRoutePlanDetail,
+    routePlans,
+    mapPickedBoxIds,
+    actionsRef,
+    addRoutePlanTrailNote,
+    setSelectedRoutePlanId,
+    setSelectedRoutePlanDetail,
     setExplorerProbeLock,
   ]);
 
@@ -2262,7 +2333,9 @@ function ExplorerScreen() {
 
   const [highlightedMapPointId, setHighlightedMapPointId] = useState(null);
   const [highlightedPlanBoxId, setHighlightedPlanBoxId] = useState(null);
-  const [explorerWorkspaceTab, setExplorerWorkspaceTab] = useState("composer");
+  /** Toujours sur la sortie : la communauté n’affiche ses tips que si ouverte. */
+  const [explorerWorkspaceTab, setExplorerWorkspaceTab] = useState("plan");
+  const [explorerShowCommunity, setExplorerShowCommunity] = useState(false);
 
   const handleMapPointHover = useCallback((pointId) => {
     setHighlightedMapPointId(pointId || null);
@@ -3027,19 +3100,14 @@ function ExplorerScreen() {
   const [sharedPlanPreviewBusy, setSharedPlanPreviewBusy] = useState(false);
 
   const trailMapPoints = useMemo(() => {
-    // Toujours montrer les points du projet actif (ravito / notes) sur Découvrir.
-    const projectPlan =
+    // Uniquement les points de la sortie active (plus de brouillons locaux).
+    const plan =
       selectedRoutePlanDetail &&
       Number(selectedRoutePlanDetail.id) === Number(selectedRoutePlanId)
         ? selectedRoutePlanDetail
-        : null;
-    const plan =
-      projectPlan ||
-      (explorerWorkspaceTab === "plan" ? activePlanForSelectedTrail : null);
+        : activePlanForSelectedTrail;
     const trailId =
-      Number(plan?.trail_id) ||
-      Number(selectedTrailId) ||
-      null;
+      Number(plan?.trail_id) || Number(selectedTrailId) || null;
     if (!plan || !Number.isFinite(Number(trailId))) return [];
     return buildTrailMapPoints({
       trailId,
@@ -3047,23 +3115,16 @@ function ExplorerScreen() {
       sharedPreview: null,
     });
   }, [
-    explorerWorkspaceTab,
     selectedTrailId,
     activePlanForSelectedTrail,
     selectedRoutePlanId,
     selectedRoutePlanDetail,
   ]);
   const communityTipsForMap = useMemo(
-    () => (explorerWorkspaceTab === "community" ? trailTips : []),
-    [explorerWorkspaceTab, trailTips]
+    () => (explorerShowCommunity ? trailTips : []),
+    [explorerShowCommunity, trailTips]
   );
-  const savedProbesForMap = useMemo(
-    () =>
-      explorerWorkspaceTab === "composer"
-        ? savedProbesForSelectedTrail
-        : [],
-    [explorerWorkspaceTab, savedProbesForSelectedTrail]
-  );
+  const savedProbesForMap = useMemo(() => [], []);
 
   useEffect(() => {
     if (!sharedPlanPreview) return;
@@ -3457,8 +3518,8 @@ function ExplorerScreen() {
     );
     if (boxIds.length === 0 && probes.length === 0) {
       userAlert(
-        "Plan",
-        "Coche au moins une box et/ou ajoute un point inclus dans la sortie (onglet Sortie). Une trace est requise."
+        "Sortie",
+        "Coche au moins une box et/ou ajoute un point sur la carte (lié à la sortie active)."
       );
       return;
     }
@@ -3488,13 +3549,10 @@ function ExplorerScreen() {
     const addedNotes = await appendComposerProbesToPlan(planId, probes, existing);
 
     await actionsRef.current.loadRoutePlans?.();
-    const parts = ["Trace enregistrée"];
+    const parts = ["Sortie enregistrée"];
     if (boxIds.length) parts.push(`${boxIds.length} box`);
-    if (addedNotes) parts.push(`${addedNotes} point(s) mémorisé(s)`);
-    userAlert(
-      "Plan enregistré",
-      `${parts.join(" · ")}. Consulte l’onglet Sortie pour les points GPS enregistrés.`
-    );
+    if (addedNotes) parts.push(`${addedNotes} point(s)`);
+    userAlert("Sortie", `${parts.join(" · ")}.`);
     if (probes.length > 0) {
       const clear = await confirmComposerClearAfterSave();
       if (clear) {
@@ -7211,6 +7269,7 @@ function ExplorerScreen() {
                   }
                   onSetPlanVisibility={setActivePlanVisibility}
                   onWorkspaceTabChange={setExplorerWorkspaceTab}
+                  onShowCommunityChange={setExplorerShowCommunity}
                 />
               </View>
             ) : null}

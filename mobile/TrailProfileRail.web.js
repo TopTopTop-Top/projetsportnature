@@ -139,11 +139,16 @@ export default function TrailProfileRail({
   activePlanVisibility = "private",
   onSetPlanVisibility,
   onWorkspaceTabChange,
+  onShowCommunityChange,
 }) {
-  const [workspaceTab, setWorkspaceTab] = useState("composer");
+  /** Un seul panneau : sortie + points. Communauté = tiroir secondaire. */
+  const [showCommunity, setShowCommunity] = useState(false);
   useEffect(() => {
-    onWorkspaceTabChange?.(workspaceTab);
-  }, [workspaceTab, onWorkspaceTabChange]);
+    onWorkspaceTabChange?.("plan");
+  }, [onWorkspaceTabChange]);
+  useEffect(() => {
+    onShowCommunityChange?.(showCommunity);
+  }, [showCommunity, onShowCommunityChange]);
   useEffect(() => {
     if (Platform.OS !== "web") return;
     const scrollTo = (domId) => {
@@ -156,7 +161,7 @@ export default function TrailProfileRail({
     } else if (highlightedPlanBoxId != null) {
       scrollTo(planBoxDomId(highlightedPlanBoxId));
     }
-  }, [highlightedMapPointId, highlightedPlanBoxId, workspaceTab]);
+  }, [highlightedMapPointId, highlightedPlanBoxId]);
   const handleChartProbe = useCallback(
     (distKm) => {
       if (!trail) return;
@@ -205,6 +210,20 @@ export default function TrailProfileRail({
     probe?.distKm != null && routeLenKm > 0
       ? Math.min(100, Math.round((Number(probe.distKm) / routeLenKm) * 100))
       : null;
+
+  const activeSortieName = hasActivePlan
+    ? activePlan?.name || `Sortie #${activePlan?.id}`
+    : null;
+  const activePointCount = Array.isArray(activePlan?.trail_notes)
+    ? activePlan.trail_notes.length
+    : 0;
+  const activeBoxCount =
+    (Number(activePlan?.validated_box_count) || 0) +
+    (Number(activePlan?.pending_box_count) || 0);
+
+  const savePointLabel = hasActivePlan
+    ? `Ajouter à « ${activeSortieName} »`
+    : "Créer la sortie et ajouter ce point";
 
   return (
     <View style={styles.rail}>
@@ -259,34 +278,17 @@ export default function TrailProfileRail({
           ) : null}
         </View>
 
-        <View style={styles.tabBar}>
-          {[
-            { id: "composer", label: "Notes" },
-            { id: "plan", label: "Sortie" },
-            { id: "community", label: "Public" },
-          ].map((t) => (
-            <Pressable
-              key={t.id}
-              onPress={() => setWorkspaceTab(t.id)}
-              style={[
-                styles.tabBtn,
-                workspaceTab === t.id && styles.tabBtnActive,
-              ]}
-            >
-              <Text
-                style={[
-                  styles.tabBtnText,
-                  workspaceTab === t.id && styles.tabBtnTextActive,
-                ]}
-              >
-                {t.label}
-              </Text>
-            </Pressable>
-          ))}
+        <View style={styles.sortieBanner}>
+          <Text style={styles.sortieBannerKicker}>Sortie active</Text>
+          <Text style={styles.sortieBannerTitle} numberOfLines={1}>
+            {activeSortieName || "Aucune — le 1er point en crée une"}
+          </Text>
+          <Text style={styles.sortieBannerMeta}>
+            {activeBoxCount} box · {activePointCount} point
+            {activePointCount === 1 ? "" : "s"}
+          </Text>
         </View>
 
-        {workspaceTab === "composer" ? (
-          <>
         <View style={styles.stats}>
           <Stat label="Distance" value={`${totalKm} km`} />
           {altMeta.status === "profile" ? (
@@ -332,12 +334,16 @@ export default function TrailProfileRail({
 
         {probe ? (
           <View style={styles.probeStrip}>
-            <Text style={styles.probeKm}>{Number(probe.distKm).toFixed(1)} km</Text>
+            <Text style={styles.probeKm}>
+              {Number(probe.distKm).toFixed(1)} km
+            </Text>
             {probe.eleM != null ? (
               <Text style={styles.probeDetail}>{probe.eleM} m</Text>
             ) : null}
             {probe.gainM != null ? (
-              <Text style={styles.probeDetail}>D+ {Math.round(probe.gainM)} m</Text>
+              <Text style={styles.probeDetail}>
+                D+ {Math.round(probe.gainM)} m
+              </Text>
             ) : null}
             {probe.terrainLabel ? (
               <Text style={styles.probeTerrain} numberOfLines={1}>
@@ -347,14 +353,15 @@ export default function TrailProfileRail({
             <Text style={styles.probeCoords} numberOfLines={2}>
               {formatTrailProbeCoords(probe)}
             </Text>
+            <Text style={styles.probeBelongHint}>
+              Ce point ira dans la sortie ci-dessus (éditable ensuite).
+            </Text>
             <View style={styles.probeActions}>
               <Pressable
                 onPress={onSaveProbe}
                 style={[styles.actionBtn, styles.actionBtnPrimary]}
               >
-                <Text style={styles.actionBtnTextPrimary}>
-                  Sauver le point
-                </Text>
+                <Text style={styles.actionBtnTextPrimary}>{savePointLabel}</Text>
               </Pressable>
               {onRequestRavito && Number.isFinite(probe?.lat) ? (
                 <Pressable
@@ -371,7 +378,9 @@ export default function TrailProfileRail({
                   onPress={onPublishTrailTip}
                   style={[styles.actionBtn, styles.actionBtnCreator]}
                 >
-                  <Text style={styles.actionBtnText}>Publier en public</Text>
+                  <Text style={styles.actionBtnText}>
+                    Publier conseil public
+                  </Text>
                 </Pressable>
               ) : null}
               {probeLocked ? (
@@ -382,54 +391,17 @@ export default function TrailProfileRail({
             </View>
           </View>
         ) : (
-          <Text style={styles.hint}>Clique la carte ou la courbe.</Text>
+          <Text style={styles.hint}>
+            Clique la carte ou la courbe, puis ajoute le point à ta sortie.
+          </Text>
         )}
 
-        {savedProbes.length > 0 ? (
-          <View style={styles.savedBlock}>
-            <View style={styles.savedHeader}>
-              <Text style={styles.savedTitle}>
-                Points ({savedProbes.length})
-              </Text>
-              {onClearSavedProbes ? (
-                <Pressable onPress={onClearSavedProbes}>
-                  <Text style={styles.savedClearAll}>Tout effacer</Text>
-                </Pressable>
-              ) : null}
-            </View>
-            {savedProbes.map((entry) => (
-              <SavedProbeCard
-                key={entry.id}
-                entry={entry}
-                linkableBoxes={linkableBoxes}
-                trailTips={trailTipsForEntry}
-                isTrailCreator={isTrailCreator}
-                onFocus={() => onFocusSavedProbe?.(entry)}
-                onRemove={() => onRemoveSavedProbe?.(entry.id)}
-                onSaveNotes={(notes) =>
-                  onUpdateSavedProbeNotes?.(entry.id, notes)
-                }
-                onLinkBoxChange={(boxId) =>
-                  onUpdateSavedProbeLinkedBox?.(entry.id, boxId)
-                }
-                onPublishEntry={onPublishEntryTip}
-                onUnpublishEntry={onUnpublishEntryTip}
-                onToggleIncludeInPlan={onToggleIncludeInPlan}
-                onExpandEditor={scrollToBottom}
-              />
-            ))}
-          </View>
-        ) : null}
-          </>
-        ) : null}
-
-        {workspaceTab === "plan" ? (
         <TrailPlanHub
           isAuthed={isAuthed}
           routePlanBusy={routePlanBusy}
           pickedBoxCount={pickedBoxCount}
           pickedBoxes={pickedBoxes}
-          savedProbeCount={savedProbes.length}
+          savedProbeCount={0}
           plansForTrail={plansForTrail}
           selectedPlanId={selectedPlanId}
           onSelectPlan={onSelectPlan}
@@ -476,9 +448,18 @@ export default function TrailProfileRail({
           hostPendingBookingByBoxId={hostPendingBookingByBoxId}
           onHostDecideBooking={onHostDecideBooking}
         />
-        ) : null}
 
-        {workspaceTab === "community" ? (
+        <Pressable
+          onPress={() => setShowCommunity((v) => !v)}
+          style={styles.communityToggle}
+        >
+          <Text style={styles.communityToggleText}>
+            {showCommunity
+              ? "Masquer la communauté"
+              : "Voir conseils & sorties communautaires"}
+          </Text>
+        </Pressable>
+        {showCommunity ? (
           <CommunityPanel
             trailGeneralNotes={trailGeneralNotes}
             isTrailCreator={isTrailCreator}
@@ -810,14 +791,14 @@ function TrailPlanHub({
 
   return (
     <View style={styles.planSaveBlock}>
-      <Text style={styles.planSaveTitle}>Sortie active</Text>
       <Text style={styles.planWorkflow}>
-        Modifie un point ci-dessous, sauve le texte, ou × pour supprimer.
+        Chaque point cliqué sur la carte appartient à la sortie sélectionnée
+        ci-dessous. Modifie le texte, ou × pour supprimer.
       </Text>
 
       {isAuthed && plansForTrail.length > 0 ? (
         <View style={styles.planChipsWrap}>
-          <Text style={styles.planSubLabel}>Plans sur cette trace</Text>
+          <Text style={styles.planSubLabel}>Mes sorties sur cette trace</Text>
           <View style={styles.planChipsRow}>
             {plansForTrail.slice(0, 6).map((plan) => {
               const pid = Number(plan.id);
@@ -835,7 +816,7 @@ function TrailPlanHub({
                     ]}
                     numberOfLines={1}
                   >
-                    {plan.name || `Plan #${pid}`}
+                    {plan.name || `Sortie #${pid}`}
                   </Text>
                 </Pressable>
               );
@@ -847,19 +828,28 @@ function TrailPlanHub({
       {hasActivePlan && activePlan ? (
         <View style={styles.planActiveCard}>
           <Text style={styles.planActiveTitle}>
-            Plan actif : {activePlan.name}
+            Points de « {activePlan.name} »
           </Text>
           <Text style={styles.planActiveMeta}>
-            {(activePlan.validated_box_count || 0) + (activePlan.pending_box_count || 0)} box
-            · {Array.isArray(activePlan.trail_notes) ? activePlan.trail_notes.length : 0}{" "}
-            note(s) enregistrée(s)
+            {(activePlan.validated_box_count || 0) +
+              (activePlan.pending_box_count || 0)}{" "}
+            box ·{" "}
+            {Array.isArray(activePlan.trail_notes)
+              ? activePlan.trail_notes.length
+              : 0}{" "}
+            point
+            {(Array.isArray(activePlan.trail_notes)
+              ? activePlan.trail_notes.length
+              : 0) === 1
+              ? ""
+              : "s"}
           </Text>
           {onPlanNameDraftChange ? (
             <TextInput
               style={styles.planSaveInput}
               value={planNameDraft}
               onChangeText={onPlanNameDraftChange}
-              placeholder="Nom du plan"
+              placeholder="Nom de la sortie"
               placeholderTextColor={theme.inkMuted}
             />
           ) : null}
@@ -868,7 +858,7 @@ function TrailPlanHub({
               style={[styles.planSaveInput, styles.planNotesInput]}
               value={planNotesDraft}
               onChangeText={onPlanNotesDraftChange}
-              placeholder="Notes générales du plan"
+              placeholder="Note générale de la sortie (optionnel)"
               placeholderTextColor={theme.inkMuted}
               multiline
             />
@@ -879,7 +869,7 @@ function TrailPlanHub({
                 onPress={onSaveActivePlanDrafts}
                 style={[styles.actionBtn, styles.planBtnHalf]}
               >
-                <Text style={styles.actionBtnText}>Sauver nom & notes</Text>
+                <Text style={styles.actionBtnText}>Sauver nom & note</Text>
               </Pressable>
             ) : null}
             {onApplyPlanToMap ? (
@@ -887,7 +877,7 @@ function TrailPlanHub({
                 onPress={() => onApplyPlanToMap(activePlan)}
                 style={[styles.actionBtn, styles.planBtnHalf]}
               >
-                <Text style={styles.actionBtnText}>Carte</Text>
+                <Text style={styles.actionBtnText}>Voir sur carte</Text>
               </Pressable>
             ) : null}
           </View>
@@ -911,8 +901,8 @@ function TrailPlanHub({
                 ]}
               >
                 {activePlanVisibility === "shared"
-                  ? "Plan partagé — visible en Communauté"
-                  : "Rendre ce plan public (Communauté)"}
+                  ? "Sortie partagée — visible en communauté"
+                  : "Partager cette sortie (communauté)"}
               </Text>
             </Pressable>
           ) : null}
@@ -921,13 +911,13 @@ function TrailPlanHub({
               onPress={() => onForkSharedPlan(Number(activePlan.id))}
               style={[styles.actionBtn, { marginTop: 6 }]}
             >
-              <Text style={styles.actionBtnText}>Dupliquer ce plan</Text>
+              <Text style={styles.actionBtnText}>Dupliquer cette sortie</Text>
             </Pressable>
           ) : null}
           {planTrailNotes.length > 0 ? (
             <View style={styles.planTrailNotesSection}>
               <Text style={styles.planSubLabel}>
-                Points ({planTrailNotes.length})
+                Points de cette sortie ({planTrailNotes.length})
               </Text>
               {planTrailNotes.map((n, idx) => {
                 const nid = Number(n.id);
@@ -1028,7 +1018,8 @@ function TrailPlanHub({
         </View>
       ) : (
         <Text style={styles.planSaveHint}>
-          Pas de plan chargé — enregistre pour créer le lien trace + box + points.
+          Pas encore de sortie — clique un point sur la carte puis
+          « Créer la sortie et ajouter ce point ».
         </Text>
       )}
 
@@ -1084,22 +1075,21 @@ function TrailPlanHub({
             >
               <Text style={styles.actionBtnText}>
                 {hasActivePlan
-                  ? "Ajouter les box cochées au plan"
-                  : "Créer un plan avec ces box"}
+                  ? "Ajouter les box cochées à la sortie"
+                  : "Créer une sortie avec ces box"}
               </Text>
             </Pressable>
           ) : null}
         </View>
       ) : (
         <Text style={styles.planSaveHint}>
-          Coche des box sur la carte (clic ou appui long) pour les lier à ce
-          plan.
+          Coche des box sur la carte pour les lier à cette sortie.
         </Text>
       )}
 
       {hasActivePlan && planBoxes.length > 0 ? (
         <View style={styles.planBoxesSection}>
-          <Text style={styles.planSubLabel}>Box du plan (compte)</Text>
+          <Text style={styles.planSubLabel}>Box de la sortie</Text>
           <Text style={styles.planSaveHint}>
             Créneau réservé, validation hôte et note de plan par box.
           </Text>
@@ -1145,47 +1135,43 @@ function TrailPlanHub({
         </Text>
       ) : null}
 
-      <TextInput
-        style={styles.planSaveInput}
-        value={routePlanSaveName}
-        onChangeText={onRoutePlanSaveNameChange}
-        placeholder="Nom du plan (nouveau ou complet)"
-        placeholderTextColor={theme.inkMuted}
-      />
-      {onRoutePlanDraftNotesChange ? (
-        <TextInput
-          style={[styles.planSaveInput, styles.planNotesInput]}
-          value={routePlanDraftNotes}
-          onChangeText={onRoutePlanDraftNotesChange}
-          placeholder="Notes plan (stratégie, ravitos…)"
-          placeholderTextColor={theme.inkMuted}
-          multiline
-        />
+      {!hasActivePlan ? (
+        <>
+          <TextInput
+            style={styles.planSaveInput}
+            value={routePlanSaveName}
+            onChangeText={onRoutePlanSaveNameChange}
+            placeholder="Nom de la nouvelle sortie (optionnel)"
+            placeholderTextColor={theme.inkMuted}
+          />
+          {onRoutePlanDraftNotesChange ? (
+            <TextInput
+              style={[styles.planSaveInput, styles.planNotesInput]}
+              value={routePlanDraftNotes}
+              onChangeText={onRoutePlanDraftNotesChange}
+              placeholder="Note générale (optionnel)"
+              placeholderTextColor={theme.inkMuted}
+              multiline
+            />
+          ) : null}
+          <Pressable
+            onPress={onSaveRoutePlan}
+            disabled={routePlanBusy || !isAuthed}
+            style={[
+              styles.actionBtn,
+              styles.actionBtnPrimary,
+              styles.planSaveBtn,
+              (routePlanBusy || !isAuthed) && styles.planSaveBtnDisabled,
+            ]}
+          >
+            <Text style={styles.actionBtnTextPrimary}>
+              {routePlanBusy
+                ? "Création…"
+                : "Créer la sortie (trace + box cochées)"}
+            </Text>
+          </Pressable>
+        </>
       ) : null}
-      <Text style={styles.planSaveHint}>
-        {pickedBoxCount > 0 ? `${pickedBoxCount} box cochée(s)` : "0 box"}
-        {savedProbeCount > 0
-          ? ` · ${savedProbeCount} point(s) mémorisé(s) → notes GPS au save`
-          : ""}
-      </Text>
-      <Pressable
-        onPress={onSaveRoutePlan}
-        disabled={routePlanBusy || !isAuthed}
-        style={[
-          styles.actionBtn,
-          styles.actionBtnPrimary,
-          styles.planSaveBtn,
-          (routePlanBusy || !isAuthed) && styles.planSaveBtnDisabled,
-        ]}
-      >
-        <Text style={styles.actionBtnTextPrimary}>
-          {routePlanBusy
-            ? "Enregistrement…"
-            : hasActivePlan
-            ? "Enregistrer le plan complet"
-            : "Créer le plan (trace + box + points)"}
-        </Text>
-      </Pressable>
     </View>
   );
 }
@@ -1749,6 +1735,59 @@ const styles = StyleSheet.create({
   },
   tabBtnTextActive: {
     color: theme.white,
+  },
+  sortieBanner: {
+    marginHorizontal: 12,
+    marginTop: 10,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderRadius: 14,
+    backgroundColor: theme.primary,
+  },
+  sortieBannerKicker: {
+    fontSize: 10,
+    fontWeight: "800",
+    letterSpacing: 0.4,
+    textTransform: "uppercase",
+    color: "rgba(255,255,255,0.75)",
+  },
+  sortieBannerTitle: {
+    marginTop: 4,
+    fontSize: 16,
+    fontWeight: "800",
+    color: theme.white,
+    fontFamily: theme.fontDisplay,
+  },
+  sortieBannerMeta: {
+    marginTop: 4,
+    fontSize: 12,
+    fontWeight: "600",
+    color: "rgba(255,255,255,0.9)",
+  },
+  probeBelongHint: {
+    marginTop: 8,
+    fontSize: 11,
+    lineHeight: 15,
+    color: theme.inkMuted,
+    fontFamily: theme.font,
+  },
+  communityToggle: {
+    marginHorizontal: 12,
+    marginTop: 12,
+    marginBottom: 4,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: theme.border,
+    backgroundColor: theme.surface,
+    alignItems: "center",
+  },
+  communityToggleText: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: theme.primary,
+    fontFamily: theme.font,
   },
   composerHintBox: {
     marginHorizontal: 12,
