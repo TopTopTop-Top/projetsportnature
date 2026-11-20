@@ -8,14 +8,8 @@ import {
   TouchableOpacity,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import theme from "./theme";
 
-const theme = {
-  primary: "#0D9488",
-  ink: "#0F172A",
-  inkMuted: "#64748B",
-  border: "#E2E8F0",
-  surface: "#FFFFFF",
-};
 
 /**
  * Affichage unique du code de compte (inscription ou régénération).
@@ -96,7 +90,7 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   codeBox: {
-    backgroundColor: "#F0FDFA",
+    backgroundColor: theme.primarySoft,
     borderWidth: 1,
     borderColor: theme.primary,
     borderRadius: 12,
@@ -125,7 +119,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   btnText: {
-    color: "#fff",
+    color: theme.white,
     fontWeight: "700",
     fontSize: 15,
   },

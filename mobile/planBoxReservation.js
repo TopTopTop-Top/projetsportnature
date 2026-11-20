@@ -1,4 +1,5 @@
 /** Libellés et détection réservation / validation pour les box d’un plan. */
+import theme from "./theme";
 
 export function isBookingPaid(paymentStatus) {
   const p = String(paymentStatus || "simulated_unpaid").toLowerCase();
@@ -114,10 +115,13 @@ export function formatPlanBoxPrice(box) {
 
 export function planBoxStatusColors(status) {
   if (status === "validated") {
-    return { border: "#34D399", bg: "#ECFDF5", text: "#059669" };
+    const t = theme.status.validated;
+    return { border: t.border, bg: t.bg, text: t.fg };
   }
   if (status === "rejected") {
-    return { border: "#FCA5A5", bg: "#FEF2F2", text: "#DC2626" };
+    const t = theme.status.rejected;
+    return { border: t.border, bg: t.bg, text: t.fg };
   }
-  return { border: "#FCD34D", bg: "#FFFBEB", text: "#B45309" };
+  const t = theme.status.pending;
+  return { border: t.border, bg: t.bg, text: t.fg };
 }

@@ -7,6 +7,7 @@ import React, {
   useState,
 } from "react";
 import { View, Text, Platform, StyleSheet } from "react-native";
+import theme from "./theme";
 import {
   formatTrailProbeLabel,
   formatTrailProbeCoords,
@@ -33,7 +34,7 @@ function drawTrailProbeOnMap(L, probeLayer, probe, trail, lineColor, locked) {
     return;
   }
   if (!probe || !trail) return;
-  const color = lineColor || "#0F766E";
+  const color = lineColor || theme.primary;
   const remainder = getTrailRemainderSlice(trail, probe.distKm);
   const lineOpts = { pane: PROBE_LINE_PANE };
   if (remainder && remainder.length >= 2) {
@@ -67,7 +68,7 @@ function drawTrailProbeOnMap(L, probeLayer, probe, trail, lineColor, locked) {
     }).addTo(probeLayer);
     L.polyline(progress, {
       ...lineOpts,
-      color: "#FBBF24",
+      color: theme.heroAccent,
       weight: locked ? 6 : 7,
       opacity: 1,
       lineCap: "round",
@@ -572,23 +573,21 @@ function patchLeafletIcons(L) {
 }
 
 /** Tracé au repos : bien visible sans survol (fond OSM + halo blanc). */
-const TRAIL_STYLE = { color: "#0F766E", weight: 6.8, opacity: 1 };
+const TRAIL_STYLE = { color: theme.primary, weight: 6.8, opacity: 1 };
 const TRAIL_DIFFICULTY_STYLES = {
-  easy: { color: "#16A34A", casing: "#DCFCE7" },
-  medium: { color: "#D97706", casing: "#FEF3C7" },
-  hard: { color: "#DC2626", casing: "#FEE2E2" },
+  easy: { color: theme.status.easy.fg, casing: theme.status.easy.bg },
+  medium: { color: theme.status.medium.fg, casing: theme.status.medium.bg },
+  hard: { color: theme.status.hard.fg, casing: theme.status.hard.bg },
 };
 
 /** Couleurs stables par id de trace : plusieurs tracés « difficiles » restent distinguables. */
 const TRAIL_DISPLAY_PALETTE = [
-  "#92400E",
-  "#0369A1",
-  "#7C3AED",
-  "#0D9488",
-  "#CA8A04",
-  "#DB2777",
-  "#4D7C0F",
-  "#4338CA",
+  theme.warn,
+  theme.mapTeal,
+  theme.primary,
+  theme.danger,
+  theme.hero,
+  theme.inkMuted,
 ];
 
 function trailDisplayColor(trailId, difficultyFallback) {
@@ -648,16 +647,16 @@ function boxVisualStatus(box) {
   if (!active) {
     return {
       label: "Indisponible",
-      bg: "#E2E8F0",
-      fg: "#334155",
-      stroke: "#94A3B8",
+      bg: theme.status.muted.bg,
+      fg: theme.status.muted.fg,
+      stroke: theme.status.muted.border,
     };
   }
   return {
     label: "Disponible",
-    bg: "#D1FAE5",
-    fg: "#065F46",
-    stroke: "#10B981",
+    bg: theme.status.validated.bg,
+    fg: theme.status.validated.fg,
+    stroke: theme.primary,
   };
 }
 
@@ -703,7 +702,7 @@ function buildBoxPopupHtml(box) {
   );
   if (box.description) {
     lines.push(
-      `<span style="font-size:12px;color:#334155">${truncateForPopup(
+      `<span style="font-size:12px;color:#6B7A72">${truncateForPopup(
         box.description,
         220
       )}</span>`
@@ -711,7 +710,7 @@ function buildBoxPopupHtml(box) {
   }
   if (box.availability_note) {
     lines.push(
-      `<strong>Disponibilités</strong><br/><span style="font-size:12px;color:#334155">${truncateForPopup(
+      `<strong>Disponibilités</strong><br/><span style="font-size:12px;color:#6B7A72">${truncateForPopup(
         box.availability_note,
         300
       )}</span>`
@@ -720,7 +719,7 @@ function buildBoxPopupHtml(box) {
   const criteria = parseCriteria(box);
   if (criteria.length > 0) {
     lines.push(
-      `<strong>Critères</strong><br/><span style="font-size:12px;color:#334155">${truncateForPopup(
+      `<strong>Critères</strong><br/><span style="font-size:12px;color:#6B7A72">${truncateForPopup(
         criteria.join(" · "),
         300
       )}</span>`
@@ -728,7 +727,7 @@ function buildBoxPopupHtml(box) {
   }
   if (box.criteria_note) {
     lines.push(
-      `<strong>Détails</strong><br/><span style="font-size:12px;color:#334155">${truncateForPopup(
+      `<strong>Détails</strong><br/><span style="font-size:12px;color:#6B7A72">${truncateForPopup(
         box.criteria_note,
         300
       )}</span>`
@@ -759,7 +758,7 @@ function buildTrailPopupHtml(trail, staticOrigin) {
   ];
   if (crit.length) {
     lines.push(
-      `<span style="font-size:12px;color:#334155">${truncateForPopup(
+      `<span style="font-size:12px;color:#6B7A72">${truncateForPopup(
         crit.join(" · "),
         280
       )}</span>`
@@ -767,7 +766,7 @@ function buildTrailPopupHtml(trail, staticOrigin) {
   }
   if (trail.notes) {
     lines.push(
-      `<span style="font-size:12px;color:#334155">${truncateForPopup(
+      `<span style="font-size:12px;color:#6B7A72">${truncateForPopup(
         trail.notes,
         320
       )}</span>`
@@ -879,10 +878,10 @@ function buildBoxHouseDivIcon(L, opts) {
     stroke = MAP_SEL.focus;
     sw = 1.8;
   } else if (isPlanBox) {
-    fill = "#FAFAFF";
+    fill = theme.surface;
     stroke = MAP_SEL.boxPlan;
   } else if (dimIncompatibleBoxes && !isCompatible) {
-    fill = "#F8FAFC";
+    fill = theme.surfaceMuted;
     stroke = MAP_SEL.muted;
   }
 
@@ -1662,7 +1661,7 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
             Math.min(44, trailCorridorKm * 10)
           );
           L.polyline(positions, {
-            color: "#0EA5E9",
+            color: theme.mapTeal,
             weight: corridorWeight,
             opacity: 0.14,
             lineCap: "round",
@@ -1921,9 +1920,9 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
         const marker = L.circleMarker([lat, lng], {
           pane: BOX_MARKER_PANE,
           radius: Math.min(18, 10 + Math.log2(cluster.count + 1) * 2),
-          color: "#0F766E",
+          color: theme.primary,
           weight: 2,
-          fillColor: "#14B8A6",
+          fillColor: theme.mapTeal,
           fillOpacity: 0.85,
         });
         marker.bindTooltip(`${cluster.count} box`, { direction: "top" });
@@ -2039,9 +2038,9 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
       try {
         const marker = L.circleMarker(p, {
           radius: 8,
-          color: "#0369A1",
+          color: theme.hero,
           weight: 2,
-          fillColor: "#0EA5E9",
+          fillColor: theme.mapTeal,
           fillOpacity: 0.85,
         });
         marker.bindPopup("Position box (brouillon)");
@@ -2056,18 +2055,18 @@ const ExplorerWebMap = memo(function ExplorerWebMap({
       try {
         L.circleMarker(tap, {
           radius: 14,
-          color: "#C2410C",
+          color: theme.danger,
           weight: 2,
-          fillColor: "#FBBF24",
+          fillColor: theme.heroAccent,
           fillOpacity: 0.35,
         })
           .bindTooltip("Point choisi sur la carte", { direction: "top" })
           .addTo(group);
         L.circleMarker(tap, {
           radius: 6,
-          color: "#9A3412",
+          color: theme.danger,
           weight: 2,
-          fillColor: "#F97316",
+          fillColor: theme.warn,
           fillOpacity: 1,
         }).addTo(group);
       } catch (_e) {

@@ -34,6 +34,7 @@ import {
 } from "./trailMapPoints";
 import { formatPlanSignals } from "./relevanceIndicators";
 import { MAP_PANEL_SELECTION, MAP_SEL } from "./mapSelectionVisual";
+import theme from "./theme";
 
 function webHoverHandlers(onEnter, onLeave) {
   if (Platform.OS !== "web") return {};
@@ -859,7 +860,7 @@ function TrailPlanHub({
               value={planNameDraft}
               onChangeText={onPlanNameDraftChange}
               placeholder="Nom du plan"
-              placeholderTextColor="#94A3B8"
+              placeholderTextColor={theme.inkMuted}
             />
           ) : null}
           {onPlanNotesDraftChange ? (
@@ -868,7 +869,7 @@ function TrailPlanHub({
               value={planNotesDraft}
               onChangeText={onPlanNotesDraftChange}
               placeholder="Notes générales du plan"
-              placeholderTextColor="#94A3B8"
+              placeholderTextColor={theme.inkMuted}
               multiline
             />
           ) : null}
@@ -1008,7 +1009,7 @@ function TrailPlanHub({
                         onPlanTrailNoteDraftChange?.(nid, v)
                       }
                       placeholder="Texte du point / infos"
-                      placeholderTextColor="#94A3B8"
+                      placeholderTextColor={theme.inkMuted}
                       multiline
                     />
                     {onSavePlanTrailNote ? (
@@ -1149,7 +1150,7 @@ function TrailPlanHub({
         value={routePlanSaveName}
         onChangeText={onRoutePlanSaveNameChange}
         placeholder="Nom du plan (nouveau ou complet)"
-        placeholderTextColor="#94A3B8"
+        placeholderTextColor={theme.inkMuted}
       />
       {onRoutePlanDraftNotesChange ? (
         <TextInput
@@ -1157,7 +1158,7 @@ function TrailPlanHub({
           value={routePlanDraftNotes}
           onChangeText={onRoutePlanDraftNotesChange}
           placeholder="Notes plan (stratégie, ravitos…)"
-          placeholderTextColor="#94A3B8"
+          placeholderTextColor={theme.inkMuted}
           multiline
         />
       ) : null}
@@ -1229,8 +1230,8 @@ function PlanBoxReservationCard({
       style={[
         styles.planBoxReservationCard,
         {
-          borderColor: highlighted ? "#0F7A65" : colors.border,
-          backgroundColor: highlighted ? "#E6F5F1" : colors.bg,
+          borderColor: highlighted ? theme.primary : colors.border,
+          backgroundColor: highlighted ? theme.primarySoft : colors.bg,
         },
         highlighted && styles.mapPointRowHighlight,
       ]}
@@ -1344,7 +1345,7 @@ function PlanBoxReservationCard({
       <TextInput
         style={styles.planBoxCommentInput}
         placeholder="Note box dans ton plan (stratégie, matos…)"
-        placeholderTextColor="#94A3B8"
+        placeholderTextColor={theme.inkMuted}
         value={commentDraft}
         onChangeText={onCommentChange}
         multiline
@@ -1361,7 +1362,7 @@ function PlanBoxReservationCard({
           <TextInput
             style={styles.planSaveInput}
             placeholder="Date (AAAA-MM-JJ)"
-            placeholderTextColor="#94A3B8"
+            placeholderTextColor={theme.inkMuted}
             value={bookingDraft.bookingDate || ""}
             onChangeText={(v) =>
               onBookingDraftChange({ ...bookingDraft, bookingDate: v })
@@ -1371,7 +1372,7 @@ function PlanBoxReservationCard({
             <TextInput
               style={[styles.planSaveInput, styles.planBoxTimeInput]}
               placeholder="Début (HH:MM)"
-              placeholderTextColor="#94A3B8"
+              placeholderTextColor={theme.inkMuted}
               value={bookingDraft.startTime || ""}
               onChangeText={(v) =>
                 onBookingDraftChange({ ...bookingDraft, startTime: v })
@@ -1380,7 +1381,7 @@ function PlanBoxReservationCard({
             <TextInput
               style={[styles.planSaveInput, styles.planBoxTimeInput]}
               placeholder="Fin (HH:MM)"
-              placeholderTextColor="#94A3B8"
+              placeholderTextColor={theme.inkMuted}
               value={bookingDraft.endTime || ""}
               onChangeText={(v) =>
                 onBookingDraftChange({ ...bookingDraft, endTime: v })
@@ -1390,7 +1391,7 @@ function PlanBoxReservationCard({
           <TextInput
             style={[styles.planSaveInput, styles.planNotesInput]}
             placeholder="Demande spéciale"
-            placeholderTextColor="#94A3B8"
+            placeholderTextColor={theme.inkMuted}
             value={bookingDraft.specialRequest || ""}
             onChangeText={(v) =>
               onBookingDraftChange({ ...bookingDraft, specialRequest: v })
@@ -1632,7 +1633,7 @@ function SavedProbeCard({
             value={draft}
             onChangeText={setDraft}
             placeholder="Conseil, pause, box, accès, danger…"
-            placeholderTextColor="#94A3B8"
+            placeholderTextColor={theme.inkMuted}
             multiline
             numberOfLines={4}
             textAlignVertical="top"
@@ -1683,10 +1684,10 @@ const styles = StyleSheet.create({
     flex: 1,
     minHeight: 0,
     width: "100%",
-    backgroundColor: "#FFFFFF",
+    backgroundColor: theme.surface,
     borderRadius: 20,
     borderWidth: 1,
-    borderColor: "#E8EFE9",
+    borderColor: theme.borderSoft,
     overflow: "hidden",
     shadowColor: "rgba(6, 45, 38, 0.12)",
     shadowOffset: { width: 0, height: 4 },
@@ -1708,19 +1709,19 @@ const styles = StyleSheet.create({
     marginHorizontal: 12,
     marginTop: 8,
     padding: 8,
-    backgroundColor: "#F8FAFC",
+    backgroundColor: theme.bg,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: "#E2E8F0",
+    borderColor: theme.border,
   },
   workspaceLegendText: {
     fontSize: 10,
     lineHeight: 14,
-    color: "#64748B",
+    color: theme.inkMuted,
   },
   workspaceLegendBold: {
     fontWeight: "800",
-    color: "#0F766E",
+    color: theme.primary,
   },
   tabBar: {
     flexDirection: "row",
@@ -1732,36 +1733,36 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingVertical: 8,
     borderRadius: 10,
-    backgroundColor: "#F1F5F9",
+    backgroundColor: theme.surfaceMuted,
     alignItems: "center",
     borderWidth: 1,
-    borderColor: "#E2E8F0",
+    borderColor: theme.border,
   },
   tabBtnActive: {
-    backgroundColor: "#062D26",
-    borderColor: "#062D26",
+    backgroundColor: theme.hero,
+    borderColor: theme.hero,
   },
   tabBtnText: {
     fontSize: 11,
     fontWeight: "700",
-    color: "#475569",
+    color: theme.ink,
   },
   tabBtnTextActive: {
-    color: "#FFFFFF",
+    color: theme.white,
   },
   composerHintBox: {
     marginHorizontal: 12,
     marginTop: 8,
     padding: 10,
-    backgroundColor: "#FFFBEB",
+    backgroundColor: theme.warnBg,
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: "#FDE68A",
+    borderColor: theme.warnBorder,
   },
   composerHintTitle: {
     fontSize: 10,
     fontWeight: "800",
-    color: "#92400E",
+    color: theme.warn,
     textTransform: "uppercase",
     letterSpacing: 0.35,
   },
@@ -1769,11 +1770,11 @@ const styles = StyleSheet.create({
     marginTop: 4,
     fontSize: 11,
     lineHeight: 15,
-    color: "#78350F",
+    color: theme.warn,
   },
   actionBtnCreator: {
-    backgroundColor: "#4F46E5",
-    borderColor: "#4338CA",
+    backgroundColor: theme.primary,
+    borderColor: theme.primaryPressed,
   },
   communityBlock: {
     marginHorizontal: 10,
@@ -1784,89 +1785,89 @@ const styles = StyleSheet.create({
   communityTitle: {
     fontSize: 12,
     fontWeight: "800",
-    color: "#062D26",
+    color: theme.hero,
   },
   communityIntro: {
     fontSize: 11,
     lineHeight: 15,
-    color: "#475569",
+    color: theme.ink,
   },
   communityRefresh: {
     alignSelf: "flex-start",
     paddingHorizontal: 10,
     paddingVertical: 6,
     borderRadius: 8,
-    backgroundColor: "#E2E8F0",
+    backgroundColor: theme.border,
   },
   communityRefreshText: {
     fontSize: 10,
     fontWeight: "700",
-    color: "#334155",
+    color: theme.ink,
   },
   communitySectionLabel: {
     marginTop: 6,
     fontSize: 10,
     fontWeight: "800",
-    color: "#64748B",
+    color: theme.inkMuted,
     textTransform: "uppercase",
     letterSpacing: 0.4,
   },
   communityCard: {
     padding: 10,
     borderRadius: 10,
-    backgroundColor: "#FFFFFF",
+    backgroundColor: theme.surface,
     borderWidth: 1,
-    borderColor: "#E2E8F0",
+    borderColor: theme.border,
     marginBottom: 8,
   },
   communityCardSelected: {
-    borderColor: "#0F7A65",
+    borderColor: theme.primary,
     borderWidth: 2,
-    backgroundColor: "#E6F5F1",
+    backgroundColor: theme.primarySoft,
   },
   communityPreviewDetail: {
     marginTop: 8,
     paddingTop: 8,
     borderTopWidth: 1,
-    borderTopColor: "#FED7AA",
+    borderTopColor: theme.warnBorder,
   },
   communityPreviewLabel: {
     fontSize: 10,
     fontWeight: "800",
-    color: "#9A3412",
+    color: theme.warn,
     marginTop: 6,
     marginBottom: 4,
   },
   communityPreviewItem: {
     fontSize: 10,
     lineHeight: 14,
-    color: "#334155",
+    color: theme.ink,
     marginBottom: 4,
   },
   communityCardLabel: {
     fontSize: 11,
     fontWeight: "800",
-    color: "#0F172A",
+    color: theme.ink,
   },
   communityCardBody: {
     marginTop: 4,
     fontSize: 11,
     lineHeight: 15,
-    color: "#334155",
+    color: theme.ink,
   },
   communityCardMeta: {
     marginTop: 4,
     fontSize: 10,
-    color: "#64748B",
+    color: theme.inkMuted,
   },
   communityHint: {
     fontSize: 10,
-    color: "#64748B",
+    color: theme.inkMuted,
     lineHeight: 14,
   },
   communityEmpty: {
     fontSize: 11,
-    color: "#94A3B8",
+    color: theme.inkMuted,
     fontStyle: "italic",
   },
   communityDeleteBtn: {
@@ -1876,32 +1877,32 @@ const styles = StyleSheet.create({
   communityDeleteText: {
     fontSize: 10,
     fontWeight: "700",
-    color: "#DC2626",
+    color: theme.danger,
   },
   shareToggle: {
     marginTop: 8,
     padding: 10,
     borderRadius: 14,
     borderWidth: 1,
-    borderColor: "#D5E0DA",
-    backgroundColor: "#FFFFFF",
+    borderColor: theme.border,
+    backgroundColor: theme.surface,
   },
   shareToggleOn: {
-    backgroundColor: "#E3F2EE",
-    borderColor: "#005F54",
+    backgroundColor: theme.primarySoft,
+    borderColor: theme.primary,
   },
   shareToggleText: {
     fontSize: 12,
     fontWeight: "600",
-    color: "#5C6B64",
+    color: theme.inkMuted,
     textAlign: "center",
   },
   shareToggleTextOn: {
-    color: "#005F54",
+    color: theme.primary,
     fontWeight: "700",
   },
   hero: {
-    backgroundColor: "#0B3D36",
+    backgroundColor: theme.hero,
     paddingHorizontal: 14,
     paddingTop: 14,
     paddingBottom: 12,
@@ -1915,7 +1916,7 @@ const styles = StyleSheet.create({
   heroExit: {
     fontSize: 11,
     fontWeight: "700",
-    color: "#FBBF24",
+    color: theme.heroAccent,
     textDecorationLine: "underline",
   },
   heroLabel: {
@@ -1929,7 +1930,7 @@ const styles = StyleSheet.create({
   heroTitle: {
     fontSize: 15,
     fontWeight: "800",
-    color: "#FFFFFF",
+    color: theme.white,
     lineHeight: 19,
   },
   heroMeta: {
@@ -1948,8 +1949,8 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(0,0,0,0.15)",
   },
   trailPublicToggleOn: {
-    borderColor: "#FBBF24",
-    backgroundColor: "rgba(251,191,36,0.2)",
+    borderColor: theme.heroAccent,
+    backgroundColor: "rgba(197, 217, 138, 0.2)",
   },
   trailPublicToggleText: {
     fontSize: 10,
@@ -1958,13 +1959,13 @@ const styles = StyleSheet.create({
     textAlign: "center",
   },
   trailPublicToggleTextOn: {
-    color: "#FBBF24",
+    color: theme.heroAccent,
   },
   probeExplain: {
     marginTop: 6,
     fontSize: 10,
     lineHeight: 14,
-    color: "#78350F",
+    color: theme.warn,
     fontWeight: "600",
   },
   stats: {
@@ -1977,17 +1978,17 @@ const styles = StyleSheet.create({
   stat: {
     flex: 1,
     minWidth: 72,
-    backgroundColor: "#F7FAF8",
+    backgroundColor: theme.bg,
     borderRadius: 10,
     paddingHorizontal: 8,
     paddingVertical: 6,
     borderWidth: 1,
-    borderColor: "#E8EFE9",
+    borderColor: theme.borderSoft,
   },
   statLabel: {
     fontSize: 9,
     fontWeight: "700",
-    color: "#94A3B8",
+    color: theme.inkMuted,
     textTransform: "uppercase",
     letterSpacing: 0.35,
   },
@@ -1995,25 +1996,25 @@ const styles = StyleSheet.create({
     marginTop: 2,
     fontSize: 13,
     fontWeight: "800",
-    color: "#0C1B16",
+    color: theme.ink,
   },
   statValueAccent: {
-    color: "#0F7A65",
+    color: theme.primary,
   },
   statValueMuted: {
-    color: "#94A3B8",
+    color: theme.inkMuted,
   },
   progressTrack: {
     height: 3,
     marginHorizontal: 12,
     marginTop: 6,
-    backgroundColor: "#E8EFE9",
+    backgroundColor: theme.borderSoft,
     borderRadius: 2,
     overflow: "hidden",
   },
   progressFill: {
     height: "100%",
-    backgroundColor: "#14B8A6",
+    backgroundColor: theme.mapTeal,
     borderRadius: 2,
   },
   chartZone: {
@@ -2027,43 +2028,43 @@ const styles = StyleSheet.create({
     marginTop: 8,
     paddingVertical: 10,
     paddingHorizontal: 10,
-    backgroundColor: "#E6F5F1",
+    backgroundColor: theme.primarySoft,
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: "#FED7AA",
+    borderColor: theme.warnBorder,
     gap: 4,
   },
   probeKm: {
     fontSize: 14,
     fontWeight: "800",
-    color: "#C2410C",
+    color: theme.warn,
   },
   probeDetail: {
     fontSize: 12,
     fontWeight: "700",
-    color: "#9A3412",
+    color: theme.warn,
   },
   probeTerrain: {
     fontSize: 11,
     fontWeight: "600",
-    color: "#B45309",
+    color: theme.warn,
   },
   probeCoords: {
     fontSize: 10,
     fontWeight: "600",
-    color: "#78350F",
+    color: theme.warn,
     fontFamily: Platform.OS === "web" ? "ui-monospace, monospace" : undefined,
   },
   probeHint: {
     marginTop: 4,
     fontSize: 10,
     fontWeight: "600",
-    color: "#B45309",
+    color: theme.warn,
   },
   probeLockedLabel: {
     fontSize: 10,
     fontWeight: "800",
-    color: "#C2410C",
+    color: theme.warn,
     textTransform: "uppercase",
     letterSpacing: 0.4,
   },
@@ -2078,22 +2079,22 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     borderRadius: 14,
     borderWidth: 1,
-    borderColor: "#D5E0DA",
-    backgroundColor: "#FFFFFF",
+    borderColor: theme.border,
+    backgroundColor: theme.surface,
   },
   actionBtnPrimary: {
-    backgroundColor: "#005F54",
-    borderColor: "#005F54",
+    backgroundColor: theme.primary,
+    borderColor: theme.primary,
   },
   actionBtnText: {
     fontSize: 12,
     fontWeight: "700",
-    color: "#0F1F1A",
+    color: theme.ink,
   },
   actionBtnTextPrimary: {
     fontSize: 12,
     fontWeight: "700",
-    color: "#FFFFFF",
+    color: theme.white,
   },
   planSaveBlock: {
     marginHorizontal: 12,
@@ -2101,19 +2102,19 @@ const styles = StyleSheet.create({
     padding: 12,
     borderRadius: 18,
     borderWidth: 1,
-    borderColor: "#D5E0DA",
-    backgroundColor: "#E3F2EE",
+    borderColor: theme.border,
+    backgroundColor: theme.primarySoft,
     gap: 8,
   },
   planWorkflow: {
     fontSize: 11,
     lineHeight: 15,
-    color: "#475569",
+    color: theme.ink,
   },
   planSubLabel: {
     fontSize: 10,
     fontWeight: "700",
-    color: "#64748B",
+    color: theme.inkMuted,
     textTransform: "uppercase",
     letterSpacing: 0.4,
   },
@@ -2130,59 +2131,59 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 6,
     borderRadius: 8,
-    backgroundColor: "#FFFFFF",
+    backgroundColor: theme.surface,
     borderWidth: 1,
-    borderColor: "#CBD5E1",
+    borderColor: theme.border,
   },
   planChipActive: {
-    backgroundColor: "#062D26",
-    borderColor: "#062D26",
+    backgroundColor: theme.hero,
+    borderColor: theme.hero,
   },
   planChipText: {
     fontSize: 11,
     fontWeight: "600",
-    color: "#334155",
+    color: theme.ink,
     maxWidth: 140,
   },
   planChipTextActive: {
-    color: "#FFFFFF",
+    color: theme.white,
   },
   planActiveCard: {
-    backgroundColor: "#FFFFFF",
+    backgroundColor: theme.surface,
     borderRadius: 10,
     padding: 10,
     borderWidth: 1,
-    borderColor: "#99F6E4",
+    borderColor: theme.status.validated.border,
     gap: 6,
   },
   planActiveTitle: {
     fontSize: 12,
     fontWeight: "800",
-    color: "#062D26",
+    color: theme.hero,
   },
   planTrailNotesSection: {
     marginTop: 8,
     paddingTop: 8,
     borderTopWidth: 1,
-    borderTopColor: "#E2E8F0",
+    borderTopColor: theme.border,
     gap: 6,
   },
   planTrailNoteRow: {
     padding: 8,
     borderRadius: 8,
-    backgroundColor: "#F8FAFC",
+    backgroundColor: theme.bg,
     borderWidth: 1,
-    borderColor: "#E2E8F0",
+    borderColor: theme.border,
   },
   planTrailNoteText: {
     fontSize: 11,
-    color: "#0F172A",
+    color: theme.ink,
     lineHeight: 15,
   },
   planTrailNoteMeta: {
     marginTop: 4,
     fontSize: 10,
-    color: "#64748B",
+    color: theme.inkMuted,
   },
   mapPointRowHighlight: {
     ...MAP_PANEL_SELECTION,
@@ -2196,7 +2197,7 @@ const styles = StyleSheet.create({
   },
   planActiveMeta: {
     fontSize: 11,
-    color: "#64748B",
+    color: theme.inkMuted,
   },
   planBtnRow: {
     flexDirection: "row",
@@ -2211,12 +2212,12 @@ const styles = StyleSheet.create({
   planBoxRow: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "#FFFFFF",
+    backgroundColor: theme.surface,
     borderRadius: 8,
     paddingVertical: 8,
     paddingHorizontal: 10,
     borderWidth: 1,
-    borderColor: "#E2E8F0",
+    borderColor: theme.border,
   },
   planBoxRowMain: {
     flex: 1,
@@ -2225,11 +2226,11 @@ const styles = StyleSheet.create({
   planBoxTitle: {
     fontSize: 12,
     fontWeight: "700",
-    color: "#0F172A",
+    color: theme.ink,
   },
   planBoxMeta: {
     fontSize: 10,
-    color: "#64748B",
+    color: theme.inkMuted,
     marginTop: 2,
   },
   planBoxBookBtn: {
@@ -2237,12 +2238,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 6,
     borderRadius: 8,
-    backgroundColor: "#062D26",
+    backgroundColor: theme.hero,
   },
   planBoxBookText: {
     fontSize: 10,
     fontWeight: "700",
-    color: "#FFFFFF",
+    color: theme.white,
   },
   planBoxReservationCard: {
     borderWidth: 1,
@@ -2260,7 +2261,7 @@ const styles = StyleSheet.create({
   },
   planBoxStatusSub: {
     fontSize: 10,
-    color: "#64748B",
+    color: theme.inkMuted,
   },
   planBoxBookingDetail: {
     gap: 4,
@@ -2269,25 +2270,25 @@ const styles = StyleSheet.create({
   planBoxBookingLine: {
     fontSize: 10,
     lineHeight: 14,
-    color: "#334155",
+    color: theme.ink,
   },
   planBoxBookingLabel: {
     fontWeight: "700",
-    color: "#0F172A",
+    color: theme.ink,
   },
   planBoxNoBooking: {
     fontSize: 10,
-    color: "#64748B",
+    color: theme.inkMuted,
     fontStyle: "italic",
   },
   planBoxCommentInput: {
     borderWidth: 1,
-    borderColor: "#E2E8F0",
+    borderColor: theme.border,
     borderRadius: 8,
     padding: 8,
     fontSize: 11,
-    color: "#0F172A",
-    backgroundColor: "#FFFFFF",
+    color: theme.ink,
+    backgroundColor: theme.surface,
     minHeight: 44,
     textAlignVertical: "top",
   },
@@ -2299,28 +2300,28 @@ const styles = StyleSheet.create({
   planBoxSmallBtnText: {
     fontSize: 10,
     fontWeight: "700",
-    color: "#0D9488",
+    color: theme.primary,
   },
   planBoxHostBlock: {
     marginTop: 4,
     padding: 8,
     borderRadius: 8,
-    backgroundColor: "#EFF6FF",
+    backgroundColor: theme.primarySoft,
     borderWidth: 1,
-    borderColor: "#BFDBFE",
+    borderColor: theme.status.validated.border,
     gap: 6,
   },
   planBoxEditBlock: {
     marginTop: 4,
     paddingTop: 8,
     borderTopWidth: 1,
-    borderTopColor: "#E2E8F0",
+    borderTopColor: theme.border,
     gap: 6,
   },
   planBoxEditTitle: {
     fontSize: 11,
     fontWeight: "800",
-    color: "#0F172A",
+    color: theme.ink,
   },
   planBoxTimeRow: {
     flexDirection: "row",
@@ -2340,22 +2341,22 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: "#CBD5E1",
-    backgroundColor: "#FFFFFF",
+    borderColor: theme.border,
+    backgroundColor: theme.surface,
   },
   planBoxActionBtnPrimary: {
-    borderColor: "#0D9488",
-    backgroundColor: "#0D9488",
+    borderColor: theme.primary,
+    backgroundColor: theme.primary,
   },
   planBoxActionBtnText: {
     fontSize: 10,
     fontWeight: "700",
-    color: "#334155",
+    color: theme.ink,
   },
   planBoxActionBtnTextPrimary: {
     fontSize: 10,
     fontWeight: "700",
-    color: "#FFFFFF",
+    color: theme.white,
   },
   planSyncBtn: {
     marginTop: 2,
@@ -2370,7 +2371,7 @@ const styles = StyleSheet.create({
   linkBoxLabel: {
     fontSize: 10,
     fontWeight: "700",
-    color: "#64748B",
+    color: theme.inkMuted,
     marginBottom: 4,
   },
   linkBoxScroll: {
@@ -2380,57 +2381,57 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 6,
     borderRadius: 8,
-    backgroundColor: "#F1F5F9",
+    backgroundColor: theme.surfaceMuted,
     marginRight: 6,
     borderWidth: 1,
-    borderColor: "#E2E8F0",
+    borderColor: theme.border,
   },
   linkBoxChipActive: {
-    backgroundColor: "#0F766E",
-    borderColor: "#0F766E",
+    backgroundColor: theme.primary,
+    borderColor: theme.primary,
   },
   linkBoxChipText: {
     fontSize: 10,
     fontWeight: "600",
-    color: "#475569",
+    color: theme.ink,
     maxWidth: 120,
   },
   linkBoxChipTextActive: {
-    color: "#FFFFFF",
+    color: theme.white,
   },
   linkedBoxPreview: {
     fontSize: 10,
-    color: "#0F766E",
+    color: theme.primary,
     fontWeight: "600",
     marginBottom: 6,
   },
   planSaveTitle: {
     fontSize: 13,
     fontWeight: "700",
-    color: "#005F54",
+    color: theme.primary,
     letterSpacing: 0.1,
   },
   planSaveHint: {
     fontSize: 11,
     fontWeight: "600",
-    color: "#5C6B64",
+    color: theme.inkMuted,
     lineHeight: 15,
   },
   planSaveWarn: {
     fontSize: 11,
     fontWeight: "600",
-    color: "#B45309",
+    color: theme.warn,
   },
   planSaveInput: {
     paddingHorizontal: 10,
     paddingVertical: 8,
     borderRadius: 14,
     borderWidth: 1,
-    borderColor: "#D5E0DA",
-    backgroundColor: "#FFFFFF",
+    borderColor: theme.border,
+    backgroundColor: theme.surface,
     fontSize: 13,
     fontWeight: "600",
-    color: "#0F1F1A",
+    color: theme.ink,
     ...(Platform.OS === "web" ? { outlineStyle: "none" } : {}),
   },
   planSaveBtn: {
@@ -2446,8 +2447,8 @@ const styles = StyleSheet.create({
     padding: 10,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: "#99F6E4",
-    backgroundColor: "#F0FDFA",
+    borderColor: theme.status.validated.border,
+    backgroundColor: theme.primarySoft,
     gap: 8,
   },
   savedHeader: {
@@ -2459,19 +2460,19 @@ const styles = StyleSheet.create({
   savedTitle: {
     fontSize: 11,
     fontWeight: "800",
-    color: "#0F766E",
+    color: theme.primary,
     textTransform: "uppercase",
     letterSpacing: 0.35,
   },
   savedClearAll: {
     fontSize: 10,
     fontWeight: "700",
-    color: "#64748B",
+    color: theme.inkMuted,
   },
   savedHint: {
     fontSize: 10,
     fontWeight: "600",
-    color: "#64748B",
+    color: theme.inkMuted,
     lineHeight: 14,
   },
   savedCard: {
@@ -2479,13 +2480,13 @@ const styles = StyleSheet.create({
     marginBottom: 8,
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: "#E2E8F0",
-    backgroundColor: "#FAFAFA",
+    borderColor: theme.border,
+    backgroundColor: theme.bg,
     paddingBottom: 4,
   },
   savedCardPublicLinked: {
-    borderColor: "#A5B4FC",
-    backgroundColor: "#F5F3FF",
+    borderColor: theme.status.validated.border,
+    backgroundColor: theme.status.validated.bg,
   },
   savedCardExcluded: {
     opacity: 0.72,
@@ -2501,19 +2502,19 @@ const styles = StyleSheet.create({
   savedBadgePublic: {
     fontSize: 9,
     fontWeight: "800",
-    color: "#4338CA",
+    color: theme.primary,
     textTransform: "uppercase",
   },
   savedBadgeDraft: {
     fontSize: 9,
     fontWeight: "800",
-    color: "#64748B",
+    color: theme.inkMuted,
     textTransform: "uppercase",
   },
   savedBadgeRavito: {
     fontSize: 9,
     fontWeight: "800",
-    color: "#0F766E",
+    color: theme.primary,
     textTransform: "uppercase",
   },
   savedIncludeChip: {
@@ -2521,20 +2522,20 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
     borderRadius: 6,
     borderWidth: 1,
-    borderColor: "#CBD5E1",
-    backgroundColor: "#FFFFFF",
+    borderColor: theme.border,
+    backgroundColor: theme.surface,
   },
   savedIncludeChipOn: {
-    borderColor: "#0F766E",
-    backgroundColor: "#ECFDF5",
+    borderColor: theme.primary,
+    backgroundColor: theme.primarySoft,
   },
   savedIncludeChipText: {
     fontSize: 9,
     fontWeight: "700",
-    color: "#64748B",
+    color: theme.inkMuted,
   },
   savedIncludeChipTextOn: {
-    color: "#047857",
+    color: theme.primary,
   },
   savedPubRow: {
     flexDirection: "row",
@@ -2544,8 +2545,8 @@ const styles = StyleSheet.create({
   },
   savedUnpublishBtn: {
     flex: 1,
-    backgroundColor: "#FEE2E2",
-    borderColor: "#FECACA",
+    backgroundColor: theme.dangerSoft,
+    borderColor: theme.status.rejected.border,
   },
   savedRow: {
     flexDirection: "row",
@@ -2557,33 +2558,33 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     paddingHorizontal: 10,
     borderRadius: 10,
-    backgroundColor: "#FFFFFF",
+    backgroundColor: theme.surface,
     borderWidth: 1,
-    borderColor: "#CCFBF1",
+    borderColor: theme.pickedSoft,
   },
   savedRowLabel: {
     fontSize: 12,
     fontWeight: "800",
-    color: "#0F766E",
+    color: theme.primary,
   },
   savedRowMeta: {
     marginTop: 2,
     fontSize: 11,
     fontWeight: "600",
-    color: "#134E4A",
+    color: theme.ink,
   },
   savedRowCoords: {
     marginTop: 2,
     fontSize: 9,
     fontWeight: "600",
-    color: "#64748B",
+    color: theme.inkMuted,
     fontFamily: Platform.OS === "web" ? "ui-monospace, monospace" : undefined,
   },
   savedNotePreview: {
     marginTop: 6,
     fontSize: 11,
     fontWeight: "600",
-    color: "#134E4A",
+    color: theme.ink,
     lineHeight: 15,
   },
   savedNoteBtn: {
@@ -2591,14 +2592,14 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     borderRadius: 10,
-    backgroundColor: "#E0F2FE",
+    backgroundColor: theme.primarySoft,
     borderWidth: 1,
-    borderColor: "#BAE6FD",
+    borderColor: theme.status.validated.border,
   },
   savedNoteBtnText: {
     fontSize: 14,
     fontWeight: "700",
-    color: "#0369A1",
+    color: theme.status.validated.fg,
   },
   savedNoteEditor: {
     gap: 8,
@@ -2609,11 +2610,11 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: "#99F6E4",
-    backgroundColor: "#FFFFFF",
+    borderColor: theme.status.validated.border,
+    backgroundColor: theme.surface,
     fontSize: 12,
     fontWeight: "500",
-    color: "#0C1B16",
+    color: theme.ink,
     ...(Platform.OS === "web" ? { outlineStyle: "none" } : {}),
   },
   savedNoteActions: {
@@ -2625,39 +2626,39 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 7,
     borderRadius: 8,
-    backgroundColor: "#0F766E",
+    backgroundColor: theme.primary,
   },
   savedNoteSaveText: {
     fontSize: 11,
     fontWeight: "700",
-    color: "#FFFFFF",
+    color: theme.white,
   },
   savedNoteDelete: {
     paddingHorizontal: 10,
     paddingVertical: 7,
     borderRadius: 8,
-    backgroundColor: "#F1F5F9",
+    backgroundColor: theme.surfaceMuted,
     borderWidth: 1,
-    borderColor: "#E2E8F0",
+    borderColor: theme.border,
   },
   savedNoteDeleteText: {
     fontSize: 11,
     fontWeight: "700",
-    color: "#64748B",
+    color: theme.inkMuted,
   },
   savedRemoveBtn: {
     width: 32,
     alignItems: "center",
     justifyContent: "center",
     borderRadius: 10,
-    backgroundColor: "#FEE2E2",
+    backgroundColor: theme.dangerSoft,
     borderWidth: 1,
-    borderColor: "#FECACA",
+    borderColor: theme.status.rejected.border,
   },
   savedRemoveText: {
     fontSize: 18,
     fontWeight: "700",
-    color: "#B91C1C",
+    color: theme.danger,
     lineHeight: 20,
   },
   hint: {
@@ -2666,7 +2667,7 @@ const styles = StyleSheet.create({
     marginBottom: 4,
     fontSize: 11,
     fontWeight: "600",
-    color: "#94A3B8",
+    color: theme.inkMuted,
     textAlign: "center",
   },
 });

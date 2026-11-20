@@ -1,8 +1,8 @@
 import { Platform } from "react-native";
 
 /**
- * RavitoBox — tokens alignés maquettes Figma Relais
- * Forêt profonde, crème sage, accent lime, Manrope.
+ * RavitoBox — tokens uniques Figma Relais.
+ * Toute la UI doit passer par ce fichier (pas de hex ad hoc).
  */
 
 const fontSans = Platform.select({
@@ -19,13 +19,19 @@ const fontDisplay = Platform.select({
   default: undefined,
 });
 
+const primary = "#2D5A4C";
+const ink = "#1A2E28";
+const inkMuted = "#6B7A72";
+const danger = "#C45C3A";
+const warn = "#A67C2D";
+
 export const theme = {
-  // Surfaces Figma
+  // Surfaces
   bg: "#F6F8F1",
   surface: "#FFFFFF",
   surfaceMuted: "#EEF2E8",
-  ink: "#1A2E28",
-  inkMuted: "#6B7A72",
+  ink,
+  inkMuted,
   border: "#D7E0D6",
   borderSoft: "#E8EEE4",
 
@@ -33,23 +39,23 @@ export const theme = {
   hero: "#1F3F36",
   heroAccent: "#C5D98A",
 
-  // CTA forêt Figma (~#2D5A4C)
-  primary: "#2D5A4C",
+  // CTA
+  primary,
   primaryPressed: "#23483D",
   primarySoft: "#E4EFE9",
 
-  secondary: "#1A2E28",
-  secondaryInk: "#1A2E28",
-  accent: "#2D5A4C",
+  secondary: ink,
+  secondaryInk: ink,
+  accent: primary,
   accentSoft: "#E4EFE9",
-  focus: "#2D5A4C",
+  focus: primary,
   focusSoft: "rgba(45, 90, 76, 0.14)",
+  focusMid: "rgba(45, 90, 76, 0.28)",
 
-  // Lime bandeaux auth / badges
   lime: "#D8E8A0",
-  limeInk: "#2D5A4C",
+  limeInk: primary,
 
-  picked: "#2D5A4C",
+  picked: primary,
   pickedSoft: "#E8F3EE",
   mapTeal: "#3A7A68",
 
@@ -59,11 +65,27 @@ export const theme = {
   infoBorder: "#D7E0D6",
   warnBg: "#FFF5E6",
   warnBorder: "#E8C99A",
-  danger: "#C45C3A",
+  warn,
+  danger,
   dangerSoft: "#FCEEE8",
-  success: "#2D5A4C",
+  success: primary,
+  successSoft: "#E4EFE9",
   shadow: "rgba(26, 46, 40, 0.08)",
   white: "#FFFFFF",
+  overlay: "rgba(26, 46, 40, 0.45)",
+
+  /** Badges / états — une seule famille (forêt / lime / ambre / terre) */
+  status: {
+    pending: { fg: warn, bg: "#FFF5E6", border: "#E8C99A" },
+    validated: { fg: primary, bg: "#E4EFE9", border: "#C5D9CF" },
+    pay: { fg: primary, bg: "#D8E8A0", border: "#C5D98A" },
+    rejected: { fg: danger, bg: "#FCEEE8", border: "#F0C9BC" },
+    cancelled: { fg: danger, bg: "#FCEEE8", border: "#F0C9BC" },
+    muted: { fg: inkMuted, bg: "#EEF2E8", border: "#D7E0D6" },
+    easy: { fg: primary, bg: "#E4EFE9", border: "#C5D9CF" },
+    medium: { fg: warn, bg: "#FFF5E6", border: "#E8C99A" },
+    hard: { fg: danger, bg: "#FCEEE8", border: "#F0C9BC" },
+  },
 
   font: fontSans,
   fontDisplay,

@@ -458,7 +458,7 @@ class RootErrorBoundary extends React.Component {
             Une erreur a empêché l’affichage de l’application.
           </Text>
           <Text
-            style={{ fontSize: 13, color: "#991B1B", marginBottom: 20 }}
+            style={{ fontSize: 13, color: theme.danger, marginBottom: 20 }}
             selectable
           >
             {msg}
@@ -589,34 +589,38 @@ function bookingAgendaPhase(booking, now = new Date()) {
     approval === "cancelled_by_athlete" ||
     approval === "cancelled_box_deleted"
   ) {
-    return { key: "cancelled", label: "Annulée", color: "#B91C1C" };
+    return { key: "cancelled", label: "Annulée", color: theme.status.cancelled.fg };
   }
   if (approval === "rejected") {
-    return { key: "rejected", label: "Refusée", color: "#B45309" };
+    return { key: "rejected", label: "Refusée", color: theme.status.rejected.fg };
   }
   if (approval === "accepted") {
     if (start && end && now >= start && now <= end) {
-      return { key: "ongoing", label: "En cours", color: theme.picked || theme.mapTeal };
+      return { key: "ongoing", label: "En cours", color: theme.primary };
     }
     if (start && now < start) {
-      return { key: "upcoming", label: "Validée et prévue", color: "#0369A1" };
+      return {
+        key: "upcoming",
+        label: "Validée et prévue",
+        color: theme.status.validated.fg,
+      };
     }
     if (end && now > end) {
-      return { key: "past", label: "Passée", color: "#6B7280" };
+      return { key: "past", label: "Passée", color: theme.status.muted.fg };
     }
-    return { key: "accepted", label: "Validée", color: "#0369A1" };
+    return { key: "accepted", label: "Validée", color: theme.status.validated.fg };
   }
   if (
     approval === "pending" ||
     approval === "pending_host_confirmation" ||
     approval === "pending_athlete_confirmation"
   ) {
-    return { key: "pending", label: "En attente", color: "#7C3AED" };
+    return { key: "pending", label: "En attente", color: theme.status.pending.fg };
   }
   return {
     key: "other",
     label: bookingApprovalLabel(approval),
-    color: "#334155",
+    color: theme.inkMuted,
   };
 }
 
@@ -1063,11 +1067,23 @@ function calendarCellsForMonth(year, monthIndex) {
 function difficultyBadgeStyle(level) {
   switch (level) {
     case "easy":
-      return { bg: "#DCFCE7", fg: "#166534", border: "#BBF7D0" };
+      return {
+        bg: theme.status.easy.bg,
+        fg: theme.status.easy.fg,
+        border: theme.status.easy.border,
+      };
     case "hard":
-      return { bg: "#FEE2E2", fg: "#991B1B", border: "#FECACA" };
+      return {
+        bg: theme.status.hard.bg,
+        fg: theme.status.hard.fg,
+        border: theme.status.hard.border,
+      };
     default:
-      return { bg: "#FEF3C7", fg: "#B45309", border: "#FDE68A" };
+      return {
+        bg: theme.status.medium.bg,
+        fg: theme.status.medium.fg,
+        border: theme.status.medium.border,
+      };
   }
 }
 
@@ -1333,14 +1349,14 @@ function PrimaryButton({ label, onPress, icon, disabled, loading, compact }) {
       disabled={disabled || loading}
     >
       {loading ? (
-        <ActivityIndicator color="#fff" />
+        <ActivityIndicator color={theme.white} />
       ) : (
         <>
           {icon ? (
             <Ionicons
               name={icon}
               size={18}
-              color="#fff"
+              color={theme.white}
               style={styles.buttonIconLeft}
               pointerEvents="none"
             />
@@ -1369,7 +1385,7 @@ function SecondaryButton({ label, onPress, icon, compact }) {
         <Ionicons
           name={icon}
           size={18}
-          color="#fff"
+          color={theme.white}
           style={styles.buttonIconLeft}
           pointerEvents="none"
         />
@@ -1409,7 +1425,7 @@ function OutlineButton({
         <Ionicons
           name={icon}
           size={compact ? 16 : 17}
-          color={danger ? theme.danger || "#B91C1C" : theme.primary}
+          color={danger ? theme.danger : theme.primary}
           style={styles.buttonIconLeft}
           pointerEvents="none"
         />
@@ -2103,7 +2119,7 @@ function BookingConfirmModal({
               </View>
             ) : null}
             {overlapConflict ? (
-              <View style={[styles.infoBanner, { borderColor: "#FECACA" }]}>
+              <View style={[styles.infoBanner, { borderColor: theme.status.rejected.border }]}>
                 <Text style={styles.infoBannerTitle}>Conflit</Text>
                 <Text style={styles.infoBannerText}>
                   Ce créneau chevauche une réservation existante.
@@ -2119,7 +2135,7 @@ function BookingConfirmModal({
             </Text>
 
             {blocking.length > 0 ? (
-              <View style={[styles.infoBanner, { borderColor: "#FECACA" }]}>
+              <View style={[styles.infoBanner, { borderColor: theme.status.rejected.border }]}>
                 <Text style={styles.infoBannerTitle}>À corriger</Text>
                 {blocking.map((t, i) => (
                   <Text key={`blk-${i}`} style={styles.infoBannerText}>
@@ -2185,7 +2201,7 @@ function SwipeActionRow({
           }}
           activeOpacity={0.85}
         >
-          <Ionicons name="create-outline" size={16} color="#fff" />
+          <Ionicons name="create-outline" size={16} color={theme.white} />
           <Text style={styles.swipeActionText}>{editLabel}</Text>
         </TouchableOpacity>
       ) : null}
@@ -2198,7 +2214,7 @@ function SwipeActionRow({
           }}
           activeOpacity={0.85}
         >
-          <Ionicons name="trash-outline" size={16} color="#fff" />
+          <Ionicons name="trash-outline" size={16} color={theme.white} />
           <Text style={styles.swipeActionText}>{deleteLabel}</Text>
         </TouchableOpacity>
       ) : null}
@@ -4965,7 +4981,7 @@ function ExplorerScreen() {
               accessibilityLabel="Masquer le panneau"
               hitSlop={8}
             >
-              <Ionicons name="chevron-back" size={18} color="#fff" />
+              <Ionicons name="chevron-back" size={18} color={theme.white} />
             </TouchableOpacity>
           ) : null}
         </View>
@@ -5135,7 +5151,7 @@ function ExplorerScreen() {
             <Ionicons
               name="home-outline"
               size={18}
-              color={discoverReserveMode === "box" ? "#fff" : theme.ink}
+              color={discoverReserveMode === "box" ? theme.primary : theme.ink}
             />
             <Text
               style={[
@@ -5162,7 +5178,7 @@ function ExplorerScreen() {
             <Ionicons
               name="walk-outline"
               size={18}
-              color={discoverReserveMode === "ravito" ? "#fff" : theme.ink}
+              color={discoverReserveMode === "ravito" ? theme.primary : theme.ink}
             />
             <Text
               style={[
@@ -5795,13 +5811,13 @@ function ExplorerScreen() {
                               styles.trailPickRow,
                               isValidated
                                 ? {
-                                    borderColor: "#34D399",
-                                    backgroundColor: "#ECFDF5",
+                                    borderColor: theme.status.validated.border,
+                                    backgroundColor: theme.status.validated.bg,
                                   }
                                 : isRejected
                                 ? {
-                                    borderColor: "#FCA5A5",
-                                    backgroundColor: "#FEF2F2",
+                                    borderColor: theme.status.rejected.border,
+                                    backgroundColor: theme.status.rejected.bg,
                                   }
                                 : null,
                             ]}
@@ -5817,9 +5833,9 @@ function ExplorerScreen() {
                               size={20}
                               color={
                                 isValidated
-                                  ? "#059669"
+                                  ? theme.status.validated.fg
                                   : isRejected
-                                  ? "#DC2626"
+                                  ? theme.danger
                                   : theme.primary
                               }
                             />
@@ -6106,7 +6122,7 @@ function ExplorerScreen() {
                         <Ionicons
                           name="trash-outline"
                           size={18}
-                          color="#DC2626"
+                          color={theme.danger}
                         />
                       </TouchableOpacity>
                     </View>
@@ -7166,7 +7182,7 @@ function ExplorerScreen() {
         onPress={openMobileProjectPicker}
         activeOpacity={0.88}
       >
-        <Ionicons name="flag-outline" size={16} color="#fff" />
+        <Ionicons name="flag-outline" size={16} color={theme.white} />
         <Text style={styles.discoverMobileHudBtnText} numberOfLines={1}>
           {activeProjectLabel || "Projet"}
         </Text>
@@ -7414,7 +7430,7 @@ function ExplorerScreen() {
                       onPress={() => setDiscoverPanelOpen(true)}
                       activeOpacity={0.88}
                     >
-                      <Ionicons name="options-outline" size={16} color="#fff" />
+                      <Ionicons name="options-outline" size={16} color={theme.white} />
                       <Text style={styles.discoverMapHudBtnText}>Panneau</Text>
                     </TouchableOpacity>
                     {canBook && selectedRoutePlanId ? (
@@ -8181,7 +8197,7 @@ function TrailsScreen() {
     alignItems: "center",
     justifyContent: "center",
     minHeight: 118,
-    backgroundColor: webDropHover ? "#ECFDF5" : "#F7FAF9",
+    backgroundColor: webDropHover ? theme.primarySoft : theme.bg,
     boxShadow: webDropHover
       ? "0 10px 26px rgba(15, 118, 110, 0.18)"
       : "0 6px 16px rgba(15, 23, 42, 0.08)",
@@ -8863,7 +8879,7 @@ function TrailsScreen() {
                     isPicked || Number(selectedTrailId) === tid
                       ? { borderColor: theme.primary, borderWidth: 2 }
                       : Number(hoveredTrailId) === tid
-                      ? { borderColor: "#334155", borderWidth: 1.5 }
+                      ? { borderColor: theme.ink, borderWidth: 1.5 }
                       : null,
                   ]}
                   onMouseEnter={
@@ -10028,8 +10044,8 @@ function HostScreen() {
                     {
                       color:
                         hostReverseGeocode.status === "error"
-                          ? "#B91C1C"
-                          : "#92400E",
+                          ? theme.danger
+                          : theme.warn,
                       marginBottom: 8,
                     },
                   ]}
@@ -10291,7 +10307,7 @@ function HostScreen() {
                       <Ionicons
                         name={hl ? "star" : "star-outline"}
                         size={24}
-                        color={hl ? "#CA8A04" : theme.inkMuted}
+                        color={hl ? theme.warn : theme.inkMuted}
                       />
                     </TouchableOpacity>
                   </View>
@@ -16990,7 +17006,7 @@ const styles = StyleSheet.create({
   },
   discoverMobileHudBtnText: {
     flex: 1,
-    color: "#fff",
+    color: theme.white,
     fontSize: 13,
     fontWeight: "700",
     fontFamily: theme.font,
@@ -17062,7 +17078,7 @@ const styles = StyleSheet.create({
     color: "rgba(250,250,250,0.55)",
   },
   discoverPrepDotTextOn: {
-    color: "#fff",
+    color: theme.white,
   },
   discoverPrepDotLight: {
     width: 26,
@@ -17111,7 +17127,7 @@ const styles = StyleSheet.create({
   discoverProjectRecapLinkText: {
     fontSize: 12,
     fontWeight: "700",
-    color: "#fff",
+    color: theme.white,
     textDecorationLine: "underline",
   },
   discoverMapLegendRow: {
@@ -17255,7 +17271,7 @@ const styles = StyleSheet.create({
     backgroundColor: theme.hero,
   },
   discoverMapHudBtnText: {
-    color: "#fff",
+    color: theme.white,
     fontSize: 12,
     fontWeight: "700",
     fontFamily: theme.font,
@@ -17303,7 +17319,7 @@ const styles = StyleSheet.create({
   discoverCoachTitle: {
     fontSize: 22,
     fontWeight: "800",
-    color: "#FAFAFA",
+    color: theme.white,
     letterSpacing: -0.3,
     fontFamily: theme.fontDisplay,
     textTransform: "uppercase",
@@ -17347,7 +17363,7 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(250,250,250,0.08)",
   },
   discoverProjectSelectValue: {
-    color: "#FAFAFA",
+    color: theme.white,
     fontSize: 13,
     fontWeight: "700",
     fontFamily: theme.font,
@@ -17363,7 +17379,7 @@ const styles = StyleSheet.create({
     borderRadius: theme.radius.sm,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: "rgba(250,250,250,0.18)",
-    backgroundColor: "#1A1F1D",
+    backgroundColor: theme.hero,
     overflow: "hidden",
   },
   discoverProjectPreview: {
@@ -17381,7 +17397,7 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   discoverProjectPreviewTitle: {
-    color: "#FAFAFA",
+    color: theme.white,
     fontSize: 15,
     fontWeight: "800",
     fontFamily: theme.fontDisplay,
@@ -17404,7 +17420,7 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(250,250,250,0.14)",
   },
   discoverProjectActivateBtnText: {
-    color: "#fff",
+    color: theme.white,
     fontSize: 12,
     fontWeight: "800",
     letterSpacing: 0.4,
@@ -17433,7 +17449,7 @@ const styles = StyleSheet.create({
     fontFamily: theme.font,
   },
   discoverProjectMenuTitleOn: {
-    color: "#fff",
+    color: theme.white,
     fontWeight: "700",
   },
   discoverProjectMenuMeta: {
@@ -17469,17 +17485,17 @@ const styles = StyleSheet.create({
     backgroundColor: theme.surface,
   },
   discoverPlanFilterBtnOn: {
-    backgroundColor: theme.ink,
+    backgroundColor: theme.primarySoft,
   },
   discoverPlanFilterBtnText: {
-    fontSize: 11,
-    fontWeight: "700",
+    fontSize: 12,
+    fontWeight: "600",
     color: theme.inkMuted,
-    letterSpacing: 0.3,
-    textTransform: "uppercase",
+    letterSpacing: 0.1,
   },
   discoverPlanFilterBtnTextOn: {
-    color: "#fff",
+    color: theme.primary,
+    fontWeight: "700",
   },
   discoverChip: {
     paddingHorizontal: 11,
@@ -17505,7 +17521,7 @@ const styles = StyleSheet.create({
     fontFamily: theme.font,
   },
   discoverChipTextOn: {
-    color: "#fff",
+    color: theme.white,
     fontWeight: "700",
     fontSize: 12,
     fontFamily: theme.font,
@@ -17840,7 +17856,7 @@ const styles = StyleSheet.create({
     fontFamily: theme.font,
   },
   authSegmentLabelActive: {
-    color: "#fff",
+    color: theme.white,
     fontWeight: "700",
   },
   inputLabel: {
@@ -17917,7 +17933,7 @@ const styles = StyleSheet.create({
   heroTitle: {
     fontSize: 36,
     fontWeight: "800",
-    color: "#FAFAFA",
+    color: theme.white,
     letterSpacing: -0.5,
     marginTop: 2,
     fontFamily: theme.fontDisplay,
@@ -18269,14 +18285,14 @@ const styles = StyleSheet.create({
     height: 22,
     paddingHorizontal: 6,
     borderRadius: 11,
-    backgroundColor: "#DC2626",
+    backgroundColor: theme.danger,
     alignItems: "center",
     justifyContent: "center",
   },
   explorerFilterBadgeText: {
     fontSize: 12,
     fontWeight: "800",
-    color: "#fff",
+    color: theme.white,
   },
   explorerFilterModalBackdrop: {
     flex: 1,
@@ -18427,7 +18443,7 @@ const styles = StyleSheet.create({
     color: theme.ink,
   },
   calendarDayTextSelected: {
-    color: "#fff",
+    color: theme.white,
   },
   calendarDayTextDisabled: {
     color: theme.inkMuted,
@@ -18606,17 +18622,18 @@ const styles = StyleSheet.create({
     backgroundColor: theme.surface,
   },
   roleChipActive: {
-    backgroundColor: theme.ink,
-    borderColor: theme.ink,
+    backgroundColor: theme.primarySoft,
+    borderColor: theme.primary,
   },
   roleChipText: {
-    color: theme.ink,
+    color: theme.inkMuted,
     fontWeight: "600",
     fontSize: 13,
     fontFamily: theme.font,
   },
   roleChipTextActive: {
-    color: "#fff",
+    color: theme.primary,
+    fontWeight: "700",
   },
   buttonIconLeft: { marginRight: 8 },
   buttonDisabled: {
@@ -18644,7 +18661,7 @@ const styles = StyleSheet.create({
     marginTop: 6,
   },
   primaryButtonText: {
-    color: "#fff",
+    color: theme.white,
     fontWeight: "700",
     fontSize: 16,
     letterSpacing: 0.1,
@@ -18669,7 +18686,7 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   secondaryButtonText: {
-    color: "#fff",
+    color: theme.white,
     fontWeight: "700",
     fontSize: 15,
     letterSpacing: 0.1,
@@ -18701,8 +18718,8 @@ const styles = StyleSheet.create({
     minHeight: 36,
   },
   outlineButtonDanger: {
-    borderColor: "#FECACA",
-    backgroundColor: theme.dangerSoft || "#FFFBFB",
+    borderColor: theme.status.rejected.border,
+    backgroundColor: theme.dangerSoft,
   },
   outlineButtonText: {
     color: theme.ink,
@@ -18714,7 +18731,7 @@ const styles = StyleSheet.create({
     fontSize: 12,
   },
   outlineButtonTextDanger: {
-    color: "#B91C1C",
+    color: theme.danger,
   },
   statBanner: {
     marginTop: 2,
@@ -18769,7 +18786,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     borderWidth: 1,
     borderColor: theme.borderSoft,
-    backgroundColor: "#F7FAF9",
+    backgroundColor: theme.bg,
   },
   explorerSelectionSummaryText: {
     fontSize: 12,
@@ -18838,7 +18855,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: theme.borderSoft,
     borderRadius: 12,
-    backgroundColor: "#FFFFFF",
+    backgroundColor: theme.surface,
   },
   agendaItemDot: {
     marginTop: 6,
@@ -18928,7 +18945,7 @@ const styles = StyleSheet.create({
   },
   cardAccentPicked: {
     width: 5,
-    backgroundColor: theme.mapTeal || "#0D9488",
+    backgroundColor: theme.mapTeal,
   },
   hostBoxActionsRow: {
     flexDirection: "row",
@@ -18957,7 +18974,7 @@ const styles = StyleSheet.create({
     backgroundColor: theme.danger,
   },
   swipeActionText: {
-    color: "#fff",
+    color: theme.white,
     fontSize: 12,
     fontWeight: "700",
   },
@@ -19277,7 +19294,7 @@ const styles = StyleSheet.create({
   hostHeroTitle: {
     fontSize: 28,
     fontWeight: "800",
-    color: "#FAFAFA",
+    color: theme.white,
     letterSpacing: -0.3,
     fontFamily: theme.fontDisplay,
     textTransform: "uppercase",
@@ -19372,7 +19389,7 @@ const styles = StyleSheet.create({
     marginTop: 12,
     borderWidth: 1,
     borderColor: theme.borderSoft,
-    backgroundColor: "#F8FBFA",
+    backgroundColor: theme.bg,
     borderRadius: 14,
     paddingHorizontal: 12,
     paddingVertical: 12,

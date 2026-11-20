@@ -1,5 +1,6 @@
 import React from "react";
 import { View, Text, Pressable, StyleSheet } from "react-native";
+import theme from "./theme";
 
 /**
  * Contrôles compacts sur la carte (sans masquer le tracé).
@@ -87,7 +88,7 @@ const styles = StyleSheet.create({
     borderColor: "rgba(13, 115, 119, 0.28)",
     paddingHorizontal: 10,
     paddingVertical: 8,
-    shadowColor: "#0A2E26",
+    shadowColor: theme.hero,
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.12,
     shadowRadius: 8,
@@ -95,7 +96,7 @@ const styles = StyleSheet.create({
   status: {
     fontSize: 12,
     fontWeight: "700",
-    color: "#0D7377",
+    color: theme.primary,
     marginBottom: 6,
   },
   actions: {
@@ -113,30 +114,30 @@ const styles = StyleSheet.create({
     opacity: 0.85,
   },
   btnPrimary: {
-    backgroundColor: "#0D7377",
+    backgroundColor: theme.primary,
   },
   btnPrimaryText: {
-    color: "#fff",
+    color: theme.white,
     fontSize: 12,
     fontWeight: "700",
   },
   btnGhost: {
-    backgroundColor: "#E6F5F4",
+    backgroundColor: theme.primarySoft,
     borderWidth: 1,
-    borderColor: "#99D5D2",
+    borderColor: theme.status.validated.border,
   },
   btnGhostText: {
-    color: "#0D7377",
+    color: theme.primary,
     fontSize: 12,
     fontWeight: "700",
   },
   btnDanger: {
-    backgroundColor: "#FFF4ED",
+    backgroundColor: theme.warnBg,
     borderWidth: 1,
-    borderColor: "#FDBA74",
+    borderColor: theme.warnBorder,
   },
   btnDangerText: {
-    color: "#C2410C",
+    color: theme.warn,
     fontSize: 12,
     fontWeight: "700",
   },

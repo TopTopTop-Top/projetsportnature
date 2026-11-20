@@ -552,8 +552,8 @@ function PlanDetailPanel({
             disabled={busy}
             onPress={() => onDeleteProject?.(detail)}
           >
-            <Ionicons name="trash-outline" size={14} color="#DC2626" />
-            <Text style={[styles.cardActionText, { color: "#DC2626" }]}>
+            <Ionicons name="trash-outline" size={14} color={theme.danger} />
+            <Text style={[styles.cardActionText, { color: theme.danger }]}>
               Supprimer
             </Text>
           </TouchableOpacity>
@@ -567,7 +567,7 @@ function PlanDetailPanel({
             value={editName}
             onChangeText={setEditName}
             placeholder="Nom du projet"
-            placeholderTextColor="#94A3B8"
+            placeholderTextColor={theme.inkMuted}
           />
           <Text style={[styles.noteKind, { marginTop: 8 }]}>Notes</Text>
           <TextInput
@@ -576,7 +576,7 @@ function PlanDetailPanel({
             onChangeText={setEditNotes}
             multiline
             placeholder="Besoins, dates, remarques…"
-            placeholderTextColor="#94A3B8"
+            placeholderTextColor={theme.inkMuted}
           />
           <TouchableOpacity
             style={styles.primaryBtn}
@@ -834,7 +834,7 @@ function PlanDetailPanel({
                     }
                     multiline
                     placeholder="Texte / infos du point"
-                    placeholderTextColor="#94A3B8"
+                    placeholderTextColor={theme.inkMuted}
                   />
                   <TouchableOpacity
                     style={[styles.cardActionBtn, { marginTop: 6 }]}
@@ -1675,7 +1675,7 @@ const styles = StyleSheet.create({
   },
   projectHeroCtaText: {
     fontWeight: "700",
-    color: "#fff",
+    color: theme.white,
     fontSize: 14,
     letterSpacing: 0.1,
     fontFamily: theme.font,
@@ -1852,7 +1852,7 @@ const styles = StyleSheet.create({
   statusPillProgress: { backgroundColor: theme.primarySoft },
   statusPillOk: { backgroundColor: theme.lime },
   statusPillText: { fontSize: 11, fontWeight: "800", fontFamily: theme.font },
-  statusPillTextTodo: { color: "#92400E" },
+  statusPillTextTodo: { color: theme.warn },
   statusPillTextProgress: { color: theme.primary },
   statusPillTextOk: { color: theme.limeInk },
   searchInput: {
@@ -1914,14 +1914,14 @@ const styles = StyleSheet.create({
     borderRadius: 8,
   },
   badgePrivate: { backgroundColor: theme.surfaceMuted },
-  badgeShared: { backgroundColor: "#DCFCE7" },
-  badgeOwnPublic: { backgroundColor: theme.pickedSoft || "#CCFBF1" },
+  badgeShared: { backgroundColor: theme.status.validated.bg },
+  badgeOwnPublic: { backgroundColor: theme.pickedSoft },
   badgeCommunity: { backgroundColor: theme.warnBg },
   badgeText: { fontSize: 10, fontWeight: "800" },
   badgeTextPrivate: { color: theme.inkMuted },
   badgeTextShared: { color: theme.success },
   badgeTextOwnPublic: { color: theme.picked || theme.mapTeal },
-  badgeTextCommunity: { color: "#92400E" },
+  badgeTextCommunity: { color: theme.warn },
   filterChip: {
     paddingVertical: 7,
     paddingHorizontal: 10,
@@ -1941,7 +1941,7 @@ const styles = StyleSheet.create({
   cardActions: { flexDirection: "row", flexWrap: "wrap", gap: 12, marginTop: 10 },
   cardActionBtn: { flexDirection: "row", alignItems: "center", gap: 4 },
   cardActionText: { fontSize: 12, fontWeight: "700", color: theme.primary },
-  cardActionDanger: { borderColor: "#FECACA" },
+  cardActionDanger: { borderColor: theme.status.rejected.border },
   projectManageRow: {
     flexDirection: "row",
     flexWrap: "wrap",
@@ -1956,7 +1956,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     borderWidth: 1,
     borderColor: theme.borderSoft || theme.border,
-    backgroundColor: "#fff",
+    backgroundColor: theme.white,
   },
   editInput: {
     borderWidth: 1,
@@ -1966,7 +1966,7 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     fontSize: 14,
     color: theme.ink,
-    backgroundColor: theme.surfaceMuted || "#F8FAFC",
+    backgroundColor: theme.surfaceMuted,
   },
   editArea: { minHeight: 72, textAlignVertical: "top" },
   primaryBtn: {
@@ -1976,7 +1976,7 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     alignItems: "center",
   },
-  primaryBtnText: { color: "#fff", fontWeight: "700", fontSize: 15 },
+  primaryBtnText: { color: theme.white, fontWeight: "700", fontSize: 15 },
   detailPanel: {
     marginTop: 12,
     padding: 14,
@@ -2027,11 +2027,11 @@ const styles = StyleSheet.create({
   noteRowHighlight: {
     borderColor: theme.primary,
     borderWidth: 2,
-    backgroundColor: "#F0FDFA",
+    backgroundColor: theme.primarySoft,
   },
   noteRowExcluded: {
     opacity: 0.55,
-    backgroundColor: "#F8FAFC",
+    backgroundColor: theme.bg,
   },
   noteRowToolbar: {
     flexDirection: "row",
@@ -2050,7 +2050,7 @@ const styles = StyleSheet.create({
   },
   mapToggleChipOn: {
     borderColor: theme.primary,
-    backgroundColor: "#F0FDFA",
+    backgroundColor: theme.primarySoft,
   },
   mapToggleChipText: {
     fontSize: 11,
@@ -2087,7 +2087,7 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     borderWidth: 1,
     borderColor: theme.primary,
-    backgroundColor: "#F0FDFA",
+    backgroundColor: theme.primarySoft,
   },
   bookBoxBtnText: {
     fontSize: 12,

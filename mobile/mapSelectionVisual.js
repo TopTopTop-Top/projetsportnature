@@ -1,28 +1,28 @@
 /**
  * Langage visuel commun — sélection carte (waypoints, box, survol panneau).
- * Teal forêt = focus / box / marque.
+ * Aligné strictement sur theme.js (Figma Relais).
  */
 import { theme } from "./theme";
 
 export const MAP_SEL = {
   focus: theme.focus,
   focusSoft: theme.focusSoft,
-  focusMid: "rgba(15, 122, 101, 0.28)",
+  focusMid: theme.focusMid,
   spotlight: theme.accent,
-  spotlightSoft: "rgba(15, 122, 101, 0.14)",
-  spotlightMid: "rgba(15, 122, 101, 0.26)",
+  spotlightSoft: theme.focusSoft,
+  spotlightMid: theme.focusMid,
   white: theme.white,
   ink: theme.ink,
   muted: theme.inkMuted,
-  pointPlan: "#5A635E",
+  pointPlan: theme.inkMuted,
   pointDraft: theme.primary,
-  pointShared: "#B45309",
-  pointTip: theme.mapTeal || "#0D8F78",
-  /** Ravito humain — distinct des box (maison). */
-  ravito: "#C2410C",
-  ravitoSoft: "rgba(194, 65, 12, 0.18)",
-  boxPlan: theme.mapTeal || "#0D8F78",
-  boxDefault: theme.picked || "#0B6B58",
+  pointShared: theme.warn,
+  pointTip: theme.mapTeal,
+  /** Ravito humain — accent terre, distinct des box. */
+  ravito: theme.danger,
+  ravitoSoft: "rgba(196, 92, 58, 0.18)",
+  boxPlan: theme.mapTeal,
+  boxDefault: theme.picked,
 };
 
 /** @typedef {'idle' | 'hover' | 'focus' | 'spotlight'} MapSelectionTier */
@@ -41,19 +41,12 @@ export function selectionMidFill(tier) {
 
 /**
  * Anneaux de sélection (même géométrie pour points GPS et box).
- * @param {typeof import('leaflet')} L
- * @param {import('leaflet').LayerGroup} group
- * @param {number} lat
- * @param {number} lng
- * @param {MapSelectionTier} tier
- * @param {string} [pane]
  */
 export function addSelectionHalos(L, group, lat, lng, tier, pane) {
   if (!L || !group || tier === "idle") return;
   const latlng = [lat, lng];
   const base = pane ? { pane } : {};
   const accent = selectionAccent(tier);
-
   const nonInteractive = { interactive: false, bubblingMouseEvents: false };
 
   if (tier === "hover") {
@@ -79,6 +72,7 @@ export function addSelectionHalos(L, group, lat, lng, tier, pane) {
     fillOpacity: 1,
     opacity: 0.95,
   }).addTo(group);
+
   L.circleMarker(latlng, {
     ...base,
     ...nonInteractive,
@@ -92,8 +86,6 @@ export function addSelectionHalos(L, group, lat, lng, tier, pane) {
 
 /**
  * Style Leaflet circleMarker pour un point carte.
- * @param {string} [source] plan | draft | shared_preview | tip
- * @param {MapSelectionTier} tier
  */
 export function mapPointCircleStyle(source, tier = "idle") {
   const idleFill = {
@@ -155,21 +147,21 @@ export const MAP_SELECTION_LEAFLET_CSS = `
     background: rgba(255, 255, 255, 0.94);
     backdrop-filter: blur(10px);
     -webkit-backdrop-filter: blur(10px);
-    box-shadow: 0 4px 18px rgba(15, 23, 42, 0.1), 0 0 0 1px rgba(13, 115, 119, 0.16);
+    box-shadow: 0 4px 18px ${theme.shadow}, 0 0 0 1px rgba(45, 90, 76, 0.16);
     border-radius: 10px;
     padding: 6px 11px;
     white-space: nowrap;
   }
   .leaflet-tooltip.ravitobox-map-chip--active {
-    box-shadow: 0 6px 22px rgba(13, 115, 119, 0.22), 0 0 0 2px ${MAP_SEL.focus};
+    box-shadow: 0 6px 22px rgba(45, 90, 76, 0.22), 0 0 0 2px ${MAP_SEL.focus};
   }
   .leaflet-tooltip.ravitobox-map-chip--spotlight {
-    box-shadow: 0 6px 22px rgba(194, 65, 12, 0.2), 0 0 0 2px ${MAP_SEL.spotlight};
+    box-shadow: 0 6px 22px rgba(196, 92, 58, 0.2), 0 0 0 2px ${MAP_SEL.spotlight};
   }
   .leaflet-div-icon.ravitobox-box-house-active {
-    filter: drop-shadow(0 4px 14px rgba(13, 115, 119, 0.38));
+    filter: drop-shadow(0 4px 14px rgba(45, 90, 76, 0.38));
   }
   .leaflet-div-icon.ravitobox-box-house-spotlight {
-    filter: drop-shadow(0 4px 14px rgba(194, 65, 12, 0.4));
+    filter: drop-shadow(0 4px 14px rgba(196, 92, 58, 0.4));
   }
 `;

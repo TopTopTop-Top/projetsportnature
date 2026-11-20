@@ -1,5 +1,6 @@
 import React, { useMemo, useRef, useCallback } from "react";
 import { View, Text, Platform, StyleSheet } from "react-native";
+import theme from "./theme";
 import {
   getTrailProfileStats,
   getTrailAltitudeMeta,
@@ -16,12 +17,12 @@ const CHART_W_OVERLAY = 680;
 const CHART_W_RAIL = 276;
 
 function slopeColor(gradePct) {
-  if (gradePct == null) return "#94A3B8";
-  if (gradePct >= 12) return "#DC2626";
-  if (gradePct >= 5) return "#C45C1A";
-  if (gradePct > -5) return "#16A34A";
-  if (gradePct > -12) return "#2563EB";
-  return "#4338CA";
+  if (gradePct == null) return theme.inkMuted;
+  if (gradePct >= 12) return theme.danger;
+  if (gradePct >= 5) return theme.warn;
+  if (gradePct > -5) return theme.primary;
+  if (gradePct > -12) return theme.mapTeal;
+  return theme.hero;
 }
 
 function buildChartSeries(trail, chartW, chartH) {
@@ -219,8 +220,8 @@ function WebElevationChart({
     >
       <defs>
         <linearGradient id="ravitobox-elev-fill" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor="#FDE68A" stopOpacity="0.75" />
-          <stop offset="100%" stopColor="#FEF9C3" stopOpacity="0.2" />
+          <stop offset="0%" stopColor={theme.warnBorder} stopOpacity="0.75" />
+          <stop offset="100%" stopColor={theme.warnBg} stopOpacity="0.2" />
         </linearGradient>
       </defs>
       {[0, 0.25, 0.5, 0.75, 1].map((f) => (
@@ -247,7 +248,7 @@ function WebElevationChart({
             y1={series[i - 1].y}
             x2={p.x}
             y2={p.y}
-            stroke={afterProbe ? "#CBD5E1" : slopeColor(p.gradePct)}
+            stroke={afterProbe ? theme.border : slopeColor(p.gradePct)}
             strokeWidth={afterProbe ? 2.5 : interactive ? 4.5 : 3.5}
             strokeLinecap="round"
             opacity={afterProbe ? 0.45 : 1}
@@ -261,7 +262,7 @@ function WebElevationChart({
             y1={0}
             x2={probeX}
             y2={chartH}
-            stroke="#0F7A65"
+            stroke={theme.primary}
             strokeWidth="2.5"
             opacity="1"
           />
@@ -272,25 +273,25 @@ function WebElevationChart({
                 cy={probeY}
                 r="11"
                 fill="rgba(255,255,255,0.95)"
-                stroke="#0F7A65"
+                stroke={theme.primary}
                 strokeWidth="3"
               />
-              <circle cx={probeX} cy={probeY} r="5" fill="#0F7A65" />
+              <circle cx={probeX} cy={probeY} r="5" fill={theme.primary} />
             </>
           ) : null}
         </g>
       ) : null}
-      <text x={4} y={12} fontSize="9" fill="#64748B" fontWeight="600">
+      <text x={4} y={12} fontSize="9" fill={theme.inkMuted} fontWeight="600">
         {stats.maxEle} m
       </text>
-      <text x={4} y={chartH - 4} fontSize="9" fill="#64748B" fontWeight="600">
+      <text x={4} y={chartH - 4} fontSize="9" fill={theme.inkMuted} fontWeight="600">
         {stats.minEle} m
       </text>
       <text
         x={chartW - 4}
         y={chartH - 4}
         fontSize="9"
-        fill="#64748B"
+        fill={theme.inkMuted}
         fontWeight="600"
         textAnchor="end"
       >
@@ -466,9 +467,9 @@ export default function TrailElevationProfile({
             )}
           </View>
           <View style={[styles.legendRow, isRail && styles.legendRowRail]}>
-            <LegendDot color="#C45C1A" label="Montée" />
-            <LegendDot color="#16A34A" label="Plat" />
-            <LegendDot color="#2563EB" label="Descente" />
+            <LegendDot color={theme.warn} label="Montée" />
+            <LegendDot color={theme.primary} label="Plat" />
+            <LegendDot color={theme.mapTeal} label="Descente" />
           </View>
         </>
       )}
@@ -525,8 +526,8 @@ const styles = StyleSheet.create({
   wrap: {
     marginTop: 10,
     borderWidth: 1,
-    borderColor: "#99F6E4",
-    backgroundColor: "#F8FFFE",
+    borderColor: theme.status.validated.border,
+    backgroundColor: theme.bg,
     borderRadius: 14,
     padding: 12,
   },
@@ -549,8 +550,8 @@ const styles = StyleSheet.create({
   chartBoxRail: {
     flex: 1,
     minHeight: 100,
-    borderColor: "#E8EFE9",
-    backgroundColor: "#FAFAF9",
+    borderColor: theme.borderSoft,
+    backgroundColor: theme.surface,
     borderRadius: 12,
   },
   legendRowRail: {
@@ -562,7 +563,7 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 12,
     fontWeight: "800",
-    color: "#0F766E",
+    color: theme.primary,
     textTransform: "uppercase",
     letterSpacing: 0.45,
     marginBottom: 8,
@@ -576,8 +577,8 @@ const styles = StyleSheet.create({
   statChip: {
     fontSize: 11,
     fontWeight: "700",
-    color: "#0F172A",
-    backgroundColor: "#ECFDF5",
+    color: theme.ink,
+    backgroundColor: theme.primarySoft,
     borderRadius: 999,
     paddingHorizontal: 8,
     paddingVertical: 4,
@@ -587,17 +588,17 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     overflow: "hidden",
     borderWidth: 1,
-    borderColor: "#D1FAE5",
-    backgroundColor: "#FFFFFF",
+    borderColor: theme.status.validated.border,
+    backgroundColor: theme.surface,
   },
   chartBoxOverlay: {
-    borderColor: "#E2E8F0",
+    borderColor: theme.border,
     borderRadius: 12,
   },
   nativeChart: {
     flex: 1,
     position: "relative",
-    backgroundColor: "#FFFBEB",
+    backgroundColor: theme.warnBg,
   },
   nativeCol: {
     position: "absolute",
@@ -614,7 +615,7 @@ const styles = StyleSheet.create({
     bottom: 0,
     width: 2,
     marginLeft: -1,
-    backgroundColor: "#F97316",
+    backgroundColor: theme.warn,
     opacity: 0.95,
   },
   legendRow: {
@@ -635,19 +636,19 @@ const styles = StyleSheet.create({
   },
   legendText: {
     fontSize: 11,
-    color: "#475569",
+    color: theme.ink,
     fontWeight: "600",
   },
   probeBox: {
     marginTop: 10,
     paddingTop: 10,
     borderTopWidth: 1,
-    borderTopColor: "#D1FAE5",
+    borderTopColor: theme.status.validated.border,
   },
   probeTitle: {
     fontSize: 11,
     fontWeight: "800",
-    color: "#64748B",
+    color: theme.inkMuted,
     textTransform: "uppercase",
     letterSpacing: 0.35,
     marginBottom: 4,
@@ -655,7 +656,7 @@ const styles = StyleSheet.create({
   probeValue: {
     fontSize: 15,
     fontWeight: "800",
-    color: "#0F172A",
+    color: theme.ink,
   },
   probeTerrain: {
     marginTop: 4,
@@ -666,47 +667,47 @@ const styles = StyleSheet.create({
     marginTop: 8,
     paddingTop: 8,
     borderTopWidth: 1,
-    borderTopColor: "#F1F5F9",
+    borderTopColor: theme.borderSoft,
   },
   overlayProbeText: {
     fontSize: 13,
-    color: "#475569",
+    color: theme.ink,
     fontWeight: "600",
     lineHeight: 18,
   },
   overlayProbeStrong: {
     fontWeight: "800",
-    color: "#0F172A",
+    color: theme.ink,
   },
   hint: {
     marginTop: 8,
     fontSize: 12,
-    color: "#64748B",
+    color: theme.inkMuted,
     lineHeight: 17,
   },
   empty: {
     fontSize: 12,
-    color: "#64748B",
+    color: theme.inkMuted,
     lineHeight: 18,
   },
   noElevBox: {
-    backgroundColor: "#F8FAFC",
+    backgroundColor: theme.bg,
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: "#E2E8F0",
+    borderColor: theme.border,
     padding: 10,
   },
   noElevTitle: {
     fontSize: 12,
     fontWeight: "800",
-    color: "#475569",
+    color: theme.ink,
     marginBottom: 6,
   },
   noElevHint: {
     marginTop: 8,
     fontSize: 12,
     fontWeight: "700",
-    color: "#B45309",
+    color: theme.warn,
     lineHeight: 17,
   },
 });

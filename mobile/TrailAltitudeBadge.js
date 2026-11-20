@@ -1,24 +1,25 @@
 import React, { useMemo } from "react";
 import { View, Text, StyleSheet } from "react-native";
 import { getTrailAltitudeMeta } from "./trailProfile";
+import theme from "./theme";
 
 const VARIANT_STYLES = {
   profile: {
-    bg: "#ECFDF5",
-    border: "#6EE7B7",
-    text: "#047857",
+    bg: theme.status.validated.bg,
+    border: theme.status.validated.border,
+    text: theme.status.validated.fg,
     icon: "⛰",
   },
   gain_only: {
-    bg: "#FFFBEB",
-    border: "#FCD34D",
-    text: "#B45309",
+    bg: theme.status.pending.bg,
+    border: theme.status.pending.border,
+    text: theme.status.pending.fg,
     icon: "↗",
   },
   none: {
-    bg: "#F1F5F9",
-    border: "#CBD5E1",
-    text: "#64748B",
+    bg: theme.status.muted.bg,
+    border: theme.status.muted.border,
+    text: theme.status.muted.fg,
     icon: "—",
   },
 };

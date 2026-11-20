@@ -5,22 +5,21 @@ import { Ionicons } from "@expo/vector-icons";
 import { probeTrailAt } from "./trailProfile";
 import { parseMapCoords } from "./geoMap";
 import { MAP_SEL } from "./mapSelectionVisual";
+import theme from "./theme";
 
 const TRAIL_DIFFICULTY_COLORS = {
-  easy: "#16A34A",
-  medium: "#D97706",
-  hard: "#DC2626",
+  easy: theme.status.easy.fg,
+  medium: theme.status.medium.fg,
+  hard: theme.status.hard.fg,
 };
 
 const TRAIL_DISPLAY_PALETTE = [
-  "#92400E",
-  "#0369A1",
-  "#7C3AED",
-  "#0D9488",
-  "#CA8A04",
-  "#DB2777",
-  "#4D7C0F",
-  "#4338CA",
+  theme.warn,
+  theme.mapTeal,
+  theme.primary,
+  theme.danger,
+  theme.hero,
+  theme.inkMuted,
 ];
 
 function trailDisplayColor(trailId, difficultyFallback) {
@@ -28,7 +27,7 @@ function trailDisplayColor(trailId, difficultyFallback) {
   if (Number.isFinite(id)) {
     return TRAIL_DISPLAY_PALETTE[Math.abs(id) % TRAIL_DISPLAY_PALETTE.length];
   }
-  return TRAIL_DIFFICULTY_COLORS[difficultyFallback] || "#0F766E";
+  return TRAIL_DIFFICULTY_COLORS[difficultyFallback] || theme.primary;
 }
 
 function TrailTeardropPin({ color, dimmed, emphasized }) {
@@ -46,7 +45,7 @@ function TrailTeardropPin({ color, dimmed, emphasized }) {
           styles.trailPinBubble,
           {
             backgroundColor: color,
-            borderColor: "#ffffff",
+            borderColor: theme.surface,
             borderWidth: 2.5,
           },
         ]}
@@ -339,29 +338,29 @@ export default function NativeExplorerMap({
           selectedBoxSet.has(Number(box.id));
         const borderColor = isSelected
           ? isPlanBox
-            ? "#0F766E"
-            : "#0F172A"
+            ? theme.primary
+            : theme.ink
           : isPlanBox
           ? MAP_SEL.boxPlan
           : dimIncompatibleBoxes && !isCompatible
-          ? "#94A3B8"
-          : "#10B981";
+          ? theme.inkMuted
+          : theme.mapTeal;
         const bg = isSelected
           ? isPlanBox
-            ? "#99F6E4"
-            : "#14B8A6"
+            ? theme.lime
+            : theme.mapTeal
           : isPlanBox
-          ? "#F0FDFA"
+          ? theme.primarySoft
           : dimIncompatibleBoxes && !isCompatible
-          ? "#E2E8F0"
-          : "#FFFFFF";
+          ? theme.surfaceMuted
+          : theme.surface;
         const iconColor = isSelected
-          ? "#0F172A"
+          ? theme.ink
           : isPlanBox
-          ? "#0F766E"
+          ? theme.primary
           : dimIncompatibleBoxes && !isCompatible
-          ? "#64748B"
-          : "#0F766E";
+          ? theme.inkMuted
+          : theme.primary;
         return (
           <Marker
             key={`box-${box.id}`}
@@ -419,7 +418,7 @@ export default function NativeExplorerMap({
               <Ionicons
                 name={isRavito ? "walk" : "location"}
                 size={isRavito ? 16 : 14}
-                color="#fff"
+                color={theme.white}
               />
             </View>
           </Marker>
@@ -486,7 +485,7 @@ export default function NativeExplorerMap({
               <View
                 style={[
                   styles.trailPointEnd,
-                  { borderColor: t.lineColor, backgroundColor: "#0F172A" },
+                  { borderColor: t.lineColor, backgroundColor: theme.ink },
                 ]}
               />
             </Marker>
@@ -542,7 +541,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     alignItems: "center",
     justifyContent: "center",
-    shadowColor: "#0F172A",
+    shadowColor: theme.ink,
     shadowOpacity: 0.28,
     shadowOffset: { width: 0, height: 2 },
     shadowRadius: 4,
@@ -552,7 +551,7 @@ const styles = StyleSheet.create({
     width: 7,
     height: 7,
     borderRadius: 4,
-    backgroundColor: "#ffffff",
+    backgroundColor: theme.surface,
   },
   trailPinPoint: {
     width: 0,
@@ -572,7 +571,7 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     alignItems: "center",
     justifyContent: "center",
-    shadowColor: "#0F172A",
+    shadowColor: theme.ink,
     shadowOpacity: 0.22,
     shadowOffset: { width: 0, height: 2 },
     shadowRadius: 5,
@@ -583,10 +582,10 @@ const styles = StyleSheet.create({
     height: 30,
     borderRadius: 15,
     borderWidth: 2,
-    borderColor: "#fff",
+    borderColor: theme.white,
     alignItems: "center",
     justifyContent: "center",
-    shadowColor: "#0F172A",
+    shadowColor: theme.ink,
     shadowOpacity: 0.25,
     shadowOffset: { width: 0, height: 2 },
     shadowRadius: 4,
@@ -603,14 +602,14 @@ const styles = StyleSheet.create({
     height: 10,
     borderRadius: 999,
     borderWidth: 2,
-    backgroundColor: "#0F172A",
+    backgroundColor: theme.ink,
   },
   mapTapPinOuter: {
     width: 22,
     height: 22,
     borderRadius: 999,
     borderWidth: 2,
-    borderColor: "#C2410C",
+    borderColor: theme.warn,
     backgroundColor: "rgba(251, 191, 36, 0.45)",
     alignItems: "center",
     justifyContent: "center",
@@ -619,8 +618,8 @@ const styles = StyleSheet.create({
     width: 8,
     height: 8,
     borderRadius: 999,
-    backgroundColor: "#0F7A65",
+    backgroundColor: theme.primary,
     borderWidth: 1,
-    borderColor: "#fff",
+    borderColor: theme.white,
   },
 });

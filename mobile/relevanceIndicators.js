@@ -1,13 +1,7 @@
 import React from "react";
 import { View, Text, TouchableOpacity, StyleSheet } from "react-native";
+import theme from "./theme";
 
-const theme = {
-  primary: "#0D9488",
-  inkMuted: "#64748B",
-  ink: "#0F172A",
-  border: "#E2E8F0",
-  surfaceMuted: "#F0FDFA",
-};
 
 export function formatRelevanceLine(avg, count, { empty = "Pas encore noté" } = {}) {
   const n = Number(count) || 0;
@@ -132,23 +126,23 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   badgeMuted: {
-    backgroundColor: "#F8FAFC",
+    backgroundColor: theme.bg,
     borderColor: theme.border,
   },
   badgeActive: {
     backgroundColor: theme.surfaceMuted,
-    borderColor: "#99F6E4",
+    borderColor: theme.status.validated.border,
   },
   badgeText: { fontSize: 11, fontWeight: "800" },
   badgeTextMuted: { color: theme.inkMuted },
-  badgeTextActive: { color: "#0F766E" },
+  badgeTextActive: { color: theme.primary },
   voteWrap: {
     marginTop: 8,
     padding: 10,
     borderRadius: 10,
     borderWidth: 1,
     borderColor: theme.border,
-    backgroundColor: "#F8FAFC",
+    backgroundColor: theme.bg,
   },
   voteLabel: {
     fontSize: 11,
@@ -159,8 +153,8 @@ const styles = StyleSheet.create({
   voteStars: { flexDirection: "row", gap: 4 },
   voteStarBtn: { padding: 4 },
   voteStar: { fontSize: 26, lineHeight: 30 },
-  voteStarOn: { color: "#F59E0B" },
-  voteStarOff: { color: "#CBD5E1" },
+  voteStarOn: { color: theme.warn },
+  voteStarOff: { color: theme.border },
   voteHint: {
     marginTop: 6,
     fontSize: 10,
@@ -171,7 +165,7 @@ const styles = StyleSheet.create({
     marginTop: 4,
     fontSize: 11,
     lineHeight: 16,
-    color: "#B45309",
+    color: theme.warn,
     fontWeight: "600",
   },
 });
