@@ -1687,7 +1687,7 @@ router.post("/auth/login", authRateLimit, async (req, res) => {
   return res.json({ user: withCapabilities(user), ...session });
 });
 
-router.post("/auth/refresh", async (req, res) => {
+router.post("/auth/refresh", authRateLimit, async (req, res) => {
   const parsed = refreshSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: parsed.error.flatten() });
@@ -1734,7 +1734,7 @@ router.post("/auth/refresh", async (req, res) => {
   });
 });
 
-router.post("/auth/logout", async (req, res) => {
+router.post("/auth/logout", authRateLimit, async (req, res) => {
   const parsed = refreshSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: parsed.error.flatten() });

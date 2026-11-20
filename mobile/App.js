@@ -105,6 +105,15 @@ import {
   writeAuthSession,
   clearAuthSession,
 } from "./authSessionStorage";
+import {
+  API_BASE_URL,
+  PROD_API_BASE_URL,
+  API_STATIC_ORIGIN,
+  absoluteUploadUrl,
+  apiFetch,
+  apiAuthBridge,
+  isAuthSessionError,
+} from "./api";
 import { StatusBar } from "expo-status-bar";
 import * as DocumentPicker from "expo-document-picker";
 import {
@@ -119,64 +128,6 @@ import { Ionicons } from "@expo/vector-icons";
 
 /** Navigation onglets (Carte, Resa, …) — partagée hors MainTabs. */
 const mainTabNavigationRef = { current: null };
-
-/** Backend Node (Render « Web Service »), pas l’URL du site statique. */
-const PROD_API_BASE_URL = "https://projetsportnature.onrender.com/api";
-const DEV_API_BASE_URL = "http://localhost:3000/api";
-
-function withApiSuffix(url) {
-  if (!url || typeof url !== "string") return "";
-  const t = url.trim().replace(/\/$/, "");
-  if (!t) return "";
-  return /\/api$/i.test(t) ? t : `${t}/api`;
-}
-
-/**
- * URL du backend JSON. En prod web sur Render : si EXPO_PUBLIC_API_URL pointe vers
- * le même hôte que la page (site statique), on utilise PROD_API_BASE_URL — comme
- * pour les box, les écritures doivent frapper le Web Service Node, pas le static.
- */
-function getApiBaseUrl() {
-  const envRaw =
-    typeof process !== "undefined" && process.env.EXPO_PUBLIC_API_URL
-      ? String(process.env.EXPO_PUBLIC_API_URL).trim()
-      : "";
-  const envNorm = withApiSuffix(envRaw);
-
-  if (__DEV__) {
-    return envNorm || DEV_API_BASE_URL;
-  }
-
-  if (
-    Platform.OS === "web" &&
-    typeof window !== "undefined" &&
-    window.location?.hostname
-  ) {
-    const pageOrigin =
-      `${window.location.protocol}//${window.location.host}`.replace(/\/$/, "");
-    if (envNorm) {
-      const apiOrigin = envNorm.replace(/\/api\/?$/i, "").replace(/\/$/, "");
-      if (apiOrigin === pageOrigin) {
-        return PROD_API_BASE_URL;
-      }
-    } else if (/-1\.onrender\.com$/i.test(window.location.hostname)) {
-      return PROD_API_BASE_URL;
-    }
-  }
-
-  return envNorm || PROD_API_BASE_URL;
-}
-
-const API_BASE_URL = getApiBaseUrl();
-
-/** Origine du serveur (fichiers statiques /uploads, sans /api). */
-const API_STATIC_ORIGIN = API_BASE_URL.replace(/\/api\/?$/i, "");
-
-function absoluteUploadUrl(path) {
-  if (!path) return null;
-  if (/^https?:\/\//i.test(path)) return path;
-  return `${API_STATIC_ORIGIN}${path.startsWith("/") ? "" : "/"}${path}`;
-}
 
 const {
   DEFAULT_AVAILABILITY_SCHEDULE,
@@ -1086,165 +1037,6 @@ function difficultyBadgeStyle(level) {
         border: theme.status.medium.border,
       };
   }
-}
-
-function parseFieldErrorsFromApiError(errObj) {
-  if (!errObj || typeof errObj !== "object") return [];
-  const fieldErrors = errObj.fieldErrors;
-  if (!fieldErrors || typeof fieldErrors !== "object") return [];
-  const out = [];
-  for (const [field, msgs] of Object.entries(fieldErrors)) {
-    if (!Array.isArray(msgs) || msgs.length === 0) continue;
-    const first = String(msgs[0] || "").trim();
-    if (!first) continue;
-    out.push(`${field}: ${first}`);
-  }
-  return out;
-}
-
-/**
- * Rempli par RavitoApp : refresh synchrone (ref) pour les retries 401 après rotation du refresh token.
- */
-const apiAuthBridge = {
-  getRefreshToken: () => null,
-  applySessionTokens: (_access, _refresh) => {},
-};
-
-let authRefreshPromise = null;
-
-function throwIfHtmlResponse(trimmed, response, method, path, root) {
-  if (
-    trimmed.startsWith("<!DOCTYPE") ||
-    trimmed.toLowerCase().startsWith("<html")
-  ) {
-    throw new Error(
-      `Réponse HTML (${response.status}) : ${method} ${path} sur « ${root} » (pas de JSON). Causes fréquentes : (1) EXPO_PUBLIC_API_URL pointe vers un site statique au lieu du Web Service Node ; (2) le backend Render n’a pas été redéployé depuis main (routes mise à jour trace : PATCH/PUT /api/trails/:id, POST /api/update-trail). Référence API : ${PROD_API_BASE_URL}`
-    );
-  }
-}
-
-async function refreshAccessTokenOnce({ baseUrl, signal }) {
-  const rt = apiAuthBridge.getRefreshToken?.();
-  if (!rt) return null;
-  const root =
-    typeof baseUrl === "string" && baseUrl.trim()
-      ? baseUrl.trim()
-      : API_BASE_URL;
-  const response = await fetch(`${root}/auth/refresh`, {
-    method: "POST",
-    signal,
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ refreshToken: rt }),
-  });
-  const text = await response.text();
-  let data = {};
-  if (text) {
-    const trimmed = text.trim();
-    throwIfHtmlResponse(trimmed, response, "POST", "/auth/refresh", root);
-    try {
-      data = JSON.parse(text);
-    } catch {
-      return null;
-    }
-  }
-  if (!response.ok) return null;
-  if (data.token && data.refreshToken) {
-    apiAuthBridge.applySessionTokens(data.token, data.refreshToken);
-    return data.token;
-  }
-  return null;
-}
-
-function waitForAuthRefresh({ baseUrl, signal }) {
-  if (!authRefreshPromise) {
-    authRefreshPromise = refreshAccessTokenOnce({ baseUrl, signal }).finally(
-      () => {
-        authRefreshPromise = null;
-      }
-    );
-  }
-  return authRefreshPromise;
-}
-
-function errorMessageFromApiData(data, response, method, path) {
-  const err = data.error;
-  const fieldMsgs = parseFieldErrorsFromApiError(err);
-  return typeof err === "string"
-    ? err
-    : fieldMsgs.length > 0
-    ? fieldMsgs.join(" · ")
-    : err && typeof err === "object"
-    ? JSON.stringify(err)
-    : response.status === 404
-    ? `Endpoint API introuvable: ${method} ${path}`
-    : "Erreur réseau ou serveur";
-}
-
-async function apiFetch(
-  path,
-  {
-    method = "GET",
-    body,
-    token,
-    signal,
-    baseUrl,
-    _retryAfterRefresh = false,
-  } = {}
-) {
-  const root =
-    typeof baseUrl === "string" && baseUrl.trim()
-      ? baseUrl.trim()
-      : API_BASE_URL;
-  const response = await fetch(`${root}${path}`, {
-    method,
-    signal,
-    headers: {
-      "Content-Type": "application/json",
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
-    body: body ? JSON.stringify(body) : undefined,
-  });
-  const text = await response.text();
-  let data = {};
-  if (text) {
-    const trimmed = text.trim();
-    throwIfHtmlResponse(trimmed, response, method, path, root);
-    try {
-      data = JSON.parse(text);
-    } catch {
-      throw new Error(text.slice(0, 180) || "Réponse invalide du serveur");
-    }
-  }
-  if (!response.ok) {
-    const errStr =
-      typeof data.error === "string" ? data.error.trim().toLowerCase() : "";
-    const isExpiredAccess =
-      errStr === "invalid or expired token" || errStr.includes("jwt expired");
-    if (
-      !_retryAfterRefresh &&
-      token &&
-      response.status === 401 &&
-      isExpiredAccess &&
-      path !== "/auth/refresh" &&
-      path !== "/auth/login" &&
-      path !== "/auth/logout"
-    ) {
-      const fresh = await waitForAuthRefresh({ baseUrl, signal });
-      if (fresh) {
-        return apiFetch(path, {
-          method,
-          body,
-          token: fresh,
-          signal,
-          baseUrl,
-          _retryAfterRefresh: true,
-        });
-      }
-    }
-    const msg = errorMessageFromApiData(data, response, method, path);
-    throw new Error(msg);
-  }
-  return data;
 }
 
 /** Sur le web, Alert.alert est souvent no-op ou peu visible — utiliser window.alert. */
@@ -12961,6 +12753,8 @@ function RavitoApp() {
   const [resetStep, setResetStep] = useState("idle");
   const [recoveryCodeReveal, setRecoveryCodeReveal] = useState(null);
   const [sessionReady, setSessionReady] = useState(false);
+  /** Bandeau « hors ligne » : API injoignable sans invalidation de session. */
+  const [apiOffline, setApiOffline] = useState(false);
 
   const [boxes, setBoxes] = useState([]);
   const [trails, setTrails] = useState([]);
@@ -13132,17 +12926,27 @@ function RavitoApp() {
         setRefreshToken(result.refreshToken);
         setUser(restoredUser);
         applyServerCapabilities(restoredUser);
+        setApiOffline(false);
         writeAuthSession({
           token: result.token,
           refreshToken: result.refreshToken,
           user: restoredUser,
         });
-      } catch {
-        if (!cancelled) {
+      } catch (error) {
+        if (cancelled) return;
+        // Hors ligne / API down : on garde la session locale. Auth invalide : on coupe.
+        if (isAuthSessionError(error)) {
           clearAuthSession();
           setToken(null);
           setRefreshToken(null);
           setUser(null);
+          setApiOffline(false);
+        } else {
+          setToken(stored.token || null);
+          setRefreshToken(stored.refreshToken || null);
+          setUser(stored.user || null);
+          if (stored.user) applyServerCapabilities(stored.user);
+          setApiOffline(true);
         }
       } finally {
         if (!cancelled) setSessionReady(true);
@@ -13166,6 +12970,30 @@ function RavitoApp() {
     refreshTokenRef.current = refreshToken;
   }, [refreshToken]);
 
+  const forceLocalLogout = useCallback(() => {
+    clearAuthSession();
+    setToken(null);
+    setRefreshToken(null);
+    setUser(null);
+    setTrailLocalPatches({});
+    setBoxes([]);
+    setTrails([]);
+    setHostBoxes([]);
+    setHostBoxTrailPins([]);
+    setHostEditingBoxId(null);
+    setHostRefunds([]);
+    setHostBookings([]);
+    setAthleteBookings([]);
+    setFollowingUsers([]);
+    setFollowingBoxes([]);
+    setRoutePlans([]);
+    setSelectedRoutePlanId(null);
+    setSelectedRoutePlanDetail(null);
+    setMapTrailsScope("all");
+    setAuthMode("login");
+    setApiOffline(false);
+  }, []);
+
   useEffect(() => {
     apiAuthBridge.getRefreshToken = () => refreshTokenRef.current;
     apiAuthBridge.applySessionTokens = (access, refresh) => {
@@ -13173,11 +13001,23 @@ function RavitoApp() {
       setToken(access);
       setRefreshToken(refresh);
     };
+    apiAuthBridge.onSessionExpired = () => {
+      forceLocalLogout();
+    };
+    apiAuthBridge.onNetworkIssue = () => {
+      setApiOffline(true);
+    };
+    apiAuthBridge.onNetworkOk = () => {
+      setApiOffline(false);
+    };
     return () => {
       apiAuthBridge.getRefreshToken = () => null;
       apiAuthBridge.applySessionTokens = () => {};
+      apiAuthBridge.onSessionExpired = () => {};
+      apiAuthBridge.onNetworkIssue = () => {};
+      apiAuthBridge.onNetworkOk = () => {};
     };
-  }, []);
+  }, [forceLocalLogout]);
 
   const isAuthed = useMemo(() => Boolean(token), [token]);
 
@@ -13902,26 +13742,7 @@ function RavitoApp() {
     } catch (_error) {
       // noop
     } finally {
-      clearAuthSession();
-      setToken(null);
-      setRefreshToken(null);
-      setUser(null);
-      setTrailLocalPatches({});
-      setBoxes([]);
-      setTrails([]);
-      setHostBoxes([]);
-      setHostBoxTrailPins([]);
-      setHostEditingBoxId(null);
-      setHostRefunds([]);
-      setHostBookings([]);
-      setAthleteBookings([]);
-      setFollowingUsers([]);
-      setFollowingBoxes([]);
-      setRoutePlans([]);
-      setSelectedRoutePlanId(null);
-      setSelectedRoutePlanDetail(null);
-      setMapTrailsScope("all");
-      setAuthMode("login");
+      forceLocalLogout();
     }
   };
 
@@ -14036,7 +13857,20 @@ function RavitoApp() {
         perm = await Notifications.requestPermissionsAsync?.();
       }
       if (perm && perm.status !== "granted") return false;
-      const res = await Notifications.getExpoPushTokenAsync();
+      let projectId = null;
+      try {
+        // eslint-disable-next-line global-require
+        const Constants = require("expo-constants");
+        projectId =
+          Constants?.expoConfig?.extra?.eas?.projectId ||
+          Constants?.easConfig?.projectId ||
+          null;
+      } catch (_e) {
+        projectId = null;
+      }
+      const res = await Notifications.getExpoPushTokenAsync(
+        projectId ? { projectId: String(projectId) } : undefined
+      );
       const pushToken = res?.data;
       if (!pushToken) return false;
       await apiFetch("/users/me/push-token", {
@@ -17320,6 +17154,30 @@ function RavitoApp() {
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
         <AuthUiContext.Provider value={authUiValue}>
+          {apiOffline ? (
+            <View
+              style={{
+                backgroundColor: theme.status.pending.bg,
+                paddingVertical: 8,
+                paddingHorizontal: 14,
+                borderBottomWidth: StyleSheet.hairlineWidth,
+                borderBottomColor: theme.status.pending.border,
+              }}
+              accessibilityRole="alert"
+            >
+              <Text
+                style={{
+                  color: theme.status.pending.fg,
+                  fontSize: 13,
+                  textAlign: "center",
+                  fontWeight: "600",
+                }}
+              >
+                Hors ligne — certaines actions restent locales jusqu’au retour du
+                réseau.
+              </Text>
+            </View>
+          ) : null}
           <AccountRecoveryCodeModal
             visible={Boolean(recoveryCodeReveal?.code)}
             code={recoveryCodeReveal?.code || ""}

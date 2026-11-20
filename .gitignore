@@ -8,4 +8,6 @@ data.sqlite-*
 uploads/*
 !uploads/.gitkeep
 mobile/dist
+mobile/dist-web-check
+mobile/.expo
 *.log

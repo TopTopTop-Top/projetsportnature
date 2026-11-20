@@ -4,6 +4,7 @@ const morgan = require("morgan");
 const path = require("path");
 const apiRouter = require("./routes/api");
 const { migrate } = require("./db/database");
+const { isRemoteStorageEnabled } = require("./lib/objectStorage");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -27,48 +28,24 @@ app.use("/uploads", express.static(path.join(__dirname, "../uploads")));
 app.get("/", (_req, res) => {
   res.json({
     name: "RavitoBox API",
-    version: "0.4.0",
+    version: "0.5.0-beta",
+    mode: {
+      stripe: process.env.STRIPE_SECRET_KEY ? "live-or-test-key" : "simulated",
+      gpxStorage: isRemoteStorageEnabled() ? "s3-or-r2" : "local-uploads",
+      smtp: !!(process.env.SMTP_URL || process.env.SMTP_HOST),
+    },
     endpoints: [
       "/api/health",
-      "/api/geocode/reverse",
-      "/api/geocode/search",
-      "/api/auth/register",
-      "/api/auth/login",
-      "/api/auth/refresh",
-      "/api/auth/logout",
-      "/api/auth/password-reset/request",
-      "/api/auth/password-reset/confirm",
-      "/api/webhooks/stripe (POST, raw body)",
-      "/api/users",
-      "/api/users/me/role",
-      "/api/notifications",
-      "/api/notifications/:id/read",
-      "/api/notifications/read-all",
-      "/api/boxes",
-      "/api/boxes/bounds",
-      "/api/boxes/nearby",
-      "/api/host/boxes",
-      "/api/host/trails/:id (PUT, PATCH)",
-      "/api/host/trails/update (POST)",
-      "/api/trails",
-      "/api/update-trail (POST)",
-      "/api/trails/:id (PUT, PATCH, DELETE)",
-      "/api/trails/:id/update (POST)",
-      "/api/trails/upload-gpx",
-      "/api/bookings",
-      "/api/bookings/:id",
-      "/api/bookings/:id/events",
-      "/api/host/bookings",
-      "/api/host/bookings/:id (PATCH, DELETE)",
-      "/api/host/bookings/:id",
-      "/api/host/bookings/:id/decision",
-      "/api/host/boxes/:id/deletion-impact",
-      "/api/host/boxes/:id (DELETE, PATCH)",
-      "/api/host/boxes/:id/restore",
-      "/api/bookings/:id (PATCH, DELETE)",
-      "/api/bookings/:id/decision",
-      "/api/reviews",
-      "/api/users/:id/reviews",
+      "/api/auth/* (register, login, refresh, logout, password-reset)",
+      "/api/users/me/* (role, capabilities, password, push-token)",
+      "/api/boxes*, /api/host/boxes*",
+      "/api/trails*, /api/route-plans*",
+      "/api/bookings*, /api/host/bookings*, /api/host/refunds*",
+      "/api/ravito-requests*",
+      "/api/notifications*",
+      "/api/reviews*",
+      "/api/webhooks/stripe",
+      "/api/geocode/*",
     ],
   });
 });
@@ -83,6 +60,19 @@ app.use(/^\/api\/.*/, (req, res) => {
 (async function start() {
   try {
     await migrate();
+    if (
+      (process.env.RENDER || process.env.NODE_ENV === "production") &&
+      !isRemoteStorageEnabled()
+    ) {
+      console.warn(
+        "[ravitobox] GPX storage is local (uploads/). Files are lost on Render redeploy. Set AWS_* or R2_* for durable storage."
+      );
+    }
+    if (!process.env.STRIPE_SECRET_KEY) {
+      console.info(
+        "[ravitobox] Stripe disabled — payments run in simulated beta mode."
+      );
+    }
     app.listen(PORT, () => {
       console.log(`RavitoBox API running on http://localhost:${PORT}`);
     });

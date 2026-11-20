@@ -4,11 +4,14 @@
     "slug": "ravitobox",
     "version": "1.0.0",
     "orientation": "portrait",
+    "scheme": "ravitobox",
+    "userInterfaceStyle": "light",
     "assetBundlePatterns": [
       "**/*"
     ],
     "ios": {
       "bundleIdentifier": "com.ravitobox.app",
+      "buildNumber": "1",
       "supportsTablet": true,
       "infoPlist": {
         "NSLocationWhenInUseUsageDescription": "RavitoBox utilise votre position pour trouver des boxes proches et partager votre arrivée.",
@@ -17,6 +20,7 @@
     },
     "android": {
       "package": "com.ravitobox.app",
+      "versionCode": 1,
       "permissions": [
         "ACCESS_COARSE_LOCATION",
         "ACCESS_FINE_LOCATION"
@@ -24,6 +28,11 @@
     },
     "plugins": [
       "expo-notifications"
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": ""
+      }
+    }
   }
 }

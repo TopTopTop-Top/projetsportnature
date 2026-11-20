@@ -1,6 +1,19 @@
-# RavitoBox MVP
+# RavitoBox (bêta)
 
-Backend + mobile minimal pour une app type "Airbnb du ravito outdoor".
+Backend + mobile Expo pour une app type « Airbnb du ravito outdoor ».
+
+## Mode bêta
+
+Sans clés externes, l’API reste utilisable :
+
+| Service | Sans config | Avec config |
+|---|---|---|
+| **Stripe** | Paiements **simulés** | `STRIPE_SECRET_KEY` + webhook |
+| **Email reset mdp** | Code loggé en console serveur | `SMTP_*` / `SMTP_URL` |
+| **GPX** | Dossier `uploads/` (éphémère sur Render free) | `AWS_*` ou `R2_*` |
+| **Push** | Ignoré si pas de token Expo | `expo-notifications` + `eas.projectId` |
+
+Tests rapides : `npm test` (smoke). Workflow CI : `.github/workflows/ci.yml` (copie de secours dans `scripts/github-ci.yml` si le token GitHub n’a pas le scope `workflow`).
 
 ## Installation
 

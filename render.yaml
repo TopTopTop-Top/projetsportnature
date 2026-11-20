@@ -18,10 +18,42 @@ services:
       # Relier la Postgres Render (External/Internal Database URL) :
       - key: DATABASE_URL
         sync: false
-      # Optionnel — sans clé, paiements restent en mode simulé :
+      # Optionnel — sans clé, paiements restent en mode simulé (bêta OK) :
       - key: STRIPE_SECRET_KEY
         sync: false
       - key: STRIPE_WEBHOOK_SECRET
+        sync: false
+      # Optionnel — sans SMTP, code reset mdp loggé côté serveur :
+      - key: SMTP_URL
+        sync: false
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_PORT
+        sync: false
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASS
+        sync: false
+      - key: MAIL_FROM
+        sync: false
+      # Optionnel — sans bucket, GPX en local (perdu au redeploy Render) :
+      - key: AWS_S3_BUCKET
+        sync: false
+      - key: AWS_ACCESS_KEY_ID
+        sync: false
+      - key: AWS_SECRET_ACCESS_KEY
+        sync: false
+      - key: AWS_REGION
+        sync: false
+      - key: R2_BUCKET
+        sync: false
+      - key: R2_ACCESS_KEY_ID
+        sync: false
+      - key: R2_SECRET_ACCESS_KEY
+        sync: false
+      - key: R2_ACCOUNT_ID
+        sync: false
+      - key: R2_PUBLIC_URL
         sync: false
 
   - type: static_site
