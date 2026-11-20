@@ -393,6 +393,9 @@ async function migrate() {
     );
 
     await client.query(
+      `ALTER TABLE route_plans ALTER COLUMN trail_id DROP NOT NULL`
+    );
+    await client.query(
       `ALTER TABLE route_plans ADD COLUMN IF NOT EXISTS visibility TEXT NOT NULL DEFAULT 'private'`
     );
     await client.query(
@@ -459,6 +462,70 @@ async function migrate() {
 
     await client.query(
       `ALTER TABLE users ADD COLUMN IF NOT EXISTS account_recovery_code_hash TEXT`
+    );
+
+    // Capacités serveur (user / host / ravito), push, localisation bénévole, Stripe
+    await client.query(
+      `ALTER TABLE users ADD COLUMN IF NOT EXISTS cap_user SMALLINT DEFAULT 1`
+    );
+    await client.query(
+      `ALTER TABLE users ADD COLUMN IF NOT EXISTS cap_host SMALLINT DEFAULT 0`
+    );
+    await client.query(
+      `ALTER TABLE users ADD COLUMN IF NOT EXISTS cap_ravito SMALLINT DEFAULT 0`
+    );
+    await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS push_token TEXT`);
+    await client.query(
+      `ALTER TABLE users ADD COLUMN IF NOT EXISTS volunteer_lat DOUBLE PRECISION`
+    );
+    await client.query(
+      `ALTER TABLE users ADD COLUMN IF NOT EXISTS volunteer_lon DOUBLE PRECISION`
+    );
+    await client.query(
+      `ALTER TABLE users ADD COLUMN IF NOT EXISTS volunteer_radius_km DOUBLE PRECISION DEFAULT 15`
+    );
+    await client.query(
+      `ALTER TABLE users ADD COLUMN IF NOT EXISTS stripe_account_id TEXT`
+    );
+    await client.query(
+      `ALTER TABLE users ADD COLUMN IF NOT EXISTS stripe_onboarded SMALLINT DEFAULT 0`
+    );
+    // Défauts (au cas où les colonnes existaient déjà sans défaut) + backfill
+    await client.query(`ALTER TABLE users ALTER COLUMN cap_user SET DEFAULT 1`);
+    await client.query(`ALTER TABLE users ALTER COLUMN cap_host SET DEFAULT 0`);
+    await client.query(`ALTER TABLE users ALTER COLUMN cap_ravito SET DEFAULT 0`);
+    await client.query(
+      `ALTER TABLE users ALTER COLUMN volunteer_radius_km SET DEFAULT 15`
+    );
+    await client.query(`ALTER TABLE users ALTER COLUMN stripe_onboarded SET DEFAULT 0`);
+    await client.query(`UPDATE users SET cap_user = 1 WHERE cap_user IS NULL`);
+    await client.query(`UPDATE users SET cap_host = 0 WHERE cap_host IS NULL`);
+    await client.query(`UPDATE users SET cap_ravito = 0 WHERE cap_ravito IS NULL`);
+    await client.query(
+      `UPDATE users SET stripe_onboarded = 0 WHERE stripe_onboarded IS NULL`
+    );
+    // Hôtes existants : cap_host = 1 (idempotent : le rôle suit les capacités ensuite)
+    await client.query(
+      `UPDATE users SET cap_user = 0
+       WHERE role = 'host' AND cap_host = 0`
+    );
+    await client.query(
+      `UPDATE users SET cap_host = 1
+       WHERE role IN ('host', 'both') AND cap_host = 0`
+    );
+    // Rôle synchronisé depuis les capacités (le CHECK sur role est conservé)
+    await client.query(
+      `UPDATE users
+       SET role = CASE
+         WHEN cap_host = 1 AND cap_user = 1 THEN 'both'
+         WHEN cap_host = 1 THEN 'host'
+         ELSE 'athlete'
+       END
+       WHERE role IS DISTINCT FROM (CASE
+         WHEN cap_host = 1 AND cap_user = 1 THEN 'both'
+         WHEN cap_host = 1 THEN 'host'
+         ELSE 'athlete'
+       END)`
     );
 
     await client.query(`

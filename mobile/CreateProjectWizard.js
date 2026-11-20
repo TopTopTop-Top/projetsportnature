@@ -124,17 +124,14 @@ export default function CreateProjectWizard({
 
   const handleCreate = async () => {
     const tid = Number(trailId);
-    if (!Number.isFinite(tid) || tid <= 0) {
-      setError("Choisis une trace ou importe un GPX.");
-      return;
-    }
+    const hasTrail = Number.isFinite(tid) && tid > 0;
     setError("");
     try {
       const detail = await onCreate?.({
         name: name.trim(),
         activity,
         needs: needs.trim(),
-        trailId: tid,
+        trailId: hasTrail ? tid : null,
         visibility,
         departureDate: departureDate || null,
       });
@@ -401,7 +398,9 @@ export default function CreateProjectWizard({
                 <Text style={styles.sectionLabel}>OU UTILISER UNE TRACE</Text>
                 {myTrails.length === 0 ? (
                   <Text style={styles.hint}>
-                    Aucune trace encore — importe un GPX ci-dessus.
+                    Aucune trace pour l’instant. Le plus simple : importe un
+                    fichier GPX ci-dessus (Strava, Komoot, montre…). Ta sortie
+                    sera créée dès que le tracé est importé.
                   </Text>
                 ) : (
                   myTrails.map((t) => {
@@ -481,16 +480,18 @@ export default function CreateProjectWizard({
                 <TouchableOpacity
                   style={[
                     styles.priBtn,
-                    (busy || !trailId) && styles.priBtnDisabled,
+                    busy && styles.priBtnDisabled,
                   ]}
                   onPress={handleCreate}
-                  disabled={busy || !trailId}
+                  disabled={busy}
                 >
                   {busy ? (
                     <ActivityIndicator color="#fff" />
                   ) : (
                     <Text style={styles.priBtnText}>
-                      Créer et ouvrir la carte ↗
+                      {trailId
+                        ? "Créer et ouvrir la carte ↗"
+                        : "Créer sans tracé (lier un GPX plus tard) ↗"}
                     </Text>
                   )}
                 </TouchableOpacity>

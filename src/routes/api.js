@@ -13,6 +13,11 @@ const {
 } = require("../lib/boxAvailability");
 const { computeCommission, generateAccessCode } = require("../utils");
 const { signToken, requireAuth, optionalAuth } = require("../auth");
+const {
+  isStripeEnabled,
+  getStripeClient,
+  createCheckoutForBooking,
+} = require("../lib/stripePayments");
 
 const router = express.Router();
 const parser = new XMLParser({ ignoreAttributes: false });
@@ -125,13 +130,77 @@ function verifyStoredPassword(password, passwordHash) {
   return { hasPassword: true, ok, needsUpgrade: ok };
 }
 
+const capabilitiesSchema = z.object({
+  user: z.boolean().optional(),
+  host: z.boolean().optional(),
+  ravito: z.boolean().optional(),
+});
+
 const createUserSchema = z.object({
   fullName: z.string().min(2),
   email: authEmailSchema,
   password: z.string().min(8),
-  role: z.enum(["athlete", "host", "both"]),
+  role: z.enum(["athlete", "host", "both"]).optional(),
   city: z.string().min(2).optional(),
+  capabilities: capabilitiesSchema.optional(),
 });
+
+const updateCapabilitiesSchema = z.object({
+  user: z.boolean(),
+  host: z.boolean(),
+  ravito: z.boolean(),
+});
+
+const volunteerLocationSchema = z.object({
+  lat: z.number().min(-90).max(90),
+  lon: z.number().min(-180).max(180),
+  radiusKm: z.number().min(0.5).max(200).optional(),
+});
+
+const pushTokenSchema = z.object({
+  token: z.string().trim().min(1).max(4096),
+});
+
+/** Capacités d'un user (colonnes cap_*). NULL/undefined → défauts (user=1). */
+function capsFromRow(row) {
+  const userCap = row?.cap_user == null ? 1 : Number(row.cap_user);
+  return {
+    user: !!userCap,
+    host: !!Number(row?.cap_host || 0),
+    ravito: !!Number(row?.cap_ravito || 0),
+  };
+}
+
+/** host+user → both ; host seul → host ; sinon athlete. */
+function roleFromCaps(c) {
+  if (c?.host && c?.user) return "both";
+  if (c?.host) return "host";
+  return "athlete";
+}
+
+/** Capacités déduites d'un ancien rôle (inscription sans `capabilities`). */
+function capsFromLegacyRole(role) {
+  if (role === "host") return { user: false, host: true, ravito: false };
+  if (role === "both") return { user: true, host: true, ravito: false };
+  return { user: true, host: false, ravito: false };
+}
+
+const USER_PUBLIC_COLUMNS = `id, full_name, email, role, city, created_at,
+  cap_user, cap_host, cap_ravito`;
+
+/** Retire les colonnes cap_* brutes et ajoute `capabilities`. */
+function withCapabilities(row) {
+  if (!row) return row;
+  const {
+    password_hash: _p,
+    cap_user: _cu,
+    cap_host: _ch,
+    cap_ravito: _cr,
+    push_token: _pt,
+    ...rest
+  } = row;
+  return { ...rest, capabilities: capsFromRow(row) };
+}
 
 const createBoxSchema = z.object({
   hostUserId: z.number().int().positive(),
@@ -394,6 +463,8 @@ function mapRavitoRequestRow(r, proposals = null) {
       r.nearest_box_km != null ? Number(r.nearest_box_km) : undefined,
     routePlanId:
       r.route_plan_id != null ? Number(r.route_plan_id) : null,
+    acceptedProposalId:
+      r.accepted_proposal_id != null ? Number(r.accepted_proposal_id) : null,
     proposals: proposals || undefined,
   };
 }
@@ -583,8 +654,10 @@ async function loadRavitoProposalsForRequest(requestId) {
 async function notifyHostsNearRavitoRequest(request, hostIds) {
   const ids = [...new Set(hostIds.map(Number).filter((id) => id > 0))];
   const athleteId = Number(request.athlete_user_id);
+  const notified = new Set();
   for (const hostId of ids) {
     if (hostId === athleteId) continue;
+    notified.add(hostId);
     await createNotification({
       recipientUserId: hostId,
       type: "ravito_request_nearby",
@@ -592,6 +665,41 @@ async function notifyHostsNearRavitoRequest(request, hostIds) {
       body: `Un athlète cherche un ravito près d’un point GPS (${request.booking_date} ${request.start_time}–${request.end_time}).`,
       data: { requestId: request.id },
     });
+  }
+
+  // Bénévoles ravito (cap_ravito) localisés dans leur rayon (ou celui de la demande).
+  const pointLat = Number(request.point_lat);
+  const pointLon = Number(request.point_lon);
+  if (!Number.isFinite(pointLat) || !Number.isFinite(pointLon)) return;
+  try {
+    const { rows: volunteers } = await pool.query(
+      `SELECT u.id
+       FROM users u
+       WHERE u.cap_ravito = 1
+         AND u.id <> $1
+         AND u.volunteer_lat IS NOT NULL
+         AND u.volunteer_lon IS NOT NULL
+         AND (6371000 * acos(LEAST(1, GREATEST(-1,
+           cos(radians($2)) * cos(radians(u.volunteer_lat))
+             * cos(radians(u.volunteer_lon) - radians($3))
+           + sin(radians($2)) * sin(radians(u.volunteer_lat))
+         )))) / 1000 <= COALESCE(u.volunteer_radius_km, $4)`,
+      [athleteId, pointLat, pointLon, Number(request.radius_km) || 5]
+    );
+    for (const v of volunteers) {
+      const volunteerId = Number(v.id);
+      if (!(volunteerId > 0) || notified.has(volunteerId)) continue;
+      notified.add(volunteerId);
+      await createNotification({
+        recipientUserId: volunteerId,
+        type: "ravito_request_nearby",
+        title: "Demande de ravito près de toi",
+        body: `Un athlète cherche un ravito près de ta zone (${request.booking_date} ${request.start_time}–${request.end_time}).`,
+        data: { requestId: request.id, volunteer: true },
+      });
+    }
+  } catch (error) {
+    console.error("notify ravito volunteers failed:", error.message);
   }
 }
 
@@ -685,7 +793,7 @@ const updateMyRoleSchema = z.object({
 });
 
 const createRoutePlanSchema = z.object({
-  trailId: z.number().int().positive(),
+  trailId: z.number().int().positive().optional().nullable(),
   boxIds: z.array(z.number().int().positive()).max(100).default([]),
   name: z.string().min(3).max(200).optional(),
   notes: z.string().max(4000).optional(),
@@ -1346,11 +1454,29 @@ router.post("/auth/register", authRateLimit, async (req, res) => {
     return res.status(400).json({ error: parsed.error.flatten() });
   }
 
-  const { fullName, email, password, role, city } = parsed.data;
+  const { fullName, email, password, role, city, capabilities } = parsed.data;
+  let regCaps;
+  if (capabilities) {
+    regCaps = {
+      user: capabilities.user ?? true,
+      host: capabilities.host ?? false,
+      ravito: capabilities.ravito ?? false,
+    };
+  } else if (role) {
+    regCaps = capsFromLegacyRole(role);
+  } else {
+    regCaps = { user: true, host: false, ravito: false };
+  }
+  if (!regCaps.user && !regCaps.host && !regCaps.ravito) {
+    return res
+      .status(400)
+      .json({ error: "At least one capability must be enabled" });
+  }
+  const regRole = roleFromCaps(regCaps);
   const passwordHash = bcrypt.hashSync(password, 10);
   try {
     const existing = await pool.query(
-      `SELECT id, full_name, email, role, city, password_hash, created_at
+      `SELECT ${USER_PUBLIC_COLUMNS}, password_hash
        FROM users
        WHERE LOWER(TRIM(email)) = $1
        ORDER BY (password_hash IS NOT NULL AND TRIM(password_hash) <> '') DESC, id DESC`,
@@ -1373,7 +1499,7 @@ router.post("/auth/register", authRateLimit, async (req, res) => {
            SET password_hash = $1,
                email = $2
            WHERE id = $3
-           RETURNING id, full_name, email, role, city, created_at`,
+           RETURNING ${USER_PUBLIC_COLUMNS}`,
           [nextHash, email, existingWithPassword.id]
         );
         const activated = rows[0];
@@ -1386,7 +1512,7 @@ router.post("/auth/register", authRateLimit, async (req, res) => {
           role: activated.role,
         });
         return res.status(200).json({
-          user: activated,
+          user: withCapabilities(activated),
           ...session,
           accountRecoveryCode,
         });
@@ -1402,7 +1528,7 @@ router.post("/auth/register", authRateLimit, async (req, res) => {
              full_name = COALESCE(NULLIF(TRIM($3), ''), full_name),
              city = COALESCE(city, $4)
          WHERE id = $5
-         RETURNING id, full_name, email, role, city, created_at`,
+         RETURNING ${USER_PUBLIC_COLUMNS}`,
         [passwordHash, email, fullName, city ?? null, legacyUser.id]
       );
       const activated = rows[0];
@@ -1415,16 +1541,27 @@ router.post("/auth/register", authRateLimit, async (req, res) => {
         role: activated.role,
       });
       return res.status(200).json({
-        user: activated,
+        user: withCapabilities(activated),
         ...session,
         accountRecoveryCode,
       });
     }
     const { rows } = await pool.query(
-      `INSERT INTO users (full_name, email, password_hash, role, city)
-       VALUES ($1, $2, $3, $4, $5)
-       RETURNING id, full_name, email, role, city, created_at`,
-      [fullName, email, passwordHash, role, city ?? null]
+      `INSERT INTO users (
+         full_name, email, password_hash, role, city, cap_user, cap_host, cap_ravito
+       )
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+       RETURNING ${USER_PUBLIC_COLUMNS}`,
+      [
+        fullName,
+        email,
+        passwordHash,
+        regRole,
+        city ?? null,
+        regCaps.user ? 1 : 0,
+        regCaps.host ? 1 : 0,
+        regCaps.ravito ? 1 : 0,
+      ]
     );
     const created = rows[0];
     const accountRecoveryCode = await assignAccountRecoveryCode(created.id);
@@ -1434,7 +1571,7 @@ router.post("/auth/register", authRateLimit, async (req, res) => {
       role: created.role,
     });
     return res.status(201).json({
-      user: created,
+      user: withCapabilities(created),
       ...session,
       accountRecoveryCode,
     });
@@ -1454,7 +1591,7 @@ router.post("/auth/login", authRateLimit, async (req, res) => {
   }
   const { email, password } = parsed.data;
   const { rows } = await pool.query(
-    `SELECT id, full_name, email, role, city, password_hash, created_at
+    `SELECT ${USER_PUBLIC_COLUMNS}, password_hash
      FROM users
      WHERE LOWER(TRIM(email)) = $1
      ORDER BY (password_hash IS NOT NULL AND TRIM(password_hash) <> '') DESC, id DESC
@@ -1486,8 +1623,7 @@ router.post("/auth/login", authRateLimit, async (req, res) => {
     email: user.email,
     role: user.role,
   });
-  const { password_hash: _p, ...safeUser } = user;
-  return res.json({ user: safeUser, ...session });
+  return res.json({ user: withCapabilities(user), ...session });
 });
 
 router.post("/auth/refresh", async (req, res) => {
@@ -1497,7 +1633,8 @@ router.post("/auth/refresh", async (req, res) => {
   }
 
   const { rows } = await pool.query(
-    `SELECT rt.id, rt.user_id, rt.expires_at, rt.revoked_at, u.email, u.role
+    `SELECT rt.id, rt.user_id, rt.expires_at, rt.revoked_at, u.email, u.role,
+            u.full_name, u.city, u.created_at, u.cap_user, u.cap_host, u.cap_ravito
      FROM refresh_tokens rt
      JOIN users u ON u.id = rt.user_id
      WHERE rt.token = $1`,
@@ -1520,7 +1657,20 @@ router.post("/auth/refresh", async (req, res) => {
     email: refreshRow.email,
     role: refreshRow.role,
   });
-  return res.json(session);
+  return res.json({
+    ...session,
+    user: withCapabilities({
+      id: refreshRow.user_id,
+      full_name: refreshRow.full_name,
+      email: refreshRow.email,
+      role: refreshRow.role,
+      city: refreshRow.city,
+      created_at: refreshRow.created_at,
+      cap_user: refreshRow.cap_user,
+      cap_host: refreshRow.cap_host,
+      cap_ravito: refreshRow.cap_ravito,
+    }),
+  });
 });
 
 router.post("/auth/logout", async (req, res) => {
@@ -1643,16 +1793,107 @@ router.patch("/users/me/role", requireAuth, async (req, res) => {
     return res.status(400).json({ error: parsed.error.flatten() });
   }
   const { role } = parsed.data;
+  const legacyCaps = capsFromLegacyRole(role);
   const { rows } = await pool.query(
     `UPDATE users
-     SET role = $1
+     SET role = $1,
+         cap_user = $3,
+         cap_host = $4
      WHERE id = $2
-     RETURNING id, full_name, email, role, city, created_at`,
-    [role, req.auth.sub]
+     RETURNING ${USER_PUBLIC_COLUMNS}`,
+    [role, req.auth.sub, legacyCaps.user ? 1 : 0, legacyCaps.host ? 1 : 0]
   );
   const user = rows[0];
   if (!user) return res.status(404).json({ error: "User not found" });
-  return res.json({ user });
+  return res.json({ user: withCapabilities(user) });
+});
+
+router.get("/users/me", requireAuth, async (req, res) => {
+  const { rows } = await pool.query(
+    `SELECT ${USER_PUBLIC_COLUMNS},
+            volunteer_lat, volunteer_lon, volunteer_radius_km,
+            stripe_account_id, stripe_onboarded,
+            (push_token IS NOT NULL AND push_token <> '') AS has_push_token
+     FROM users WHERE id = $1`,
+    [req.auth.sub]
+  );
+  const row = rows[0];
+  if (!row) return res.status(404).json({ error: "User not found" });
+  const { stripe_account_id: _sa, ...rest } = row;
+  return res.json({
+    user: {
+      ...withCapabilities(rest),
+      stripe_onboarded: !!Number(row.stripe_onboarded || 0),
+      has_stripe_account: !!row.stripe_account_id,
+    },
+  });
+});
+
+router.patch("/users/me/capabilities", requireAuth, async (req, res) => {
+  const parsed = updateCapabilitiesSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error.flatten() });
+  }
+  const caps = parsed.data;
+  if (!caps.user && !caps.host && !caps.ravito) {
+    return res
+      .status(400)
+      .json({ error: "At least one capability must be enabled" });
+  }
+  const { rows } = await pool.query(
+    `UPDATE users
+     SET cap_user = $1, cap_host = $2, cap_ravito = $3, role = $4
+     WHERE id = $5
+     RETURNING ${USER_PUBLIC_COLUMNS}`,
+    [
+      caps.user ? 1 : 0,
+      caps.host ? 1 : 0,
+      caps.ravito ? 1 : 0,
+      roleFromCaps(caps),
+      req.auth.sub,
+    ]
+  );
+  if (!rows[0]) return res.status(404).json({ error: "User not found" });
+  return res.json({ user: withCapabilities(rows[0]) });
+});
+
+router.patch("/users/me/volunteer-location", requireAuth, async (req, res) => {
+  const parsed = volunteerLocationSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error.flatten() });
+  }
+  const { lat, lon, radiusKm } = parsed.data;
+  const { rows } = await pool.query(
+    `UPDATE users
+     SET volunteer_lat = $1,
+         volunteer_lon = $2,
+         volunteer_radius_km = COALESCE($3, volunteer_radius_km, 15)
+     WHERE id = $4
+     RETURNING volunteer_lat, volunteer_lon, volunteer_radius_km`,
+    [lat, lon, radiusKm ?? null, req.auth.sub]
+  );
+  if (!rows[0]) return res.status(404).json({ error: "User not found" });
+  return res.json({
+    ok: true,
+    volunteerLocation: {
+      lat: rows[0].volunteer_lat,
+      lon: rows[0].volunteer_lon,
+      radiusKm: rows[0].volunteer_radius_km,
+    },
+  });
+});
+
+router.post("/users/me/push-token", requireAuth, async (req, res) => {
+  const parsed = pushTokenSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error.flatten() });
+  }
+  const { rowCount } = await pool.query(
+    `UPDATE users SET push_token = $1 WHERE id = $2`,
+    [parsed.data.token, req.auth.sub]
+  );
+  if (!rowCount) return res.status(404).json({ error: "User not found" });
+  return res.json({ ok: true });
 });
 
 router.patch("/users/me/password", requireAuth, async (req, res) => {
@@ -1759,15 +2000,15 @@ router.post("/users/me/deactivate", requireAuth, async (req, res) => {
   );
   const { rows } = await pool.query(
     `UPDATE users
-     SET role = 'athlete'
+     SET role = 'athlete', cap_host = 0, cap_user = 1
      WHERE id = $1
-     RETURNING id, full_name, email, role, city, created_at`,
+     RETURNING ${USER_PUBLIC_COLUMNS}`,
     [userId]
   );
   if (!rows[0]) return res.status(404).json({ error: "User not found" });
   return res.json({
     ok: true,
-    user: rows[0],
+    user: withCapabilities(rows[0]),
     message: "Host account deactivated to athlete mode.",
   });
 });
@@ -3172,12 +3413,17 @@ router.post("/route-plans", requireAuth, async (req, res) => {
     )
   );
 
-  const { rows: trailRows } = await pool.query(
-    `SELECT id, name FROM trails WHERE id = $1`,
-    [input.trailId]
-  );
-  const trail = trailRows[0];
-  if (!trail) return res.status(404).json({ error: "Trail not found" });
+  const trailIdRaw = Number(input.trailId);
+  const hasTrail = Number.isInteger(trailIdRaw) && trailIdRaw > 0;
+  let trail = null;
+  if (hasTrail) {
+    const { rows: trailRows } = await pool.query(
+      `SELECT id, name FROM trails WHERE id = $1`,
+      [trailIdRaw]
+    );
+    trail = trailRows[0];
+    if (!trail) return res.status(404).json({ error: "Trail not found" });
+  }
 
   let filteredBoxIds = [];
   if (uniqBoxIds.length > 0) {
@@ -3197,7 +3443,7 @@ router.post("/route-plans", requireAuth, async (req, res) => {
     await client.query("BEGIN");
     const planName =
       input.name?.trim() ||
-      `Plan ${trail.name || "trace"} · ${new Date().toLocaleDateString(
+      `Sortie ${trail?.name || "sans tracé"} · ${new Date().toLocaleDateString(
         "fr-FR"
       )}`;
     const notes =
@@ -3208,7 +3454,7 @@ router.post("/route-plans", requireAuth, async (req, res) => {
       `INSERT INTO route_plans (athlete_user_id, trail_id, name, notes, updated_at)
        VALUES ($1, $2, $3, $4, NOW())
        RETURNING *`,
-      [athleteUserId, input.trailId, planName, notes]
+      [athleteUserId, hasTrail ? trailIdRaw : null, planName, notes]
     );
     const plan = createdRows[0];
     if (filteredBoxIds.length > 0) {
@@ -4178,8 +4424,50 @@ router.post("/bookings", requireAuth, async (req, res) => {
   return res.status(201).json(payload);
 });
 
+const PENDING_BOOKING_TTL_HOURS = 48;
+
+// Expire les demandes restées en attente de validation hôte depuis plus de 48 h.
+async function expireStalePendingBookings() {
+  try {
+    const { rows } = await pool.query(
+      `UPDATE bookings b
+       SET approval_status = 'rejected', status = 'cancelled'
+       FROM boxes bx
+       WHERE bx.id = b.box_id
+         AND b.approval_status = 'pending'
+         AND b.status NOT IN ('cancelled', 'completed')
+         AND b.created_at < NOW() - ($1::int * INTERVAL '1 hour')
+       RETURNING b.id, b.athlete_user_id, bx.host_user_id, bx.title AS box_title`,
+      [PENDING_BOOKING_TTL_HOURS]
+    );
+    for (const row of rows) {
+      try {
+        await createNotification({
+          recipientUserId: row.athlete_user_id,
+          type: "booking_expired",
+          title: "Demande expirée",
+          body: `Ta demande pour « ${
+            row.box_title || "ce box"
+          } » n’a pas été validée sous ${PENDING_BOOKING_TTL_HOURS} h et a expiré.`,
+          data: { bookingId: row.id },
+        });
+        await logBookingEvent({
+          bookingId: row.id,
+          eventType: "booking_expired",
+          message: `Pending booking expired after ${PENDING_BOOKING_TTL_HOURS}h without host decision`,
+        });
+      } catch (e) {
+        console.error("expireStalePendingBookings notify failed:", e.message);
+      }
+    }
+  } catch (error) {
+    console.error("expireStalePendingBookings failed:", error.message);
+  }
+}
+
 // Passe en 'completed' les réservations acceptées dont le créneau (UTC) est terminé.
 async function completePastBookings() {
+  await expireStalePendingBookings();
   try {
     await pool.query(
       `UPDATE bookings
@@ -4887,6 +5175,34 @@ router.post("/bookings/:id/pay", requireAuth, async (req, res) => {
   if (isBookingPaymentSettled(booking.payment_status)) {
     return res.status(409).json({ error: "Cette réservation est déjà payée." });
   }
+  if (isStripeEnabled()) {
+    // Stripe : le statut « payé » sera posé par le webhook (non implémenté dans ce scaffold).
+    try {
+      const baseUrl = String(
+        process.env.PUBLIC_APP_URL || process.env.APP_URL || ""
+      ).replace(/\/$/, "");
+      const checkout = await createCheckoutForBooking({
+        booking,
+        successUrl:
+          req.body?.successUrl ||
+          (baseUrl ? `${baseUrl}/bookings/${bookingId}?paid=1` : undefined),
+        cancelUrl:
+          req.body?.cancelUrl ||
+          (baseUrl ? `${baseUrl}/bookings/${bookingId}?canceled=1` : undefined),
+      });
+      await logBookingEvent({
+        bookingId,
+        actorUserId: req.auth.sub,
+        eventType: "booking_payment_started",
+        message: "Stripe checkout started",
+        data: { amountCents: booking.amount_cents, stub: !!checkout.stub },
+      });
+      return res.json({ bookingId, ...checkout });
+    } catch (error) {
+      console.error("Stripe checkout failed:", error.message);
+      return res.status(502).json({ error: "Stripe checkout failed" });
+    }
+  }
   const { rows } = await pool.query(
     `UPDATE bookings
      SET payment_status = 'simulated_paid',
@@ -4909,8 +5225,119 @@ router.post("/bookings/:id/pay", requireAuth, async (req, res) => {
     message: "Athlete paid after host validation (simulated)",
     data: { amountCents: booking.amount_cents },
   });
-  const out = { ...rows[0] };
+  const out = { ...rows[0], mode: "simulated" };
   return res.json(out);
+});
+
+router.post("/host/stripe/onboard", requireAuth, async (req, res) => {
+  const userId = req.auth.sub;
+  const { rows } = await pool.query(
+    `SELECT id, email, cap_host, role, stripe_account_id, stripe_onboarded
+     FROM users WHERE id = $1`,
+    [userId]
+  );
+  const user = rows[0];
+  if (!user) return res.status(404).json({ error: "User not found" });
+  if (!Number(user.cap_host) && !["host", "both"].includes(user.role)) {
+    return res.status(403).json({ error: "Host capability required" });
+  }
+  if (!isStripeEnabled()) {
+    return res.json({
+      url: null,
+      mode: "simulated",
+      message:
+        "Stripe n’est pas configuré (STRIPE_SECRET_KEY absent) : paiements simulés, onboarding non requis.",
+    });
+  }
+  const stripe = getStripeClient();
+  if (!stripe) {
+    // Clé présente mais SDK absent : on mémorise un identifiant provisoire.
+    const placeholder = user.stripe_account_id || `acct_pending_${user.id}`;
+    await pool.query(`UPDATE users SET stripe_account_id = $1 WHERE id = $2`, [
+      placeholder,
+      userId,
+    ]);
+    return res.json({
+      url: null,
+      mode: "stripe",
+      stub: true,
+      stripeAccountId: placeholder,
+      message: "Stripe SDK non installé : onboarding Connect non disponible (stub).",
+    });
+  }
+  try {
+    let accountId = user.stripe_account_id;
+    if (!accountId || accountId.startsWith("acct_pending_")) {
+      const account = await stripe.accounts.create({
+        type: "express",
+        email: user.email,
+        metadata: { userId: String(user.id) },
+      });
+      accountId = account.id;
+      await pool.query(`UPDATE users SET stripe_account_id = $1 WHERE id = $2`, [
+        accountId,
+        userId,
+      ]);
+    }
+    const baseUrl = String(
+      process.env.PUBLIC_APP_URL || process.env.APP_URL || ""
+    ).replace(/\/$/, "");
+    const link = await stripe.accountLinks.create({
+      account: accountId,
+      type: "account_onboarding",
+      refresh_url: req.body?.refreshUrl || `${baseUrl}/host/stripe/refresh`,
+      return_url: req.body?.returnUrl || `${baseUrl}/host/stripe/return`,
+    });
+    return res.json({
+      url: link.url,
+      mode: "stripe",
+      stripeAccountId: accountId,
+    });
+  } catch (error) {
+    console.error("Stripe onboarding failed:", error.message);
+    return res.status(502).json({ error: "Stripe onboarding failed" });
+  }
+});
+
+router.get("/host/earnings", requireAuth, async (req, res) => {
+  const { rows } = await pool.query(
+    `SELECT
+       COALESCE(SUM(b.host_earnings_cents) FILTER (
+         WHERE b.payment_status IN
+           ('simulated_paid', 'simulated_authorized', 'paid', 'authorized', 'captured')
+           AND b.refund_status = 'none'
+       ), 0)::bigint AS paid_cents,
+       COALESCE(SUM(b.host_earnings_cents) FILTER (
+         WHERE b.payment_status NOT IN
+           ('simulated_paid', 'simulated_authorized', 'paid', 'authorized', 'captured')
+       ), 0)::bigint AS pending_cents,
+       COUNT(*) FILTER (
+         WHERE b.payment_status IN
+           ('simulated_paid', 'simulated_authorized', 'paid', 'authorized', 'captured')
+           AND b.refund_status = 'none'
+       )::int AS paid_count,
+       COUNT(*) FILTER (
+         WHERE b.payment_status NOT IN
+           ('simulated_paid', 'simulated_authorized', 'paid', 'authorized', 'captured')
+       )::int AS pending_count
+     FROM bookings b
+     JOIN boxes bx ON bx.id = b.box_id
+     WHERE bx.host_user_id = $1
+       AND b.approval_status = 'accepted'
+       AND b.status <> 'cancelled'`,
+    [req.auth.sub]
+  );
+  const r = rows[0] || {};
+  const paidCents = Number(r.paid_cents) || 0;
+  const pendingCents = Number(r.pending_cents) || 0;
+  return res.json({
+    currency: "eur",
+    totalEarningsCents: paidCents,
+    pendingEarningsCents: pendingCents,
+    paidBookingsCount: Number(r.paid_count) || 0,
+    pendingBookingsCount: Number(r.pending_count) || 0,
+    mode: isStripeEnabled() ? "stripe" : "simulated",
+  });
 });
 
 router.patch("/bookings/:id/decision", requireAuth, async (req, res) => {
@@ -6140,23 +6567,125 @@ router.post(
       );
     }
 
+    // Proposition liée à une box : création automatique de la réservation.
+    let booking = null;
+    let bookingWarning = null;
+    if (!mobileRavito && Number.isFinite(acceptedBoxId)) {
+      try {
+        const { rows: boxRows } = await pool.query(
+          `SELECT id, title, price_cents, access_code
+           FROM boxes WHERE id = $1 AND is_active = 1`,
+          [acceptedBoxId]
+        );
+        const box = boxRows[0];
+        if (!box) {
+          bookingWarning = "Box inactive ou introuvable : réservation non créée.";
+        } else {
+          await ensureNoBookingOverlap({
+            boxId: acceptedBoxId,
+            bookingDate: reqRows[0].booking_date,
+            startTime: reqRows[0].start_time,
+            endTime: reqRows[0].end_time,
+          });
+          const amountCents = Number(box.price_cents) || 0;
+          const { platformFeeCents, hostEarningsCents } =
+            computeCommission(amountCents);
+          const accessCode =
+            (typeof box.access_code === "string" && box.access_code.trim()) ||
+            generateAccessCode();
+          // Hôte (a proposé) + athlète (a accepté) = accord mutuel → accepted.
+          const { rows: bookingRows } = await pool.query(
+            `INSERT INTO bookings (
+               box_id, athlete_user_id, booking_date, start_time, end_time,
+               amount_cents, platform_fee_cents, host_earnings_cents, access_code,
+               payment_status, special_request, approval_status, status, route_plan_id
+             )
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9,
+                     'simulated_unpaid', $10, 'accepted', 'confirmed', $11)
+             RETURNING *`,
+            [
+              acceptedBoxId,
+              athleteUserId,
+              reqRows[0].booking_date,
+              reqRows[0].start_time,
+              reqRows[0].end_time,
+              amountCents,
+              platformFeeCents,
+              hostEarningsCents,
+              accessCode,
+              reqRows[0].special_request || null,
+              Number.isFinite(planId) && planId > 0 ? planId : null,
+            ]
+          );
+          booking = bookingRows[0];
+          await logBookingEvent({
+            bookingId: booking.id,
+            actorUserId: athleteUserId,
+            eventType: "booking_created_from_ravito",
+            message:
+              "Booking created automatically from accepted ravito proposal",
+            data: {
+              requestId,
+              proposalId,
+              bookingDate: booking.booking_date,
+              startTime: booking.start_time,
+              endTime: booking.end_time,
+              paymentStatus: "simulated_unpaid",
+            },
+          });
+        }
+      } catch (error) {
+        console.error("ravito accept: booking creation failed:", error.message);
+        bookingWarning = error.message || "Réservation non créée.";
+        booking = null;
+      }
+    }
+
     await createNotification({
       recipientUserId: propRows[0].host_user_id,
       type: "ravito_proposal_accepted",
       title: "Proposition acceptée",
       body: mobileRavito
         ? "L’athlète a retenu ton ravito mobile. Prépare-toi au point GPS au créneau convenu."
-        : `L’athlète a retenu « ${propRows[0].box_title || "ta box"} ». Tu peux confirmer la réservation.`,
+        : booking
+          ? `L’athlète a retenu « ${propRows[0].box_title || "ta box"} » : une réservation a été créée (${booking.booking_date} ${booking.start_time}–${booking.end_time}).`
+          : `L’athlète a retenu « ${propRows[0].box_title || "ta box"} ». Tu peux confirmer la réservation.`,
       data: {
         requestId,
         proposalId,
         boxId: acceptedBoxId,
         mobileRavito,
+        bookingId: booking ? booking.id : null,
       },
     });
+    if (booking) {
+      await createNotification({
+        recipientUserId: athleteUserId,
+        type: "booking_approved",
+        title: "Réservation créée",
+        body: `Ta réservation « ${propRows[0].box_title || "box"} » est confirmée par l’hôte. Tu peux procéder au paiement.`,
+        data: { bookingId: booking.id, canPay: true, requestId },
+      });
+    }
+
+    const { rows: detailRows } = await pool.query(
+      `SELECT r.*, u.full_name AS athlete_full_name, t.name AS trail_name
+       FROM ravito_point_requests r
+       JOIN users u ON u.id = r.athlete_user_id
+       LEFT JOIN trails t ON t.id = r.trail_id
+       WHERE r.id = $1`,
+      [requestId]
+    );
+    const requestPayload = detailRows[0]
+      ? mapRavitoRequestRow(detailRows[0])
+      : null;
+    const bookingPayload = booking ? { ...booking } : null;
 
     return res.json({
       ok: true,
+      request: requestPayload,
+      booking: bookingPayload || undefined,
+      bookingWarning: bookingWarning || undefined,
       requestId,
       proposalId,
       boxId: acceptedBoxId,

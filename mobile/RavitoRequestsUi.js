@@ -329,6 +329,16 @@ export function RavitoAthleteRequestsSection({
         `/ravito-requests/${requestId}/proposals/${proposalId}/accept`,
         { method: "POST", token }
       );
+      if (result?.booking) {
+        Alert.alert(
+          "Réservation créée",
+          result.bookingWarning
+            ? `Une réservation a été créée : tu peux la payer dans l’onglet Réservations.\n\n${result.bookingWarning}`
+            : "Une réservation a été créée : tu peux la payer dans l’onglet Réservations."
+        );
+      } else if (result?.bookingWarning) {
+        Alert.alert("Attention", String(result.bookingWarning));
+      }
       await onAcceptProposal?.(result);
       await load();
       setExpandedId(null);

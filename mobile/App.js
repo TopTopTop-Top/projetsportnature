@@ -4306,6 +4306,9 @@ function ExplorerScreen() {
                 />
               </>
             ) : null}
+            {/* Mode simple : filtres avancés (affichage, critères, sélection, lien traces) masqués. */}
+            {!simpleUi ? (
+            <>
             <Text style={styles.fieldLabel}>Affichage des box</Text>
             <Text style={styles.helperText}>
               La liste suit la zone choisie (carte, ville ou GPS).
@@ -4705,6 +4708,8 @@ function ExplorerScreen() {
                   </>
                 ) : null}
               </>
+            ) : null}
+            </>
             ) : null}
           </>
         );
@@ -10834,6 +10839,9 @@ function ProfileScreen() {
   const [recoveryRegenBusy, setRecoveryRegenBusy] = useState(false);
   const [recoveryRegenPassword, setRecoveryRegenPassword] = useState("");
   const [hasRecoveryCode, setHasRecoveryCode] = useState(null);
+  const [hostEarnings, setHostEarnings] = useState(null);
+  const [stripeBusy, setStripeBusy] = useState(false);
+  const [stripeMessage, setStripeMessage] = useState("");
   const scrollRef = useRef(null);
   const passwordSectionYRef = useRef(0);
   const profileFirstName = useMemo(() => {
@@ -10851,6 +10859,50 @@ function ProfileScreen() {
     if (!isFocused) return;
     actionsRef.current.loadMyReviews?.();
   }, [isFocused, actionsRef]);
+
+  useEffect(() => {
+    if (!isFocused || !canHost) {
+      if (!canHost) setHostEarnings(null);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const data = await actionsRef.current.fetchHostEarnings?.();
+        if (!cancelled) setHostEarnings(data || null);
+      } catch {
+        if (!cancelled) setHostEarnings(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isFocused, canHost, actionsRef]);
+
+  const configureHostPayments = useCallback(async () => {
+    setStripeBusy(true);
+    setStripeMessage("");
+    try {
+      const res = await actionsRef.current.startHostStripeOnboarding?.();
+      const msg =
+        res?.message ||
+        (res?.url
+          ? "Termine la configuration de ton compte de paiement."
+          : "Configuration enregistrée.");
+      setStripeMessage(res?.url ? `${msg}\n${res.url}` : msg);
+      if (res?.url) {
+        try {
+          await Linking.openURL(res.url);
+        } catch {
+          /* le lien reste affiché */
+        }
+      }
+    } catch (error) {
+      setStripeMessage(error?.message || "Configuration impossible.");
+    } finally {
+      setStripeBusy(false);
+    }
+  }, [actionsRef]);
 
   useEffect(() => {
     if (!isFocused) return;
@@ -11010,6 +11062,37 @@ function ProfileScreen() {
             </TouchableOpacity>
           ) : null}
         </View>
+        {canHost ? (
+          <Section
+            flat
+            title="Mes revenus"
+            subtitle="Paiements reçus pour tes box."
+          >
+            <Text style={styles.cardTitle}>
+              {hostEarnings
+                ? `${(Number(hostEarnings.totalEarningsCents || 0) / 100).toFixed(2)} €`
+                : "—"}
+            </Text>
+            {hostEarnings ? (
+              <Text style={styles.cardMeta}>
+                {Number(hostEarnings.paidBookingsCount || 0)} réservation(s)
+                payée(s) · En attente :{" "}
+                {(Number(hostEarnings.pendingEarningsCents || 0) / 100).toFixed(2)}{" "}
+                €
+                {hostEarnings.mode === "simulated" ? " · paiements simulés" : ""}
+              </Text>
+            ) : null}
+            <OutlineButton
+              stretch
+              label={stripeBusy ? "…" : "Configurer les paiements"}
+              icon="card-outline"
+              onPress={configureHostPayments}
+            />
+            {stripeMessage ? (
+              <Text style={styles.compteBlockHint}>{stripeMessage}</Text>
+            ) : null}
+          </Section>
+        ) : null}
         <Section
           flat
           title="Mes abonnements"
@@ -11296,6 +11379,8 @@ function ReservationsScreen() {
     hostBoxes,
     mapLat,
     mapLon,
+    volunteerLat,
+    volunteerLon,
     notifications,
     openUserReviews,
     authToken,
@@ -11373,6 +11458,11 @@ function ReservationsScreen() {
     }, 12000);
     return () => clearInterval(id);
   }, [canHost, canBook, isFocused, actionsRef, notifUnreadOnly]);
+
+  useEffect(() => {
+    if (!isFocused || !canRavito) return;
+    actionsRef.current.syncVolunteerLocation?.();
+  }, [isFocused, canRavito, actionsRef]);
 
   useEffect(() => {
     if (liveShareBookingId) return;
@@ -12392,8 +12482,8 @@ function ReservationsScreen() {
               apiFetch={apiFetch}
               hostBoxes={hostBoxes || []}
               refreshNonce={ravitoRequestsRefreshNonce}
-              volunteerLat={mapLat}
-              volunteerLon={mapLon}
+              volunteerLat={volunteerLat ?? mapLat}
+              volunteerLon={volunteerLon ?? mapLon}
               allowMobileWithoutBox
             />
           </Section>
@@ -12631,11 +12721,16 @@ function MainTabs() {
           <Tab.Screen
             name="Host"
             component={HostScreen}
-            options={{
-              title: "Mes box",
-              tabBarButton: () => null,
-              tabBarItemStyle: { display: "none", width: 0, height: 0 },
-            }}
+            options={
+              // Mode expert : onglet visible. Mode épuré : masqué, accessible via Compte.
+              simpleUi
+                ? {
+                    title: "Mes box",
+                    tabBarButton: () => null,
+                    tabBarItemStyle: { display: "none", width: 0, height: 0 },
+                  }
+                : { title: "Mes box", tabBarLabel: "Mes box" }
+            }
           />
         ) : null}
         <Tab.Screen
@@ -12763,11 +12858,18 @@ function RavitoApp() {
     ravito: false,
   });
   const [capabilitiesBusy, setCapabilitiesBusy] = useState(false);
+  const [volunteerLat, setVolunteerLat] = useState(null);
+  const [volunteerLon, setVolunteerLon] = useState(null);
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [fullName, setFullName] = useState("");
   const [role, setRole] = useState("athlete");
+  const [registerCaps, setRegisterCaps] = useState({
+    user: true,
+    host: false,
+    ravito: false,
+  });
   const [authMode, setAuthMode] = useState("login");
   const [authLoading, setAuthLoading] = useState(false);
   const [resetStep, setResetStep] = useState("idle");
@@ -12910,6 +13012,17 @@ function RavitoApp() {
     setTrailLocalPatches(readTrailPatchesFromStorage(user.id));
   }, [user?.id]);
 
+  /** Applique `user.capabilities` renvoyées par l'API (+ cache local). Retourne true si appliqué. */
+  const applyServerCapabilities = useCallback((u) => {
+    const c = u?.capabilities;
+    if (!u?.id || !c || typeof c !== "object") return false;
+    const next = { user: !!c.user, host: !!c.host, ravito: !!c.ravito };
+    if (!next.user && !next.host && !next.ravito) next.user = true;
+    writeCapabilities(u.id, next);
+    setCapabilitiesState(next);
+    return true;
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -12926,13 +13039,17 @@ function RavitoApp() {
           body: { refreshToken: stored.refreshToken },
         });
         if (cancelled) return;
+        const restoredUser = result.user
+          ? { ...stored.user, ...result.user }
+          : stored.user;
         setToken(result.token);
         setRefreshToken(result.refreshToken);
-        setUser(stored.user);
+        setUser(restoredUser);
+        applyServerCapabilities(restoredUser);
         writeAuthSession({
           token: result.token,
           refreshToken: result.refreshToken,
-          user: stored.user,
+          user: restoredUser,
         });
       } catch {
         if (!cancelled) {
@@ -12978,13 +13095,20 @@ function RavitoApp() {
 
   const isAuthed = useMemo(() => Boolean(token), [token]);
 
+  const serverCapsKey = user?.capabilities
+    ? `${user.capabilities.user ? 1 : 0}${user.capabilities.host ? 1 : 0}${
+        user.capabilities.ravito ? 1 : 0
+      }`
+    : "";
   useEffect(() => {
     if (!user?.id) return;
+    // Le serveur fait foi ; le stockage local n'est qu'un cache hors ligne.
+    if (applyServerCapabilities(user)) return;
     const stored = getCapabilities(user.id);
     setCapabilitiesState(
       stored || defaultCapabilitiesFromRole(user.role)
     );
-  }, [user?.id, user?.role]);
+  }, [user?.id, user?.role, serverCapsKey, applyServerCapabilities]);
 
   // Casquettes UI (compte unique). Le rôle API est synchronisé en arrière-plan.
   const canHost = !!capabilities.host;
@@ -13442,17 +13566,36 @@ function RavitoApp() {
       );
       return;
     }
+    const chosenCaps = {
+      user: !!registerCaps.user,
+      host: !!registerCaps.host,
+      ravito: !!registerCaps.ravito,
+    };
+    if (!chosenCaps.user && !chosenCaps.host && !chosenCaps.ravito) {
+      userAlert(
+        "Profil",
+        "Choisis au moins un profil : Coureur, Hôte ou Ravitailleur."
+      );
+      return;
+    }
     setAuthLoading(true);
     try {
-      // Compte unique : rôle API « both » ; les casquettes se choisissent après.
+      // Compte unique : rôle API dérivé des casquettes choisies à l'inscription.
       const result = await apiFetch("/auth/register", {
         method: "POST",
-        body: { fullName: name, email: mail, password, role: "both" },
+        body: {
+          fullName: name,
+          email: mail,
+          password,
+          role: roleFromCapabilities(chosenCaps),
+          capabilities: chosenCaps,
+        },
       });
-      const starterCaps = { user: true, host: false, ravito: false };
       if (result.user?.id) {
-        writeCapabilities(result.user.id, starterCaps);
-        setCapabilitiesState(starterCaps);
+        if (!applyServerCapabilities(result.user)) {
+          writeCapabilities(result.user.id, chosenCaps);
+          setCapabilitiesState(chosenCaps);
+        }
       }
       setToken(result.token);
       setRefreshToken(result.refreshToken);
@@ -13481,7 +13624,7 @@ function RavitoApp() {
     } finally {
       setAuthLoading(false);
     }
-  }, [fullName, email, password]);
+  }, [fullName, email, password, registerCaps, applyServerCapabilities]);
 
   const completeRecoveryCodeReveal = useCallback(() => {
     const pending = recoveryCodeReveal?.session;
@@ -13522,6 +13665,7 @@ function RavitoApp() {
         method: "POST",
         body: { email: mail, password },
       });
+      applyServerCapabilities(result.user);
       setToken(result.token);
       setRefreshToken(result.refreshToken);
       setUser(result.user);
@@ -13535,7 +13679,7 @@ function RavitoApp() {
     } finally {
       setAuthLoading(false);
     }
-  }, [email, password]);
+  }, [email, password, applyServerCapabilities]);
 
   const openPasswordReset = useCallback(() => {
     setResetStep("confirm");
@@ -13616,6 +13760,10 @@ function RavitoApp() {
       });
       setToken(result.token);
       setRefreshToken(result.refreshToken);
+      if (result.user) {
+        setUser((prev) => ({ ...(prev || {}), ...result.user }));
+        applyServerCapabilities(result.user);
+      }
       userAlert("Session", "Token rafraichi");
     } catch (error) {
       userAlert("Erreur", error.message);
@@ -13692,20 +13840,121 @@ function RavitoApp() {
     }
     setCapabilitiesBusy(true);
     try {
-      writeCapabilities(user.id, safe);
-      setCapabilitiesState(safe);
-      const nextRole = roleFromCapabilities(safe);
-      if (String(user.role) !== nextRole) {
+      let finalCaps = safe;
+      let syncedWithServer = false;
+      if (token) {
+        try {
+          const result = await apiFetch("/users/me/capabilities", {
+            method: "PATCH",
+            token,
+            body: safe,
+          });
+          if (result?.user) {
+            setUser((prev) => ({ ...(prev || {}), ...result.user }));
+            const c = result.user.capabilities;
+            if (c && typeof c === "object") {
+              finalCaps = { user: !!c.user, host: !!c.host, ravito: !!c.ravito };
+            }
+            syncedWithServer = true;
+          }
+        } catch (_error) {
+          // Hors ligne / API indisponible : repli local uniquement.
+        }
+      }
+      writeCapabilities(user.id, finalCaps);
+      setCapabilitiesState(finalCaps);
+      const nextRole = roleFromCapabilities(finalCaps);
+      if (!syncedWithServer && String(user.role) !== nextRole) {
         await updateMyRole(nextRole, { silent: true });
       }
       userAlert(
         "Activités mises à jour",
-        formatCapabilitiesLabel(safe)
+        formatCapabilitiesLabel(finalCaps)
       );
     } finally {
       setCapabilitiesBusy(false);
     }
   };
+
+  /** Position bénévole (ravitailleur) envoyée au serveur pour le matching des demandes GPS. */
+  const syncVolunteerLocation = async () => {
+    if (!token) return null;
+    try {
+      const pos = await getDevicePosition({ timeout: 8000, maximumAge: 60000 });
+      if (!pos || !Number.isFinite(pos.lat) || !Number.isFinite(pos.lon)) {
+        return null;
+      }
+      setVolunteerLat(String(pos.lat));
+      setVolunteerLon(String(pos.lon));
+      await apiFetch("/users/me/volunteer-location", {
+        method: "PATCH",
+        token,
+        body: { lat: pos.lat, lon: pos.lon },
+      });
+      return pos;
+    } catch (_error) {
+      // GPS refusé / hors ligne : on garde la position carte par défaut.
+      return null;
+    }
+  };
+
+  /** Push token : expo-notifications est optionnel, on ignore silencieusement s'il est absent. */
+  const registerPushTokenIfPossible = async () => {
+    if (!token || Platform.OS === "web") return false;
+    try {
+      let Notifications = null;
+      try {
+        // eslint-disable-next-line global-require
+        Notifications = require("expo-notifications");
+      } catch (_e) {
+        return false;
+      }
+      if (!Notifications?.getExpoPushTokenAsync) return false;
+      let perm = await Notifications.getPermissionsAsync?.();
+      if (perm && perm.status !== "granted") {
+        perm = await Notifications.requestPermissionsAsync?.();
+      }
+      if (perm && perm.status !== "granted") return false;
+      const res = await Notifications.getExpoPushTokenAsync();
+      const pushToken = res?.data;
+      if (!pushToken) return false;
+      await apiFetch("/users/me/push-token", {
+        method: "POST",
+        token,
+        body: { token: String(pushToken) },
+      });
+      return true;
+    } catch (_error) {
+      return false;
+    }
+  };
+
+  const fetchHostEarnings = async () => {
+    if (!token) return null;
+    return apiFetch("/host/earnings", { token });
+  };
+
+  const startHostStripeOnboarding = async () => {
+    if (!token) return null;
+    return apiFetch("/host/stripe/onboard", {
+      method: "POST",
+      token,
+      body: {},
+    });
+  };
+
+  useEffect(() => {
+    if (!token || !user?.id || !canRavito) return;
+    syncVolunteerLocation();
+  }, [token, user?.id, canRavito]);
+
+  const pushTokenRegisteredForRef = useRef(null);
+  useEffect(() => {
+    if (!sessionReady || !token || !user?.id) return;
+    if (pushTokenRegisteredForRef.current === user.id) return;
+    pushTokenRegisteredForRef.current = user.id;
+    registerPushTokenIfPossible();
+  }, [sessionReady, token, user?.id]);
 
   const changeMyPassword = async ({ currentPassword, newPassword }) => {
     if (!token) return;
@@ -14432,20 +14681,17 @@ function RavitoApp() {
   } = {}) => {
     if (!token) return null;
     const tid = Number(trailId);
+    const hasTrail = Number.isFinite(tid) && tid > 0;
     const ids = Array.isArray(boxIds)
       ? boxIds.map((x) => Number(x)).filter(Number.isFinite)
       : [];
-    if (!Number.isFinite(tid) || tid <= 0) {
-      userAlert("Planification", "Sélectionne une trace pour créer ton plan.");
-      return null;
-    }
     setRoutePlanBusy(true);
     try {
       const detail = await apiFetch("/route-plans", {
         method: "POST",
         token,
         body: {
-          trailId: tid,
+          ...(hasTrail ? { trailId: tid } : {}),
           boxIds: ids,
           ...(name ? { name } : {}),
           ...(notes ? { notes } : {}),
@@ -14457,7 +14703,9 @@ function RavitoApp() {
       if (!silent) {
         userAlert(
           "Sortie créée",
-          "Tu peux y lier box et ravito. Le suivi des demandes est dans Réservations."
+          hasTrail
+            ? "Tu peux y lier box et ravito. Le suivi des demandes est dans Réservations."
+            : "Sortie créée sans tracé — tu pourras lier un GPX plus tard."
         );
       }
       return detail || null;
@@ -15311,6 +15559,17 @@ function RavitoApp() {
         setSelectedRoutePlanId(planId);
         await loadRoutePlanDetail(planId);
         await loadRoutePlans();
+      }
+      if (result?.booking) {
+        // Réservation déjà créée côté serveur : pas de nouveau flux de réservation box.
+        try {
+          await actionsRef.current.loadAthleteBookings?.();
+          await actionsRef.current.loadNotifications?.();
+        } catch (_e) {
+          /* rafraîchi à l'ouverture de l'onglet */
+        }
+        mainTabNavigationRef.current?.navigate?.("Reservations");
+        return;
       }
       if (mobile) {
         userAlert(
@@ -16606,6 +16865,10 @@ function RavitoApp() {
     logout,
     updateMyRole,
     updateCapabilities,
+    syncVolunteerLocation,
+    registerPushTokenIfPossible,
+    fetchHostEarnings,
+    startHostStripeOnboarding,
     changeMyPassword,
     regenerateRecoveryCode,
     fetchRecoveryCodeStatus,
@@ -16733,6 +16996,8 @@ function RavitoApp() {
       canRavito,
       capabilities,
       capabilitiesBusy,
+      volunteerLat,
+      volunteerLon,
       selectedBox,
       selectedTrail,
       webMapCenter,
@@ -16830,6 +17095,8 @@ function RavitoApp() {
       canRavito,
       capabilities,
       capabilitiesBusy,
+      volunteerLat,
+      volunteerLon,
       selectedBox,
       selectedTrail,
       webMapCenter,
@@ -16861,6 +17128,8 @@ function RavitoApp() {
       setFullName,
       role,
       setRole,
+      registerCaps,
+      setRegisterCaps,
       authLoading,
       resetStep,
       recoveryCodeReveal,
@@ -16877,6 +17146,7 @@ function RavitoApp() {
       password,
       fullName,
       role,
+      registerCaps,
       authLoading,
       resetStep,
       recoveryCodeReveal,
@@ -17803,6 +18073,33 @@ const styles = StyleSheet.create({
     color: theme.inkMuted,
     fontFamily: theme.font,
     marginTop: 6,
+  },
+  authRoleChipsRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    marginTop: 8,
+  },
+  authRoleChip: {
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: theme.border || "#D5DDD8",
+    backgroundColor: "#FFFFFF",
+  },
+  authRoleChipActive: {
+    backgroundColor: theme.primary,
+    borderColor: theme.primary,
+  },
+  authRoleChipText: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: theme.ink || "#1F2A24",
+    fontFamily: theme.font,
+  },
+  authRoleChipTextActive: {
+    color: "#FFFFFF",
   },
   authFigmaForgotWrap: {
     alignSelf: "flex-end",
@@ -19605,6 +19902,8 @@ function AuthScreen() {
     setFullName,
     role,
     setRole,
+    registerCaps,
+    setRegisterCaps,
     authLoading,
     resetStep,
     register,
@@ -19750,9 +20049,50 @@ function AuthScreen() {
               />
 
               {isRegister ? (
-                <Text style={styles.authFigmaFieldHint}>
-                  8 caractères minimum.
-                </Text>
+                <>
+                  <Text style={styles.authFigmaFieldHint}>
+                    8 caractères minimum.
+                  </Text>
+                  <Text style={styles.authFigmaLabel}>Je suis</Text>
+                  <View style={styles.authRoleChipsRow}>
+                    {[
+                      { key: "user", label: "Coureur" },
+                      { key: "host", label: "Hôte" },
+                      { key: "ravito", label: "Ravitailleur" },
+                    ].map((chip) => {
+                      const active = !!registerCaps?.[chip.key];
+                      return (
+                        <TouchableOpacity
+                          key={chip.key}
+                          style={[
+                            styles.authRoleChip,
+                            active && styles.authRoleChipActive,
+                            webPointer,
+                          ]}
+                          activeOpacity={0.8}
+                          disabled={authLoading}
+                          accessibilityRole="button"
+                          accessibilityState={{ selected: active }}
+                          onPress={() => {
+                            const next = { ...registerCaps, [chip.key]: !active };
+                            // Au moins un profil reste actif.
+                            if (!next.user && !next.host && !next.ravito) return;
+                            setRegisterCaps(next);
+                          }}
+                        >
+                          <Text
+                            style={[
+                              styles.authRoleChipText,
+                              active && styles.authRoleChipTextActive,
+                            ]}
+                          >
+                            {chip.label}
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                </>
               ) : (
                 <TouchableOpacity
                   onPress={openPasswordReset}
