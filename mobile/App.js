@@ -11414,6 +11414,23 @@ function ReservationsScreen() {
   const [liveShareBusy, setLiveShareBusy] = useState(false);
   const [liveByBookingId, setLiveByBookingId] = useState({});
   const hostViewActive = canHost && reservationTab !== "athlete";
+  const raceDayBookings = useMemo(() => {
+    const d = new Date();
+    const today = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(
+      2,
+      "0"
+    )}-${String(d.getDate()).padStart(2, "0")}`;
+    return (athleteBookings || [])
+      .filter(
+        (b) =>
+          String(b.booking_date || "").slice(0, 10) === today &&
+          String(b.status || "") !== "cancelled" &&
+          String(b.approval_status || "") !== "rejected"
+      )
+      .sort((a, b) =>
+        String(a.start_time || "").localeCompare(String(b.start_time || ""))
+      );
+  }, [athleteBookings]);
   const agendaEntries = useMemo(
     () =>
       buildBookingAgendaEntries(
@@ -11655,6 +11672,75 @@ function ReservationsScreen() {
             Nouvelle demande → Découvrir (carte)
           </Text>
         </TouchableOpacity>
+
+        {!hostViewActive && raceDayBookings.length > 0 ? (
+          <View style={styles.raceDayCard}>
+            <View style={styles.raceDayHeader}>
+              <Ionicons name="flag" size={18} color={theme.primary} />
+              <Text style={styles.raceDayTitle}>Mode Jour J</Text>
+            </View>
+            {raceDayBookings.map((b) => {
+              const live = liveByBookingId[b.id];
+              const sharing =
+                liveShareBookingId === Number(b.id) ||
+                live?.sharing === true ||
+                Number(b.live_sharing) === 1;
+              const liveExists = sharing || !!live || !!b.en_route_at;
+              return (
+                <View key={`raceday-${b.id}`} style={styles.raceDayItem}>
+                  <Text style={styles.raceDayBox}>
+                    {b.box_title || `Box #${b.box_id}`}
+                  </Text>
+                  <Text style={styles.raceDayMeta}>
+                    Créneau : {b.start_time}–{b.end_time}
+                  </Text>
+                  {String(b.approval_status || "") === "accepted" &&
+                  b.access_code ? (
+                    <Text style={styles.raceDayCode}>
+                      Code d’accès : {b.access_code}
+                    </Text>
+                  ) : null}
+                  <View style={styles.raceDayActions}>
+                    <PrimaryButton
+                      compact
+                      label="J’arrive (~10 min)"
+                      icon="navigate-outline"
+                      onPress={() =>
+                        actionsRef.current.notifyBookingEnRoute?.(b.id, 10)
+                      }
+                    />
+                    {liveExists ? (
+                      <OutlineButton
+                        compact
+                        label={
+                          liveShareBusy && liveShareBookingId === Number(b.id)
+                            ? "GPS…"
+                            : sharing && liveShareBookingId === Number(b.id)
+                            ? "Arrêter le partage"
+                            : "Partager ma position"
+                        }
+                        icon={
+                          liveShareBookingId === Number(b.id)
+                            ? "stop-circle-outline"
+                            : "locate-outline"
+                        }
+                        onPress={() => toggleLiveShare(b.id)}
+                      />
+                    ) : null}
+                    <OutlineButton
+                      compact
+                      label="Voir sur la carte"
+                      icon="map-outline"
+                      onPress={() =>
+                        actionsRef.current.spotlightBookingOnMap?.(b)
+                      }
+                    />
+                  </View>
+                </View>
+              );
+            })}
+          </View>
+        ) : null}
 
         {canHost && reservationTab !== "athlete" ? (
           <Section
@@ -13682,33 +13768,64 @@ function RavitoApp() {
   }, [email, password, applyServerCapabilities]);
 
   const openPasswordReset = useCallback(() => {
-    setResetStep("confirm");
+    setResetStep("request");
     setPassword("");
   }, []);
 
+  const requestPasswordResetEmail = useCallback(async () => {
+    const mail = email.trim().toLowerCase();
+    if (!mail || !mail.includes("@")) {
+      userAlert("Email", "Saisis l’adresse e-mail du compte.");
+      return;
+    }
+    setAuthLoading(true);
+    try {
+      await apiFetch("/auth/password-reset/request", {
+        method: "POST",
+        body: { email: mail },
+      });
+      setResetStep("confirm");
+      userAlert(
+        "Vérifie ta boîte mail",
+        "Si un compte existe, un code à 8 caractères t’a été envoyé (valable 30 min). Tu peux aussi utiliser ton code de compte RB-…."
+      );
+    } catch (error) {
+      userAlert("Erreur", error.message);
+    } finally {
+      setAuthLoading(false);
+    }
+  }, [email]);
+
   const confirmPasswordReset = useCallback(
-    async (recoveryCodeInput) => {
+    async (codeInput) => {
       const mail = email.trim().toLowerCase();
-      const recoveryCode = String(recoveryCodeInput || "")
+      const raw = String(codeInput || "")
         .trim()
         .toUpperCase()
         .replace(/\s+/g, "");
-      if (!recoveryCode || recoveryCode.length < 8) {
+      if (!raw || raw.length < 8) {
         userAlert(
-          "Code de compte",
-          "Saisis le code reçu à l’inscription (ex. RB-XXXX-XXXX-XXXX)."
+          "Code",
+          "Saisis le code reçu par e-mail (XXXX-XXXX) ou ton code de compte RB-…."
         );
         return;
       }
-      if (!password || password.length < 6) {
-        userAlert("Mot de passe", "Choisis un nouveau mot de passe (6 caractères min.).");
+      if (!password || password.length < 8) {
+        userAlert("Mot de passe", "Choisis un nouveau mot de passe (8 caractères min.).");
         return;
       }
+      const isAccountCode = raw.startsWith("RB-");
       setAuthLoading(true);
       try {
         const result = await apiFetch("/auth/password-reset/confirm", {
           method: "POST",
-          body: { email: mail, recoveryCode, newPassword: password },
+          body: {
+            email: mail,
+            newPassword: password,
+            ...(isAccountCode
+              ? { recoveryCode: raw }
+              : { resetToken: raw.replace(/-/g, "") }),
+          },
         });
         setResetStep("idle");
         setPassword("");
@@ -13734,6 +13851,10 @@ function RavitoApp() {
     setResetStep("idle");
     setPassword("");
     setAuthMode("login");
+  }, []);
+
+  const goToPasswordResetConfirm = useCallback(() => {
+    setResetStep("confirm");
   }, []);
 
   const fetchRecoveryCodeStatus = async () => {
@@ -14879,6 +15000,19 @@ function RavitoApp() {
       return null;
     } finally {
       setRoutePlanBusy(false);
+    }
+  };
+
+  const loadRoutePlanSuggestions = async (routePlanId, limit = 10) => {
+    const pid = Number(routePlanId);
+    if (!token || !Number.isFinite(pid) || pid <= 0) return null;
+    try {
+      return await apiFetch(`/route-plans/${pid}/suggestions?limit=${limit}`, {
+        token,
+      });
+    } catch (error) {
+      userAlert("Erreur", error.message);
+      return null;
     }
   };
 
@@ -16788,6 +16922,7 @@ function RavitoApp() {
     uploadGpxForProject,
     createAdventureProject,
     upsertRoutePlanBoxes,
+    loadRoutePlanSuggestions,
     updateRoutePlan,
     deleteRoutePlan,
     updateRoutePlanBoxComment,
@@ -17137,6 +17272,8 @@ function RavitoApp() {
       register,
       login,
       openPasswordReset,
+      requestPasswordResetEmail,
+      goToPasswordResetConfirm,
       confirmPasswordReset,
       cancelPasswordReset,
     }),
@@ -17154,6 +17291,8 @@ function RavitoApp() {
       register,
       login,
       openPasswordReset,
+      requestPasswordResetEmail,
+      goToPasswordResetConfirm,
       confirmPasswordReset,
       cancelPasswordReset,
     ]
@@ -19723,6 +19862,36 @@ const styles = StyleSheet.create({
     color: theme.inkMuted,
     fontFamily: theme.font,
   },
+  raceDayCard: {
+    backgroundColor: theme.primarySoft,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: theme.primary,
+    padding: 12,
+    marginBottom: 12,
+  },
+  raceDayHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    marginBottom: 6,
+  },
+  raceDayTitle: { fontSize: 16, fontWeight: "800", color: theme.primary },
+  raceDayItem: {
+    backgroundColor: "#fff",
+    borderRadius: 10,
+    padding: 10,
+    marginTop: 6,
+  },
+  raceDayBox: { fontSize: 15, fontWeight: "700", color: theme.ink },
+  raceDayMeta: { fontSize: 13, color: theme.inkMuted, marginTop: 2 },
+  raceDayCode: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: theme.primary,
+    marginTop: 4,
+  },
+  raceDayActions: { gap: 6, marginTop: 8 },
   resaTabs: {
     flexDirection: "row",
     gap: 22,
@@ -19909,21 +20078,25 @@ function AuthScreen() {
     register,
     login,
     openPasswordReset,
+    requestPasswordResetEmail,
+    goToPasswordResetConfirm,
     confirmPasswordReset,
     cancelPasswordReset,
   } = ctx;
 
   const [resetCodeInput, setResetCodeInput] = useState("");
   const isRegister = authMode === "register";
+  const isResetRequest = resetStep === "request";
   const isResetConfirm = resetStep === "confirm";
+  const isResetFlow = isResetRequest || isResetConfirm;
 
-  const title = isResetConfirm
+  const title = isResetFlow
     ? "On vous remet en chemin."
     : isRegister
       ? "Rejoignez l’aventure."
       : "Le chemin commence ici.";
-  const bannerText = isResetConfirm
-    ? "Un nouveau départ. Votre code de compte vous remet en chemin."
+  const bannerText = isResetFlow
+    ? "Un nouveau départ. Le code e-mail est valable 30 minutes."
     : "Plus loin, bien entouré. Vos traces, vos relais, votre aventure.";
   const webPointer = Platform.OS === "web" ? { cursor: "pointer" } : null;
 
@@ -19942,11 +20115,11 @@ function AuthScreen() {
           <Text style={styles.authFigmaBrand}>ravitobox</Text>
           <Text style={styles.authFigmaTitle}>{title}</Text>
 
-          {isResetConfirm ? (
+          {isResetRequest ? (
             <>
               <Text style={styles.authFigmaHint}>
-                Saisissez l’adresse e-mail du compte et le code de compte reçu à
-                l’inscription (format RB-XXXX-XXXX-XXXX).
+                Indique ton e-mail : tu recevras un code temporaire. Sans boîte
+                mail, utilise ensuite ton code de compte RB-….
               </Text>
               <Text style={styles.authFigmaLabel}>Adresse e-mail</Text>
               <TextInput
@@ -19961,10 +20134,57 @@ function AuthScreen() {
                 textContentType="emailAddress"
                 editable={!authLoading}
               />
-              <Text style={styles.authFigmaLabel}>Code de compte</Text>
+              <View style={styles.authFigmaCta}>
+                <PrimaryButton
+                  label="Recevoir le lien →"
+                  onPress={requestPasswordResetEmail}
+                  loading={authLoading}
+                />
+              </View>
+              <TouchableOpacity
+                onPress={goToPasswordResetConfirm}
+                style={[styles.authFigmaSwitchWrap, webPointer]}
+                activeOpacity={0.7}
+                disabled={authLoading}
+              >
+                <Text style={styles.authFigmaSwitchLink}>
+                  J’ai déjà un code →
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={cancelPasswordReset}
+                style={[styles.authFigmaSwitchWrap, webPointer]}
+                activeOpacity={0.7}
+                disabled={authLoading}
+              >
+                <Text style={styles.authFigmaSwitchLink}>
+                  Retour à la connexion
+                </Text>
+              </TouchableOpacity>
+            </>
+          ) : isResetConfirm ? (
+            <>
+              <Text style={styles.authFigmaHint}>
+                Code e-mail (XXXX-XXXX) ou code de compte (RB-XXXX-XXXX-XXXX),
+                puis ton nouveau mot de passe.
+              </Text>
+              <Text style={styles.authFigmaLabel}>Adresse e-mail</Text>
               <TextInput
                 style={styles.authFigmaInput}
-                placeholder="RB-XXXX-XXXX-XXXX"
+                placeholder="vous@exemple.com"
+                placeholderTextColor={theme.inkMuted}
+                value={email}
+                onChangeText={setEmail}
+                autoCapitalize="none"
+                keyboardType="email-address"
+                autoComplete="email"
+                textContentType="emailAddress"
+                editable={!authLoading}
+              />
+              <Text style={styles.authFigmaLabel}>Code reçu</Text>
+              <TextInput
+                style={styles.authFigmaInput}
+                placeholder="XXXX-XXXX ou RB-…"
                 placeholderTextColor={theme.inkMuted}
                 value={resetCodeInput}
                 onChangeText={setResetCodeInput}

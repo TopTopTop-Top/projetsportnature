@@ -6,6 +6,24 @@
     "orientation": "portrait",
     "assetBundlePatterns": [
       "**/*"
+    ],
+    "ios": {
+      "bundleIdentifier": "com.ravitobox.app",
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "RavitoBox utilise votre position pour trouver des boxes proches et partager votre arrivée.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "RavitoBox utilise votre position pour partager votre arrivée avec l'hôte."
+      }
+    },
+    "android": {
+      "package": "com.ravitobox.app",
+      "permissions": [
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_FINE_LOCATION"
+      ]
+    },
+    "plugins": [
+      "expo-notifications"
     ]
   }
 }

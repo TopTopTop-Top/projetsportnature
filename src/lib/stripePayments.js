@@ -1,8 +1,8 @@
 /**
  * Scaffold Stripe — aucune clé requise.
  * Sans STRIPE_SECRET_KEY, tout fonctionne en mode « simulated ».
- * Le SDK `stripe` n'est PAS une dépendance : il est chargé via require optionnel
- * uniquement si la clé est présente et le paquet installé.
+ * Le SDK `stripe` est chargé via require optionnel uniquement si la clé est présente
+ * et le paquet installé.
  */
 
 function isStripeEnabled() {
@@ -55,6 +55,8 @@ async function createCheckoutForBooking({ booking, successUrl, cancelUrl } = {})
     cancel_url: cancelUrl,
     client_reference_id: String(booking.id),
     metadata: { bookingId: String(booking.id) },
+    // Propage bookingId au PaymentIntent (événement payment_intent.succeeded).
+    payment_intent_data: { metadata: { bookingId: String(booking.id) } },
     line_items: [
       {
         quantity: 1,
@@ -76,7 +78,7 @@ async function createCheckoutForBooking({ booking, successUrl, cancelUrl } = {})
   };
 }
 
-/** Stub : vérifie/parse un webhook Stripe. À brancher quand les clés sont disponibles. */
+/** Vérifie la signature et parse un webhook Stripe (rawBody = Buffer brut, non parsé). */
 function constructWebhookEvent(rawBody, signature) {
   const secret = process.env.STRIPE_WEBHOOK_SECRET;
   const stripe = getStripeClient();

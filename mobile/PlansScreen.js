@@ -478,8 +478,12 @@ function PlanDetailPanel({
   onSavePlanNote,
   onSaveProject,
   onDeleteProject,
+  onLoadSuggestions,
+  onAddSuggestedBox,
   busy = false,
 }) {
+  const [suggestions, setSuggestions] = useState(null);
+  const [suggestionsBusy, setSuggestionsBusy] = useState(false);
   const [editing, setEditing] = useState(false);
   const [editName, setEditName] = useState("");
   const [editNotes, setEditNotes] = useState("");
@@ -502,6 +506,10 @@ function PlanDetailPanel({
     });
     setNoteDraftById(drafts);
   }, [detail?.id, trailNotesSyncKey]);
+
+  useEffect(() => {
+    setSuggestions(null);
+  }, [detail?.id]);
 
   if (loading) {
     return (
@@ -625,6 +633,62 @@ function PlanDetailPanel({
           Continuer sur la carte (Découvrir)
         </Text>
       </TouchableOpacity>
+      {onLoadSuggestions ? (
+        <View style={{ marginTop: 8 }}>
+          <TouchableOpacity
+            style={styles.secondaryBtn}
+            disabled={suggestionsBusy || busy}
+            onPress={async () => {
+              setSuggestionsBusy(true);
+              try {
+                const res = await onLoadSuggestions();
+                setSuggestions(
+                  Array.isArray(res?.suggestions) ? res.suggestions : []
+                );
+              } finally {
+                setSuggestionsBusy(false);
+              }
+            }}
+          >
+            {suggestionsBusy ? (
+              <ActivityIndicator color={theme.primary} />
+            ) : (
+              <Ionicons name="restaurant-outline" size={16} color={theme.primary} />
+            )}
+            <Text style={styles.secondaryBtnText}>Compléter mon ravito</Text>
+          </TouchableOpacity>
+          {Array.isArray(suggestions) ? (
+            suggestions.length === 0 ? (
+              <Text style={styles.emptyHint}>
+                Aucune box supplémentaire à proximité.
+              </Text>
+            ) : (
+              suggestions.map((s) => (
+                <TouchableOpacity
+                  key={`sugg-${s.boxId}`}
+                  style={styles.bookBoxBtn}
+                  disabled={busy}
+                  activeOpacity={0.85}
+                  onPress={async () => {
+                    const ok = await onAddSuggestedBox?.(s.boxId);
+                    if (ok) {
+                      setSuggestions((prev) =>
+                        (prev || []).filter((x) => x.boxId !== s.boxId)
+                      );
+                    }
+                  }}
+                >
+                  <Ionicons name="add-circle-outline" size={14} color={theme.primary} />
+                  <Text style={styles.bookBoxBtnText}>
+                    Ajouter « {s.title} »
+                    {s.city ? ` · ${s.city}` : ""} · {Number(s.distanceKm).toFixed(1)} km
+                  </Text>
+                </TouchableOpacity>
+              ))
+            )
+          ) : null}
+        </View>
+      ) : null}
       <Text style={styles.detailSection}>Box ({boxes.length})</Text>
       {boxes.length === 0 ? (
         <Text style={styles.emptyHint}>Aucune box dans ce plan.</Text>
@@ -1516,6 +1580,28 @@ export default function PlansScreen({ appMain = {} }) {
                     : undefined
                 }
                 busy={!!routePlanBusy}
+                onLoadSuggestions={
+                  isAuthed && detail?.id && selectedKind !== "discover"
+                    ? () =>
+                        actionsRef.current.loadRoutePlanSuggestions?.(
+                          Number(detail.id),
+                          10
+                        )
+                    : undefined
+                }
+                onAddSuggestedBox={
+                  isAuthed && detail?.id && selectedKind !== "discover"
+                    ? async (boxId) => {
+                        const updated =
+                          await actionsRef.current.upsertRoutePlanBoxes?.(
+                            Number(detail.id),
+                            { boxIds: [Number(boxId)], mergeWithExisting: true }
+                          );
+                        if (updated) await loadDetail(selectedId, selectedKind);
+                        return !!updated;
+                      }
+                    : undefined
+                }
                 onSaveProject={
                   isAuthed
                     ? async ({ id, name, notes }) => {

@@ -14,7 +14,13 @@ if (process.env.RENDER || process.env.NODE_ENV === "production") {
 }
 
 app.use(cors());
-app.use(express.json());
+// Le webhook Stripe a besoin du corps brut (vérification de signature) :
+// on saute express.json() pour cette route ; le raw parser est monté dans routes/api.js.
+const jsonParser = express.json();
+app.use((req, res, next) => {
+  if (req.originalUrl.split("?")[0] === "/api/webhooks/stripe") return next();
+  return jsonParser(req, res, next);
+});
 app.use(morgan("dev"));
 app.use("/uploads", express.static(path.join(__dirname, "../uploads")));
 
@@ -30,6 +36,9 @@ app.get("/", (_req, res) => {
       "/api/auth/login",
       "/api/auth/refresh",
       "/api/auth/logout",
+      "/api/auth/password-reset/request",
+      "/api/auth/password-reset/confirm",
+      "/api/webhooks/stripe (POST, raw body)",
       "/api/users",
       "/api/users/me/role",
       "/api/notifications",

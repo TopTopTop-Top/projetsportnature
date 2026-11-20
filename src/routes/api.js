@@ -17,7 +17,11 @@ const {
   isStripeEnabled,
   getStripeClient,
   createCheckoutForBooking,
+  constructWebhookEvent,
 } = require("../lib/stripePayments");
+const { saveGpx, deleteRemoteByUrl } = require("../lib/objectStorage");
+const { sendMail } = require("../lib/mailer");
+const { sendExpoPushAsync } = require("../lib/pushNotify");
 
 const router = express.Router();
 const parser = new XMLParser({ ignoreAttributes: false });
@@ -615,6 +619,9 @@ function mapRavitoProposalRow(r) {
     mobileRavito: mobile,
     message: r.message || null,
     status: r.status,
+    missionStatus:
+      r.mission_status ||
+      (r.status === "accepted" ? "accepted" : "proposed"),
     createdAt: r.created_at,
   };
 }
@@ -719,15 +726,51 @@ const refreshSchema = z.object({
   refreshToken: z.string().min(10),
 });
 
-const passwordResetConfirmSchema = z.object({
+const passwordResetConfirmSchema = z
+  .object({
+    email: authEmailSchema,
+    recoveryCode: z
+      .string()
+      .min(8)
+      .max(32)
+      .transform((v) => normalizeAccountRecoveryCode(v))
+      .optional(),
+    resetToken: z
+      .string()
+      .min(6)
+      .max(32)
+      .transform((v) => normalizePasswordResetToken(v))
+      .optional(),
+    newPassword: z.string().min(8),
+  })
+  .refine((v) => !!v.recoveryCode || !!v.resetToken, {
+    message: "recoveryCode ou resetToken requis",
+    path: ["resetToken"],
+  });
+
+const passwordResetRequestSchema = z.object({
   email: authEmailSchema,
-  recoveryCode: z
-    .string()
-    .min(8)
-    .max(32)
-    .transform((v) => normalizeAccountRecoveryCode(v)),
-  newPassword: z.string().min(8),
 });
+
+const PASSWORD_RESET_TTL_MIN = 30;
+const PASSWORD_RESET_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+
+function normalizePasswordResetToken(value) {
+  return String(value || "")
+    .trim()
+    .toUpperCase()
+    .replace(/[\s-]+/g, "");
+}
+
+/** Code à usage unique de 8 caractères (sans 0/O/1/I), affiché en XXXX-XXXX. */
+function generatePasswordResetToken() {
+  const bytes = crypto.randomBytes(8);
+  let out = "";
+  for (let i = 0; i < 8; i += 1) {
+    out += PASSWORD_RESET_ALPHABET[bytes[i] % PASSWORD_RESET_ALPHABET.length];
+  }
+  return out;
+}
 
 const changePasswordSchema = z.object({
   currentPassword: z.string().min(1),
@@ -867,6 +910,7 @@ const nearbyQuerySchema = z.object({
   lat: z.coerce.number().min(-90).max(90),
   lon: z.coerce.number().min(-180).max(180),
   limit: z.coerce.number().int().min(1).max(100).optional(),
+  offset: z.coerce.number().int().min(0).max(100000).optional(),
 });
 
 /** Rectangle visible carte (pas d’antiméridien en v1). */
@@ -875,7 +919,9 @@ const boundsQuerySchema = z.object({
   north: z.coerce.number().min(-90).max(90),
   west: z.coerce.number().min(-180).max(180),
   east: z.coerce.number().min(-180).max(180),
+  // Plafond 300 conservé (le mobile demande limit=200 pour la carte).
   limit: z.coerce.number().int().min(1).max(300).optional(),
+  offset: z.coerce.number().int().min(0).max(100000).optional(),
 });
 
 function toArray(value) {
@@ -1152,6 +1198,21 @@ async function createNotification({
      VALUES ($1, $2, $3, $4, $5)`,
     [recipientUserId, type, title, body, data ? JSON.stringify(data) : null]
   );
+  // Push Expo (fire-and-forget : n'impacte jamais la requête ni la notif en base).
+  pool
+    .query(`SELECT push_token FROM users WHERE id = $1`, [recipientUserId])
+    .then(({ rows }) => {
+      const token = rows[0]?.push_token;
+      if (token && String(token).trim()) {
+        sendExpoPushAsync({
+          token,
+          title,
+          body,
+          data: { type, ...(data && typeof data === "object" ? data : {}) },
+        });
+      }
+    })
+    .catch((e) => console.error("Push lookup failed:", e.message));
 }
 
 async function logBookingEvent({
@@ -1685,15 +1746,75 @@ router.post("/auth/logout", async (req, res) => {
   return res.json({ ok: true });
 });
 
-/** Mot de passe oublié : code de compte transmis à l’inscription (pas d’email). */
+/** Mot de passe oublié (étape 1) : envoie un code par email. Répond toujours 200. */
+router.post("/auth/password-reset/request", authRateLimit, async (req, res) => {
+  const parsed = passwordResetRequestSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error.flatten() });
+  }
+  const { email } = parsed.data;
+  const genericResponse = {
+    ok: true,
+    message:
+      "Si un compte existe pour cet email, un code de réinitialisation vient d’être envoyé.",
+  };
+  try {
+    const { rows } = await pool.query(
+      `SELECT id, email, full_name
+       FROM users
+       WHERE LOWER(TRIM(email)) = $1
+       ORDER BY id DESC
+       LIMIT 1`,
+      [email]
+    );
+    const user = rows[0];
+    if (user) {
+      const token = generatePasswordResetToken();
+      const tokenHash = bcrypt.hashSync(token, 10);
+      await pool.query(
+        `UPDATE users
+         SET password_reset_token_hash = $1,
+             password_reset_expires_at = NOW() + ($2 || ' minutes')::interval
+         WHERE id = $3`,
+        [tokenHash, String(PASSWORD_RESET_TTL_MIN), user.id]
+      );
+      const shown = `${token.slice(0, 4)}-${token.slice(4)}`;
+      const text = [
+        `Bonjour${user.full_name ? ` ${user.full_name}` : ""},`,
+        "",
+        "Tu as demandé à réinitialiser ton mot de passe RavitoBox.",
+        `Ton code de réinitialisation : ${shown}`,
+        `Il est valable ${PASSWORD_RESET_TTL_MIN} minutes et ne peut être utilisé qu’une fois.`,
+        "",
+        "Dans l’application, saisis ton email, ce code et ton nouveau mot de passe.",
+        "Si tu n’es pas à l’origine de cette demande, ignore simplement cet email.",
+        "",
+        "L’équipe RavitoBox",
+      ].join("\n");
+      // Non bloquant : évite de révéler l'existence du compte via le temps de réponse.
+      sendMail({
+        to: user.email,
+        subject: "RavitoBox — code de réinitialisation du mot de passe",
+        text,
+      }).catch((e) => console.error("Password reset email failed:", e.message));
+    }
+  } catch (e) {
+    console.error("Password reset request failed:", e.message);
+  }
+  return res.json(genericResponse);
+});
+
+/** Mot de passe oublié (étape 2) : recoveryCode (code de compte) OU resetToken (reçu par email). */
 router.post("/auth/password-reset/confirm", authRateLimit, async (req, res) => {
   const parsed = passwordResetConfirmSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: parsed.error.flatten() });
   }
-  const { email, recoveryCode, newPassword } = parsed.data;
+  const { email, recoveryCode, resetToken, newPassword } = parsed.data;
   const { rows: userRows } = await pool.query(
-    `SELECT id, account_recovery_code_hash
+    `SELECT id, account_recovery_code_hash,
+            password_reset_token_hash,
+            (password_reset_expires_at IS NOT NULL AND password_reset_expires_at > NOW()) AS reset_valid
      FROM users
      WHERE LOWER(TRIM(email)) = $1
      ORDER BY id DESC
@@ -1701,6 +1822,37 @@ router.post("/auth/password-reset/confirm", authRateLimit, async (req, res) => {
     [email]
   );
   const user = userRows[0];
+
+  if (resetToken) {
+    let tokenOk = false;
+    if (user && user.password_reset_token_hash && user.reset_valid) {
+      try {
+        tokenOk = bcrypt.compareSync(resetToken, user.password_reset_token_hash);
+      } catch {
+        tokenOk = false;
+      }
+    }
+    if (!tokenOk) {
+      return res
+        .status(400)
+        .json({ error: "Email ou code de réinitialisation incorrect ou expiré." });
+    }
+    const passwordHash = bcrypt.hashSync(newPassword, 10);
+    await pool.query(
+      `UPDATE users
+       SET password_hash = $1,
+           password_reset_token_hash = NULL,
+           password_reset_expires_at = NULL
+       WHERE id = $2`,
+      [passwordHash, user.id]
+    );
+    await pool.query(
+      `UPDATE refresh_tokens SET revoked_at = NOW() WHERE user_id = $1 AND revoked_at IS NULL`,
+      [user.id]
+    );
+    return res.json({ ok: true, message: "Mot de passe mis à jour." });
+  }
+
   if (!user) {
     return res.status(400).json({ error: "Email ou code de compte incorrect." });
   }
@@ -1721,10 +1873,14 @@ router.post("/auth/password-reset/confirm", authRateLimit, async (req, res) => {
     return res.status(400).json({ error: "Email ou code de compte incorrect." });
   }
   const passwordHash = bcrypt.hashSync(newPassword, 10);
-  await pool.query(`UPDATE users SET password_hash = $1 WHERE id = $2`, [
-    passwordHash,
-    user.id,
-  ]);
+  await pool.query(
+    `UPDATE users
+     SET password_hash = $1,
+         password_reset_token_hash = NULL,
+         password_reset_expires_at = NULL
+     WHERE id = $2`,
+    [passwordHash, user.id]
+  );
   const newAccountRecoveryCode = await assignAccountRecoveryCode(user.id);
   return res.json({
     ok: true,
@@ -2265,7 +2421,7 @@ router.get("/boxes/bounds", async (req, res) => {
   if (!parsed.success) {
     return res.status(400).json({ error: parsed.error.flatten() });
   }
-  const { south, north, west, east, limit } = parsed.data;
+  const { south, north, west, east, limit, offset } = parsed.data;
   if (south > north) {
     return res.status(400).json({ error: "south must be <= north" });
   }
@@ -2275,6 +2431,7 @@ router.get("/boxes/bounds", async (req, res) => {
       .json({ error: "Bounds crossing antimeridian not supported" });
   }
   const lim = limit ?? 200;
+  const off = offset ?? 0;
   const { rows } = await pool.query(
     `SELECT ${BOX_PUBLIC_COLUMNS},
             u.full_name AS host_full_name,
@@ -2285,9 +2442,9 @@ router.get("/boxes/bounds", async (req, res) => {
      WHERE b.is_active = 1
        AND b.latitude >= $1 AND b.latitude <= $2
        AND b.longitude >= $3 AND b.longitude <= $4
-     ORDER BY b.created_at DESC
-     LIMIT $5`,
-    [south, north, west, east, lim]
+     ORDER BY b.created_at DESC, b.id DESC
+     LIMIT $5 OFFSET $6`,
+    [south, north, west, east, lim, off]
   );
   res.json(rows);
 });
@@ -2297,8 +2454,9 @@ router.get("/boxes/nearby", async (req, res) => {
   if (!parsed.success) {
     return res.status(400).json({ error: parsed.error.flatten() });
   }
-  const { lat, lon, limit } = parsed.data;
+  const { lat, lon, limit, offset } = parsed.data;
   const lim = limit ?? 30;
+  const off = offset ?? 0;
   const { rows } = await pool.query(
     `SELECT ${BOX_PUBLIC_COLUMNS},
             u.full_name AS host_full_name,
@@ -2313,37 +2471,44 @@ router.get("/boxes/nearby", async (req, res) => {
      FROM boxes b
      LEFT JOIN users u ON u.id = b.host_user_id
      WHERE b.is_active = 1
-     ORDER BY distance_km ASC
-     LIMIT $3`,
-    [lat, lon, lim]
+     ORDER BY distance_km ASC, b.id ASC
+     LIMIT $3 OFFSET $4`,
+    [lat, lon, lim, off]
   );
   res.json(rows);
 });
 
+const boxesListQuerySchema = z.object({
+  city: z.string().optional(),
+  limit: z.coerce.number().int().min(1).max(100).optional(),
+  offset: z.coerce.number().int().min(0).max(100000).optional(),
+});
+
 router.get("/boxes", async (req, res) => {
-  const city = req.query.city;
-  const { rows } = city
-    ? await pool.query(
-        `SELECT ${BOX_PUBLIC_COLUMNS},
-                u.full_name AS host_full_name,
-                (SELECT COUNT(*)::int FROM reviews r WHERE r.reviewee_user_id = b.host_user_id) AS host_review_count,
-                (SELECT COALESCE(AVG(score), 0)::float FROM reviews r WHERE r.reviewee_user_id = b.host_user_id) AS host_avg_score
-         FROM boxes b
-         LEFT JOIN users u ON u.id = b.host_user_id
-         WHERE b.is_active = 1 AND b.city = $1
-         ORDER BY b.created_at DESC`,
-        [city]
-      )
-    : await pool.query(
-        `SELECT ${BOX_PUBLIC_COLUMNS},
-                u.full_name AS host_full_name,
-                (SELECT COUNT(*)::int FROM reviews r WHERE r.reviewee_user_id = b.host_user_id) AS host_review_count,
-                (SELECT COALESCE(AVG(score), 0)::float FROM reviews r WHERE r.reviewee_user_id = b.host_user_id) AS host_avg_score
-         FROM boxes b
-         LEFT JOIN users u ON u.id = b.host_user_id
-         WHERE b.is_active = 1
-         ORDER BY b.created_at DESC`
-      );
+  const parsed = boxesListQuerySchema.safeParse({
+    city: typeof req.query.city === "string" ? req.query.city : undefined,
+    limit: req.query.limit,
+    offset: req.query.offset,
+  });
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error.flatten() });
+  }
+  const { city, offset } = parsed.data;
+  // Sans ville : 50 par défaut. Avec ville : pas de plafond implicite (compat), sauf si limit fourni.
+  const lim = parsed.data.limit ?? (city ? null : 50);
+  const off = offset ?? 0;
+  const { rows } = await pool.query(
+    `SELECT ${BOX_PUBLIC_COLUMNS},
+            u.full_name AS host_full_name,
+            (SELECT COUNT(*)::int FROM reviews r WHERE r.reviewee_user_id = b.host_user_id) AS host_review_count,
+            (SELECT COALESCE(AVG(score), 0)::float FROM reviews r WHERE r.reviewee_user_id = b.host_user_id) AS host_avg_score
+     FROM boxes b
+     LEFT JOIN users u ON u.id = b.host_user_id
+     WHERE b.is_active = 1 AND ($1::text IS NULL OR b.city = $1)
+     ORDER BY b.created_at DESC, b.id DESC
+     LIMIT $2 OFFSET $3`,
+    [city || null, lim, off]
+  );
   res.json(rows);
 });
 
@@ -2763,6 +2928,11 @@ router.post("/relevance/update", requireAuth, handleSetResourceRelevance);
 
 function unlinkTrailGpxFile(gpxUrl) {
   if (!gpxUrl || typeof gpxUrl !== "string") return;
+  if (/^https?:\/\//i.test(gpxUrl)) {
+    // Objet S3/R2 : suppression best effort (fire-and-forget).
+    deleteRemoteByUrl(gpxUrl);
+    return;
+  }
   if (!gpxUrl.startsWith("/uploads/")) return;
   const base = path.basename(gpxUrl);
   if (!base || base.includes("..") || base.includes("/")) return;
@@ -2939,7 +3109,7 @@ router.post(
         notesRaw != null && String(notesRaw).trim()
           ? String(notesRaw).slice(0, 4000)
           : null;
-      const gpxUrl = `/uploads/${req.file.filename}`;
+      const { url: gpxUrl } = await saveGpx(req.file);
       const polylineJson =
         stats.polylineLatLngs.length > 0
           ? JSON.stringify(stats.polylineLatLngs)
@@ -3010,7 +3180,7 @@ router.post(
 
       const gpxContent = fs.readFileSync(req.file.path, "utf-8");
       const stats = parseGpxStats(gpxContent);
-      const gpxUrl = `/uploads/${req.file.filename}`;
+      const { url: gpxUrl } = await saveGpx(req.file);
       const polylineJson =
         stats.polylineLatLngs.length > 0
           ? JSON.stringify(stats.polylineLatLngs)
@@ -3565,6 +3735,117 @@ router.get("/route-plans/discover", optionalAuth, async (req, res) => {
     viewerId
   );
   return res.json(enriched);
+});
+
+router.get("/route-plans/:id/suggestions", requireAuth, async (req, res) => {
+  const routePlanId = Number(req.params.id);
+  if (!Number.isInteger(routePlanId) || routePlanId <= 0) {
+    return res.status(400).json({ error: "Invalid route plan id" });
+  }
+  const limit = Math.min(
+    50,
+    Math.max(1, Number.parseInt(String(req.query.limit ?? "10"), 10) || 10)
+  );
+  const userId = Number(req.auth.sub);
+  const { rows: planRows } = await pool.query(
+    `SELECT rp.id, rp.athlete_user_id, rp.trail_id, t.polyline_json
+     FROM route_plans rp
+     LEFT JOIN trails t ON t.id = rp.trail_id
+     WHERE rp.id = $1`,
+    [routePlanId]
+  );
+  const plan = planRows[0];
+  if (!plan) return res.status(404).json({ error: "Route plan not found" });
+  if (Number(plan.athlete_user_id) !== userId) {
+    return res.status(403).json({ error: "Accès refusé." });
+  }
+
+  let polyline = [];
+  if (plan.polyline_json) {
+    try {
+      const parsed = JSON.parse(plan.polyline_json);
+      if (Array.isArray(parsed)) {
+        polyline = parsed.filter(
+          (p) =>
+            Array.isArray(p) &&
+            Number.isFinite(Number(p[0])) &&
+            Number.isFinite(Number(p[1]))
+        );
+      }
+    } catch {
+      polyline = [];
+    }
+  }
+
+  const { rows: boxRows } = await pool.query(
+    `SELECT b.id, b.title, b.city, b.latitude, b.longitude, b.price_cents
+     FROM boxes b
+     WHERE b.is_active = 1
+       AND b.id NOT IN (
+         SELECT box_id FROM route_plan_boxes WHERE route_plan_id = $1
+       )`,
+    [routePlanId]
+  );
+
+  let source = "none";
+  let results = [];
+  if (polyline.length > 0) {
+    source = "trail";
+    const maxKm = 5;
+    results = boxRows
+      .map((b) => {
+        const near = nearestPointOnPolyline(
+          polyline,
+          Number(b.latitude),
+          Number(b.longitude)
+        );
+        return near ? { b, distanceKm: near.distanceKm } : null;
+      })
+      .filter((x) => x && x.distanceKm <= maxKm);
+  } else {
+    const { rows: userRows } = await pool.query(
+      `SELECT city FROM users WHERE id = $1`,
+      [userId]
+    );
+    const city = String(userRows[0]?.city || "").trim().toLowerCase();
+    if (city) {
+      source = "city";
+      const inCity = boxRows.filter(
+        (b) => String(b.city || "").trim().toLowerCase() === city
+      );
+      // Sans géométrie de parcours : distance au centroïde des boxes de la ville.
+      if (inCity.length > 0) {
+        const cLat =
+          inCity.reduce((s, b) => s + Number(b.latitude), 0) / inCity.length;
+        const cLon =
+          inCity.reduce((s, b) => s + Number(b.longitude), 0) / inCity.length;
+        results = inCity.map((b) => ({
+          b,
+          distanceKm: haversineKm(
+            cLat,
+            cLon,
+            Number(b.latitude),
+            Number(b.longitude)
+          ),
+        }));
+      }
+    }
+  }
+
+  results.sort((a, c) => a.distanceKm - c.distanceKm);
+  return res.json({
+    routePlanId,
+    source,
+    suggestions: results.slice(0, limit).map(({ b, distanceKm }) => ({
+      boxId: Number(b.id),
+      title: b.title,
+      city: b.city,
+      latitude: Number(b.latitude),
+      longitude: Number(b.longitude),
+      priceCents: Number(b.price_cents) || 0,
+      distanceKm: Number(distanceKm.toFixed(2)),
+    })),
+  });
 });
 
 router.get("/route-plans/:id", requireAuth, async (req, res) => {
@@ -5147,6 +5428,97 @@ router.patch("/bookings/:id", requireAuth, async (req, res) => {
   return res.json(rows[0]);
 });
 
+/**
+ * Webhook Stripe — corps BRUT requis (server.js saute express.json() pour ce chemin).
+ * Marque la réservation payée via metadata.bookingId.
+ */
+async function markBookingPaidFromStripe({ bookingId, amountCents, stripeRef, eventType }) {
+  const { rows: found } = await pool.query(
+    `SELECT b.id, b.payment_status, b.athlete_user_id, b.amount_cents,
+            bx.host_user_id, bx.title AS box_title
+     FROM bookings b
+     JOIN boxes bx ON bx.id = b.box_id
+     WHERE b.id = $1`,
+    [bookingId]
+  );
+  const booking = found[0];
+  if (!booking) return { updated: false, reason: "booking_not_found" };
+  if (isBookingPaymentSettled(booking.payment_status)) {
+    return { updated: false, reason: "already_paid" };
+  }
+  const { rows } = await pool.query(
+    `UPDATE bookings
+     SET payment_status = 'paid',
+         status = CASE WHEN status = 'cancelled' THEN status ELSE 'confirmed' END
+     WHERE id = $1
+       AND payment_status NOT IN ('paid', 'simulated_paid', 'captured')
+     RETURNING id`,
+    [bookingId]
+  );
+  if (!rows[0]) return { updated: false, reason: "already_paid" };
+  const paidCents = Number.isFinite(amountCents) ? amountCents : booking.amount_cents;
+  await createNotification({
+    recipientUserId: booking.host_user_id,
+    type: "booking_paid",
+    title: "Paiement reçu",
+    body: `Le sportif a payé « ${booking.box_title || "ta box"} ».`,
+    data: { bookingId, amountCents: paidCents },
+  });
+  await logBookingEvent({
+    bookingId,
+    actorUserId: booking.athlete_user_id,
+    eventType: "booking_paid",
+    message: "Payment confirmed by Stripe webhook",
+    data: { amountCents: paidCents, stripeRef: stripeRef || null, stripeEvent: eventType },
+  });
+  return { updated: true };
+}
+
+router.post(
+  "/webhooks/stripe",
+  express.raw({ type: "*/*", limit: "1mb" }),
+  async (req, res) => {
+    const signature = req.get("stripe-signature");
+    let event;
+    try {
+      event = constructWebhookEvent(req.body, signature);
+    } catch (error) {
+      console.error("Stripe webhook rejected:", error.message);
+      return res.status(400).json({ error: "Invalid Stripe webhook" });
+    }
+    try {
+      const type = event?.type;
+      if (type === "payment_intent.succeeded" || type === "checkout.session.completed") {
+        const obj = event.data?.object || {};
+        // checkout.session.completed peut être « unpaid » (paiement différé) : on attend alors le succès.
+        if (type === "checkout.session.completed" && obj.payment_status && obj.payment_status !== "paid") {
+          return res.json({ received: true, ignored: "not_paid_yet" });
+        }
+        const bookingId = Number(obj.metadata?.bookingId || obj.client_reference_id);
+        if (Number.isInteger(bookingId) && bookingId > 0) {
+          const amount =
+            type === "payment_intent.succeeded"
+              ? Number(obj.amount_received ?? obj.amount)
+              : Number(obj.amount_total);
+          const result = await markBookingPaidFromStripe({
+            bookingId,
+            amountCents: Number.isFinite(amount) ? amount : undefined,
+            stripeRef: obj.id,
+            eventType: type,
+          });
+          return res.json({ received: true, ...result });
+        }
+        return res.json({ received: true, ignored: "no_booking_id" });
+      }
+      return res.json({ received: true, ignored: type || "unknown" });
+    } catch (error) {
+      console.error("Stripe webhook handler failed:", error);
+      // 500 => Stripe réessaiera.
+      return res.status(500).json({ error: "Webhook handler failed" });
+    }
+  }
+);
+
 router.post("/bookings/:id/pay", requireAuth, async (req, res) => {
   const bookingId = Number(req.params.id);
   if (!Number.isInteger(bookingId) || bookingId <= 0) {
@@ -5176,7 +5548,7 @@ router.post("/bookings/:id/pay", requireAuth, async (req, res) => {
     return res.status(409).json({ error: "Cette réservation est déjà payée." });
   }
   if (isStripeEnabled()) {
-    // Stripe : le statut « payé » sera posé par le webhook (non implémenté dans ce scaffold).
+    // Stripe : le statut « payé » est posé par le webhook POST /webhooks/stripe (metadata.bookingId).
     try {
       const baseUrl = String(
         process.env.PUBLIC_APP_URL || process.env.APP_URL || ""
@@ -5195,7 +5567,11 @@ router.post("/bookings/:id/pay", requireAuth, async (req, res) => {
         actorUserId: req.auth.sub,
         eventType: "booking_payment_started",
         message: "Stripe checkout started",
-        data: { amountCents: booking.amount_cents, stub: !!checkout.stub },
+        data: {
+          amountCents: booking.amount_cents,
+          stub: !!checkout.stub,
+          sessionId: checkout.sessionId || null,
+        },
       });
       return res.json({ bookingId, ...checkout });
     } catch (error) {
@@ -6219,6 +6595,41 @@ router.post("/ravito-requests", requireAuth, async (req, res) => {
   return res.status(201).json(mapRavitoRequestRow(detail.rows[0], []));
 });
 
+router.get("/ravito-requests/host-missions", requireAuth, async (req, res) => {
+  const hostUserId = Number(req.auth.sub);
+  const { rows } = await pool.query(
+    `SELECT p.id AS proposal_id, p.request_id, p.mission_status, p.box_id,
+            b.title AS box_title,
+            r.booking_date, r.start_time, r.end_time, r.point_lat, r.point_lon,
+            u.full_name AS athlete_full_name
+     FROM ravito_point_proposals p
+     JOIN ravito_point_requests r ON r.id = p.request_id
+     JOIN users u ON u.id = r.athlete_user_id
+     LEFT JOIN boxes b ON b.id = p.box_id
+     WHERE p.host_user_id = $1
+       AND p.status = 'accepted'
+       AND p.mission_status IN ('accepted', 'en_route', 'on_site')
+     ORDER BY r.booking_date ASC, r.start_time ASC
+     LIMIT 40`,
+    [hostUserId]
+  );
+  return res.json(
+    rows.map((m) => ({
+      proposalId: Number(m.proposal_id),
+      requestId: Number(m.request_id),
+      missionStatus: m.mission_status || "accepted",
+      mobileRavito: m.box_id == null,
+      boxTitle: m.box_id == null ? "Ravito mobile (sans box)" : m.box_title,
+      athleteName: m.athlete_full_name || null,
+      bookingDate: m.booking_date,
+      startTime: m.start_time,
+      endTime: m.end_time,
+      pointLat: Number(m.point_lat),
+      pointLon: Number(m.point_lon),
+    }))
+  );
+});
+
 router.get("/ravito-requests/mine", requireAuth, async (req, res) => {
   await expireStaleRavitoRequests();
   const athleteUserId = Number(req.auth.sub);
@@ -6530,12 +6941,12 @@ router.post(
     );
     await pool.query(
       `UPDATE ravito_point_proposals
-       SET status = 'accepted' WHERE id = $1`,
+       SET status = 'accepted', mission_status = 'accepted' WHERE id = $1`,
       [proposalId]
     );
     await pool.query(
       `UPDATE ravito_point_proposals
-       SET status = 'rejected'
+       SET status = 'rejected', mission_status = 'cancelled'
        WHERE request_id = $1 AND id <> $2 AND status = 'pending'`,
       [requestId, proposalId]
     );
@@ -6699,6 +7110,82 @@ router.post(
       endTime: reqRows[0].end_time,
       specialRequest: reqRows[0].special_request,
     });
+  }
+);
+
+const RAVITO_MISSION_ORDER = ["accepted", "en_route", "on_site", "delivered"];
+const RAVITO_MISSION_LABELS = {
+  en_route: "est en route",
+  on_site: "est sur place",
+  delivered: "a remis ton ravito",
+};
+
+router.patch(
+  "/ravito-requests/:id/proposals/:proposalId/mission",
+  requireAuth,
+  async (req, res) => {
+    const requestId = Number(req.params.id);
+    const proposalId = Number(req.params.proposalId);
+    if (
+      !Number.isInteger(requestId) ||
+      requestId <= 0 ||
+      !Number.isInteger(proposalId) ||
+      proposalId <= 0
+    ) {
+      return res.status(400).json({ error: "Invalid id" });
+    }
+    const status = String(req.body?.status || "");
+    if (!["en_route", "on_site", "delivered"].includes(status)) {
+      return res
+        .status(400)
+        .json({ error: "Statut invalide (en_route, on_site, delivered)." });
+    }
+    const hostUserId = Number(req.auth.sub);
+    const { rows } = await pool.query(
+      `SELECT p.*, r.athlete_user_id, b.title AS box_title
+       FROM ravito_point_proposals p
+       JOIN ravito_point_requests r ON r.id = p.request_id
+       LEFT JOIN boxes b ON b.id = p.box_id
+       WHERE p.id = $1 AND p.request_id = $2`,
+      [proposalId, requestId]
+    );
+    const proposal = rows[0];
+    if (!proposal) {
+      return res.status(404).json({ error: "Proposition introuvable." });
+    }
+    if (Number(proposal.host_user_id) !== hostUserId) {
+      return res.status(403).json({ error: "Réservé à l’hôte / bénévole." });
+    }
+    if (proposal.status !== "accepted") {
+      return res
+        .status(400)
+        .json({ error: "La proposition n’est pas acceptée." });
+    }
+    const current = proposal.mission_status || "accepted";
+    if (
+      current === "cancelled" ||
+      current === "delivered" ||
+      RAVITO_MISSION_ORDER.indexOf(status) <=
+        RAVITO_MISSION_ORDER.indexOf(current)
+    ) {
+      return res
+        .status(409)
+        .json({ error: `Transition impossible depuis « ${current} ».` });
+    }
+    await pool.query(
+      `UPDATE ravito_point_proposals SET mission_status = $1 WHERE id = $2`,
+      [status, proposalId]
+    );
+    await createNotification({
+      recipientUserId: proposal.athlete_user_id,
+      type: "ravito_mission_status",
+      title: "Mission ravito",
+      body: `Ton ravito ${proposal.box_id == null ? "mobile" : `« ${proposal.box_title || "box"} »`} : l’hôte ${RAVITO_MISSION_LABELS[status]}.`,
+      data: { requestId, proposalId, missionStatus: status },
+    });
+    const proposals = await loadRavitoProposalsForRequest(requestId);
+    const updated = proposals.find((p) => Number(p.id) === proposalId);
+    return res.json(updated || { id: proposalId, missionStatus: status });
   }
 );
 

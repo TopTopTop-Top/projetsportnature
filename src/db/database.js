@@ -463,6 +463,13 @@ async function migrate() {
     await client.query(
       `ALTER TABLE users ADD COLUMN IF NOT EXISTS account_recovery_code_hash TEXT`
     );
+    // Réinitialisation du mot de passe par email (code à usage unique, hashé, expirant)
+    await client.query(
+      `ALTER TABLE users ADD COLUMN IF NOT EXISTS password_reset_token_hash TEXT`
+    );
+    await client.query(
+      `ALTER TABLE users ADD COLUMN IF NOT EXISTS password_reset_expires_at TIMESTAMPTZ`
+    );
 
     // Capacités serveur (user / host / ravito), push, localisation bénévole, Stripe
     await client.query(
@@ -633,6 +640,24 @@ async function migrate() {
     await client.query(`
       CREATE UNIQUE INDEX IF NOT EXISTS idx_ravito_proposals_request_host
       ON ravito_point_proposals(request_id, host_user_id)
+    `);
+    // Statut de mission ravito (suivi livraison)
+    await client.query(`
+      ALTER TABLE ravito_point_proposals
+        ADD COLUMN IF NOT EXISTS mission_status TEXT NOT NULL DEFAULT 'proposed'
+    `);
+    await client.query(`
+      DO $$ BEGIN
+        ALTER TABLE ravito_point_proposals
+          ADD CONSTRAINT ravito_proposals_mission_status_chk
+          CHECK (mission_status IN ('proposed','accepted','en_route','on_site','delivered','cancelled'));
+      EXCEPTION WHEN duplicate_object THEN NULL;
+      END $$;
+    `);
+    await client.query(`
+      UPDATE ravito_point_proposals
+         SET mission_status = 'accepted'
+       WHERE status = 'accepted' AND mission_status = 'proposed'
     `);
     await client.query(`
       ALTER TABLE bookings

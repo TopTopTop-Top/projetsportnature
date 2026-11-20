@@ -48,6 +48,19 @@ function Btn({ label, onPress, primary, loading, icon }) {
   );
 }
 
+const MISSION_LABELS = {
+  proposed: "Proposée",
+  accepted: "Acceptée",
+  en_route: "En route",
+  on_site: "Sur place",
+  delivered: "Remis",
+  cancelled: "Annulée",
+};
+
+export function ravitoMissionLabel(status) {
+  return MISSION_LABELS[status] || MISSION_LABELS.accepted;
+}
+
 const RADIUS_KM_OPTIONS = [2, 5, 10, 15, 20];
 
 export function RavitoRequestModal({
@@ -406,6 +419,11 @@ export function RavitoAthleteRequestsSection({
                   {p.message ? (
                     <Text style={styles.cardMeta}>{p.message}</Text>
                   ) : null}
+                  {p.status === "accepted" ? (
+                    <Text style={styles.missionLabel}>
+                      Mission : {ravitoMissionLabel(p.missionStatus)}
+                    </Text>
+                  ) : null}
                   {r.status === "open" && p.status === "pending" ? (
                     <Btn
                       label={
@@ -447,6 +465,33 @@ export function RavitoHostRequestsSection({
   const [mobileMode, setMobileMode] = useState(false);
   const [message, setMessage] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [missions, setMissions] = useState([]);
+  const [missionBusy, setMissionBusy] = useState(null);
+
+  const loadMissions = useCallback(async () => {
+    if (!token) return;
+    try {
+      const list = await apiFetch("/ravito-requests/host-missions", { token });
+      setMissions(Array.isArray(list) ? list : []);
+    } catch {
+      setMissions([]);
+    }
+  }, [token, apiFetch]);
+
+  const updateMission = async (m, status) => {
+    setMissionBusy(`${m.proposalId}:${status}`);
+    try {
+      await apiFetch(
+        `/ravito-requests/${m.requestId}/proposals/${m.proposalId}/mission`,
+        { method: "PATCH", token, body: { status } }
+      );
+      await loadMissions();
+    } catch (err) {
+      Alert.alert("Erreur", err?.message || "Mise à jour impossible.");
+    } finally {
+      setMissionBusy(null);
+    }
+  };
 
   const load = useCallback(async () => {
     if (!token) return;
@@ -475,7 +520,8 @@ export function RavitoHostRequestsSection({
 
   useEffect(() => {
     load();
-  }, [load, refreshNonce]);
+    loadMissions();
+  }, [load, loadMissions, refreshNonce]);
 
   const submitProposal = async () => {
     if (!proposeFor) return;
@@ -520,19 +566,59 @@ export function RavitoHostRequestsSection({
   if (loading && rows.length === 0) {
     return <ActivityIndicator color={theme.primary} style={{ marginVertical: 12 }} />;
   }
+  const missionsBlock =
+    missions.length > 0 ? (
+      <View style={styles.list}>
+        <Text style={styles.cardTitle}>Missions en cours</Text>
+        {missions.map((m) => {
+          const next = {
+            accepted: [["en_route", "En route"]],
+            en_route: [["on_site", "Sur place"]],
+            on_site: [["delivered", "Remis"]],
+          }[m.missionStatus] || [];
+          return (
+            <View key={`ms-${m.proposalId}`} style={styles.card}>
+              <Text style={styles.cardTitle}>
+                {m.athleteName || "Athlète"} · {m.bookingDate}
+              </Text>
+              <Text style={styles.cardMeta}>
+                {m.boxTitle} · {m.startTime}–{m.endTime}
+              </Text>
+              <Text style={styles.missionLabel}>
+                Statut : {ravitoMissionLabel(m.missionStatus)}
+              </Text>
+              {next.map(([st, label]) => (
+                <Btn
+                  key={st}
+                  label={label}
+                  primary
+                  loading={missionBusy === `${m.proposalId}:${st}`}
+                  onPress={() => updateMission(m, st)}
+                />
+              ))}
+            </View>
+          );
+        })}
+      </View>
+    ) : null;
+
   if (rows.length === 0) {
     return (
-      <Text style={styles.empty}>
-        Aucune demande de ravito à proximité pour le moment
-        {allowMobileWithoutBox
-          ? " (box ou ravito mobile)."
-          : " de tes box."}
-      </Text>
+      <View>
+        {missionsBlock}
+        <Text style={styles.empty}>
+          Aucune demande de ravito à proximité pour le moment
+          {allowMobileWithoutBox
+            ? " (box ou ravito mobile)."
+            : " de tes box."}
+        </Text>
+      </View>
     );
   }
 
   return (
     <View style={styles.list}>
+      {missionsBlock}
       {rows.map((r) => (
         <View key={`hr-${r.id}`} style={styles.card}>
           <Text style={styles.cardTitle}>
@@ -803,6 +889,13 @@ const styles = StyleSheet.create({
   },
   area: { minHeight: 64, textAlignVertical: "top", marginTop: 8 },
   hint: { fontSize: 12, color: theme.primary, marginTop: 6, fontWeight: "600" },
+  missionLabel: {
+    fontSize: 13,
+    color: theme.primary,
+    marginTop: 6,
+    marginBottom: 4,
+    fontWeight: "700",
+  },
   slot: { fontSize: 12, color: theme.inkMuted, marginTop: 10 },
   err: { color: theme.danger, marginTop: 8 },
   footer: { flexDirection: "row", justifyContent: "flex-end", gap: 8, marginTop: 12 },
